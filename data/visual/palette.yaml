@@ -1,0 +1,56 @@
+# Echo Color Palette
+# Version 1.0
+# Canonical color definitions for the Echo cyberpunk terminal demo.
+# All UI, generated assets, and visual systems must reference these values.
+
+version: "1.0"
+
+# --- Background layers ---
+# Used for terminal background, scene base tone, and depth layering.
+# The background is intentionally near-black to maximize neon contrast.
+background:
+  base: "#0a0a0a"       # Void black. Terminal body background, deepest shadow in scenes.
+  surface: "#111111"    # Dark stone. Distant walls, card backgrounds, secondary panels.
+  elevated: "#1a1a1a"   # Near-surface stone. Foreground platforms, input fields, raised elements.
+
+# --- Neon system colors ---
+# The four neon colors are the ONLY light-emitting colors in the world.
+# Each has a specific semantic role in both UI and scene generation.
+neon:
+  primary: "#00ff41"    # Green. Primary UI text, safe interaction confirmation, functional circuits, active pathways.
+  secondary: "#00ffff"  # Cyan. Holograms, data streams, quantum interfaces, informational highlights, scan effects.
+  danger: "#ff0040"     # Red. Danger zones, locked doors, god intervention warnings, system errors, destructive actions.
+  accent: "#ff00ff"     # Magenta. Rare accents only. Temporal distortions, paradox effects, unique phenomena.
+
+# --- Material colors ---
+# Used in generated assets for physical surfaces. These are desaturated, cold tones.
+# No material should appear warm. Even bronze reads as brownish-gray.
+material:
+  stone: "#6b6b6b"      # Weathered gray marble. Columns, temple walls, ritual surfaces.
+  bronze: "#8b7355"     # Oxidized dark bronze. Door frames, ritual implements, corroded metal fittings.
+  concrete: "#4a4a4a"   # Brutalist concrete. Reinforcement slabs, raw structural additions, bunker walls.
+
+# --- Text hierarchy ---
+# Terminal text uses green neon at three brightness levels.
+# No other text color is used in the terminal interface.
+text:
+  primary: "#00ff41"    # Full-intensity green. Main output text, active elements, player input echo.
+  muted: "#339933"      # Dimmed green. Labels, metadata, secondary descriptions.
+  dim: "#1a661a"        # Faint green. Timestamps, system noise, background context.
+
+# --- Glow reference ---
+# CSS text-shadow values used in the frontend for neon glow effects.
+# Documented here so generated assets can match the glow intensity.
+glow:
+  green:
+    near: "0 0 5px #00ff41"
+    mid: "0 0 10px #00ff41"
+    far: "0 0 15px #00ff41"
+  red:
+    near: "0 0 5px #ff0040"
+    mid: "0 0 10px #ff0040"
+    far: "0 0 15px #ff0040"
+  cyan:
+    near: "0 0 5px #00ffff"
+    mid: "0 0 10px #00ffff"
+    far: "0 0 15px #00ffff"

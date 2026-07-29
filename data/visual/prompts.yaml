@@ -1,0 +1,154 @@
+# Echo Image Generation Prompt Templates
+# Version 2.0 — Template-based format
+#
+# Template variables used by PromptBuilder:
+#   {world_prefix}  — setting, era, mood, lighting style
+#   {location}      — environment, architecture, atmosphere
+#   {camera}        — composition, angle, framing (from camera_templates)
+#   {subject}       — object description (from subject_description or lod_subjects)
+#   {gameplay}      — gameplay function hint (optional)
+#   {material}      — physical surfaces, textures, tech overlays
+#   {lighting}      — lighting style and atmosphere
+#
+# PromptBuilder flow: {world_prefix} {location} {camera} {subject} {material} {lighting}
+# LOD support: Each object can define lod_subjects.{far|mid|near} for distance-specific descriptions
+
+version: "2.0"
+
+# =============================================================================
+# Template definitions — reusable prompt fragments
+# =============================================================================
+templates:
+  world_prefix: "cyberpunk ancient civilization, post-human Greek mythology, dark decaying grandeur, synthwave lighting"
+  location: "ancient marble temple ruins, broken columns, holographic technology overlays, mist and darkness"
+  camera:
+    bg: "wide cinematic composition, slight overhead angle, empty foreground, game environment, atmospheric perspective, 16:9"
+    obj: "single object, centered, isolated, transparent background, game asset, front view, high detail, studio lighting"
+  material: "weathered gray marble, oxidized dark bronze, cyan neon circuits, quantum glow"
+  lighting: "synthwave lighting, cyberpunk concept art, dark fantasy, volumetric fog, cinematic"
+  negative_default: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+
+# =============================================================================
+# Camera templates for LOD shots
+# =============================================================================
+camera_templates:
+  far: "wide shot, establishing view, atmospheric perspective, object at distance, environmental context, 16:9 game background"
+  mid: "medium shot, clear subject detail, some environmental context, balanced composition, game asset, centered"
+  near: "close-up shot, maximum detail, shallow depth of field, texture focus, interactive view, high detail, centered"
+
+# =============================================================================
+# Legacy segments (kept for backward compatibility)
+# =============================================================================
+segments:
+  world_prefix: "cyberpunk ancient civilization, post-human Greek mythology, dark decaying grandeur, synthwave lighting"
+  space_prefix: "ancient marble temple ruins, broken columns, holographic technology overlays, mist and darkness"
+  camera_bg: "wide cinematic composition, slight overhead angle, empty foreground, game environment, atmospheric perspective, 16:9"
+  camera_obj: "single object, centered, isolated, transparent background, game asset, front view, high detail, studio lighting"
+  material_prefix: "weathered gray marble, oxidized dark bronze, cyan neon circuits, quantum glow"
+  negative_default: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+
+# Shared style descriptors appended to every prompt
+style_words: "synthwave lighting, cyberpunk concept art, dark fantasy, volumetric fog, cinematic"
+
+# =============================================================================
+# Background assets
+# =============================================================================
+background:
+  temple_ruins_bg:
+    name: "Temple Ruins Background"
+    subject_description: "temple interior wide shot, foreground: fallen priest in lower left clutching data-core, midground: holographic altar with rippling light surface in center right, background: ancient locked door with glowing runes at far end, neon circuit pillars framing sides, atmospheric perspective from near to far, volumetric fog layers, depth progression from detailed foreground to mysterious background"
+    # Template layers used for full prompt generation
+    template_layers: ["world_prefix", "location", "camera.bg", "subject_description", "material", "lighting"]
+    # Full prompt kept for backward compatibility (marked as template-generated)
+    full_prompt: "cyberpunk ancient civilization, post-human Greek mythology, dark decaying grandeur, synthwave lighting, ancient marble temple ruins, broken columns, holographic technology overlays, mist and darkness, temple interior wide shot, foreground: fallen priest in lower left clutching data-core, midground: holographic altar with rippling light surface in center right, background: ancient locked door with glowing runes at far end, neon circuit pillars framing sides, atmospheric perspective from near to far, volumetric fog layers, depth progression from detailed foreground to mysterious background, wide cinematic composition, slight overhead angle, game environment, atmospheric perspective, 16:9, weathered gray marble, oxidized dark bronze, cyan neon circuits, quantum glow, synthwave lighting, cyberpunk concept art, dark fantasy, volumetric fog, cinematic"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "1920x1080"
+
+# =============================================================================
+# Object assets (512x512, transparent background)
+# =============================================================================
+objects:
+  temple_ruins_ancient_locked_door:
+    name: "Gilded Ancient Door"
+    subject_description: "massive bronze doors inscribed with quantum-lock runes, holographic chains binding it shut, faint temporal shimmer, breathing metal texture, faint red danger glow around the lock mechanism"
+    gameplay_function: "progression gate — requires key fragments and ritual completion to open"
+    # LOD-specific subject descriptions (camera/material/lighting come from templates)
+    lod_subjects:
+      far: "massive bronze doors at temple end, holographic chains visible, faint red glow from lock"
+      mid: "bronze doors with quantum-lock runes, holographic chains binding it, temporal shimmer effect"
+      near: "door surface with intricate quantum-lock runes, holographic chain binding points, breathing metal texture, red danger glow around lock mechanism"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null
+
+  temple_ruins_priest_corpse_01:
+    name: "Fallen Priest"
+    subject_description: "fallen priest figure slumped against broken column, robed body clutching corrupted data-core, torn robes revealing skin flickering between flesh and wire, blank screen eyes scrolling error messages, cybernetic implants fused with ancient ceremonial garments, faint cyan glow from data-core"
+    gameplay_function: "lore container — holds corrupted data-core with ritual instructions"
+    lod_subjects:
+      far: "fallen figure slumped in shadows near broken column, robed body barely visible, faint cyan glow from data-core"
+      mid: "robed body clutching corrupted data-core, fallen figure slumped against column base, torn robes revealing skin flickering between flesh and wire, blank screen eyes scrolling error messages, cybernetic implants fused with ancient ceremonial garments, faint cyan glow from the data-core"
+      near: "corrupted data-core clutched in skeletal hand, screen eyes showing detailed error messages and scrolling data, torn fabric texture with visible cybernetic implants through skin, ancient ceremonial garments with embroidery detail, flesh-to-wire transition at neckline"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null
+
+  temple_ruins_holographic_altar:
+    name: "Holo-Altar of Echoes"
+    subject_description: "altar made of solidified light projection, rippling surface like water, cyan glow, floating holographic runes orbiting, translucent crystalline structure emitting soft light, quantum interference patterns shimmering, temporal energy ripples"
+    gameplay_function: "puzzle interaction point — perform ritual to receive crystal"
+    lod_subjects:
+      far: "glowing altar platform in center of temple hall, made of solidified light projection, cyan glow illuminating surrounding darkness"
+      mid: "altar made of solidified light projection, rippling surface distorting like water, cyan glow, translucent crystalline structure emitting soft light, floating holographic runes orbiting the altar surface, quantum interference patterns shimmering, temporal energy ripples"
+      near: "altar surface showing intricate crystal socket and output tray, quantum interference patterns detailed view, temporal storage mechanism visible, light ripples and distortions highly detailed, floating runes with sharp legible text, material texture of solidified light"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    # CSS mix-blend-mode: screen makes black background transparent naturally.
+    # Skip background removal step for this asset.
+    special: "mix-blend-mode: screen"
+
+  temple_ruins_neon_circuit_pillar:
+    name: "Circuit Pillar"
+    subject_description: "stone column wrapped in pulsing neon tubes, circuits showing memories of past rituals, glowing cyan circuits on weathered marble, ancient Greek column with neon conduit threaded through cracks, faint holographic memories flickering along the surface"
+    gameplay_function: "environmental storytelling — reveals past ritual failures"
+    # Single prompt object (no LOD)
+    full_prompt: "cyberpunk ancient civilization, post-human Greek mythology, dark decaying grandeur, synthwave lighting, single object, centered, isolated, transparent background, game asset, front view, high detail, studio lighting, stone column wrapped in pulsing neon tubes, circuits showing memories of past rituals, glowing cyan circuits on weathered marble, ancient Greek column with neon conduit threaded through cracks, faint holographic memories flickering along the surface, weathered gray marble, oxidized dark bronze, cyan neon circuits, quantum glow, synthwave lighting, cyberpunk concept art, dark fantasy, volumetric fog, cinematic"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null
+
+  temple_ruins_ritual_record:
+    name: "Ritual Record Data-Core"
+    subject_description: "glowing data-core device, holographic surface scrolling ritual text, cracked casing showing circuitry, faint cyan illumination, ancient language mixed with error codes"
+    gameplay_function: "critical item — contains ritual instructions needed for altar puzzle"
+    lod_subjects:
+      far: "small data-core device near fallen figure, glowing faint cyan"
+      mid: "glowing data-core resting on body, holographic surface scrolling ritual text, cracked casing showing circuitry, faint cyan illumination"
+      near: "detailed holographic data-core with scrolling ancient ritual text, cracked surface revealing internal circuitry, glowing cyan characters on dark screen, damage details with micro-fractures, ancient language mixed with error codes"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null
+
+  temple_ruins_ritual_crystal:
+    name: "Ritual Crystal"
+    subject_description: "glowing crystal floating above altar surface, internal key fragment visible inside, pulsing with temporal energy, translucent crystalline structure, quantum interference patterns, surface facets with quantum glow"
+    gameplay_function: "quest objective — reward from altar ritual, contains key fragment"
+    lod_subjects:
+      far: "small crystal on altar surface, glowing with temporal energy"
+      mid: "glowing crystal floating above altar surface, internal key fragment visible inside, pulsing with temporal energy, translucent crystalline structure, quantum interference patterns"
+      near: "intricate crystal with internal key fragment clearly visible, complex internal structure with temporal energy pathways, surface facets with quantum glow, micro-cracks showing power containment, key fragment outline inside crystal"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null
+
+  temple_ruins_key_fragment:
+    name: "Key Fragment"
+    subject_description: "metallic key fragment with quantum glow, circuitry patterns visible on surface, quantum-lock interface detail, metallic texture with temporal shimmer, ancient key shape mixed with cybernetic elements"
+    gameplay_function: "progression item — extracted from crystal, opens ancient door"
+    lod_subjects:
+      far: "small metallic fragment with quantum glow"
+      mid: "key fragment with quantum glow, circuitry patterns visible on surface, quantum-lock interface detail, metallic texture with temporal shimmer"
+      near: "detailed key fragment with complex circuitry patterns, quantum-lock interface with micro-connections, metallic surface weathered but functional, temporal energy field visible, ancient key shape mixed with cybernetic elements"
+    negative: "people, characters, text, logo, watermark, modern buildings, cars, low quality, blurry, distorted, extra limbs, warm light, yellow light, cheerful"
+    size: "512x512"
+    special: null

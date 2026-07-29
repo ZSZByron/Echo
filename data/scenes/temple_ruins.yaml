@@ -1,0 +1,196 @@
+scene_id: temple_ruins
+name: Temple of the Forgotten King
+description: Ancient stone pillars rise from mist-swirling darkness, their surfaces etched with glowing neon circuitry that
+  pulses with failing energy. The architecture is impossible, classical Greek columns fused with brutalist concrete and holographic
+  projectors. Water drips from unseen sources, creating echoes that bounce through hollow chambers. The air smells of ozone,
+  old incense, and something metallic. Flickering holographic statues of forgotten gods hover between broken stone blocks,
+  their faces digitized into static.
+atmosphere: Melancholy, ancient, cyber-mystical, decaying grandeur
+region: outer_ring
+viewpoint: Fixed camera perspective standing at temple entrance, looking inward at ~15° downward angle
+depth_layers:
+- name: near
+  description: Immediate foreground (1-5 meters), includes corpse and ritual details
+- name: mid
+  description: Middle ground (5-15 meters), includes altar area and main floor
+- name: far
+  description: Background (15-30 meters), includes pillars and distant door
+puzzle_chain:
+- node_id: priest_corpse_01
+  type: clue
+  requires: []
+  produces: ritual_record
+  interaction: search
+- node_id: ritual_record
+  type: clue
+  requires:
+  - priest_corpse_01
+  produces: ritual_knowledge
+  interaction: read
+- node_id: holographic_altar
+  type: consumable
+  requires:
+  - ritual_knowledge
+  produces: ritual_crystal
+  interaction: perform_ritual
+- node_id: ritual_crystal
+  type: consumable
+  requires:
+  - holographic_altar
+  produces: key_fragment
+  interaction: extract
+- node_id: key_fragment
+  type: reward
+  requires:
+  - ritual_crystal
+  produces: quantum_key
+  interaction: collect
+- node_id: ancient_locked_door
+  type: obstacle
+  requires:
+  - quantum_key
+  produces: temple_access
+  interaction: unlock
+accessible_objects:
+- id: ancient_locked_door
+  name: Gilded Ancient Door
+  type: door
+  hardness: 75
+  energy_cost: 25
+  is_future_anchor: true
+  description: Massive bronze doors inscribed with quantum-lock runes. The metal seems to breathe, and holographic chains
+    bind it shut. A faint shimmer suggests temporal protection.
+  position:
+    x: 50
+    y: 30
+  depth: far
+  lod:
+    far: massive gilded doors at the far end of the hall, faintly shimmering
+    mid: bronze doors with holographic chains and quantum-lock rune inscriptions
+    near: intricate door surface showing breathing metal texture, temporal protection shimmer, and key slot mechanism
+  puzzle_role: obstacle
+  new_assets_hint: requires quantum_key to unlock, final puzzle node
+- id: priest_corpse_01
+  name: Fallen Priest
+  type: container
+  hardness: 10
+  energy_cost: 5
+  is_future_anchor: false
+  description: Robed body clutching a corrupted data-core. The priest's robes are torn, revealing skin that flickers between
+    flesh and wire. Their eyes are blank screens scrolling error messages.
+  position:
+    x: 20
+    y: 50
+  depth: near
+  lod:
+    far: distant fallen figure in shadows
+    mid: robed body slumped against base of column
+    near: close-up of corrupted data-core clutched in skeletal hand, flickering error messages in eye screens
+  puzzle_role: clue_source
+  new_assets_hint: searchable corpse contains ritual_record
+- id: holographic_altar
+  name: Holo-Altar of Echoes
+  type: interactive
+  hardness: 40
+  energy_cost: 15
+  is_future_anchor: true
+  description: Altar made of solidified light projection. Ripples distort its surface like water. Offerings placed here vanish
+    into temporal storage, potentially appearing in past or future echoes.
+  position:
+    x: 70
+    y: 45
+  depth: mid
+  lod:
+    far: glowing altar platform in center of hall
+    mid: rippled light altar with floating runes
+    near: detailed altar surface showing crystal socket and output tray, quantum interference patterns
+  puzzle_role: consumable_station
+  new_assets_hint: perform ritual with ritual_record to receive ritual_crystal, then extract key_fragment
+- id: neon_circuit_pillar
+  name: Circuit Pillar
+  type: decoration
+  hardness: 60
+  energy_cost: 20
+  is_future_anchor: false
+  description: Stone column wrapped in pulsing neon tubes. The circuits show memories of past rituals. Touching it might trigger
+    echo visions or system shocks.
+  position:
+    x: 15
+    y: 30
+  depth: mid_far
+  lod:
+    far: distant pillar with faint neon glow
+    mid: stone column wrapped in pulsing neon tubes showing ritual memories
+    near: detailed pillar surface with circuit traces, flickering memory fragments, and crackling energy discharge points
+  puzzle_role: atmosphere
+  new_assets_hint: environmental decoration, no puzzle function
+- id: ritual_record
+  name: Ritual Record Data-Core
+  type: container
+  hardness: 5
+  energy_cost: 2
+  is_future_anchor: false
+  description: Damaged data-core found on priest corpse. Contains ritual procedures.
+  position:
+    x: 22
+    y: 52
+  depth: near
+  lod:
+    far: small data-core device near corpse
+    mid: glowing data-core resting on body
+    near: detailed holographic data-core with scrolling ritual text, cracked surface showing circuitry
+  puzzle_role: clue
+  new_assets_hint: obtained from priest_corpse_01, enables holographic_altar interaction
+  parent_object: priest_corpse_01
+- id: ritual_crystal
+  name: Ritual Crystal
+  type: consumable
+  hardness: 15
+  energy_cost: 8
+  is_future_anchor: false
+  description: Crystal materialized from completed altar ritual. Contains key essence.
+  position:
+    x: 72
+    y: 47
+  depth: mid
+  lod:
+    far: small crystal on altar
+    mid: glowing crystal floating above altar surface
+    near: intricate crystal with internal key fragment visible, pulsing with temporal energy
+  puzzle_role: consumable
+  new_assets_hint: produced by holographic_altar ritual, contains key_fragment
+  parent_object: holographic_altar
+- id: key_fragment
+  name: Key Fragment
+  type: reward
+  hardness: 25
+  energy_cost: 12
+  is_future_anchor: false
+  description: Fragment extracted from ritual crystal. Part of the quantum key.
+  position:
+    x: 72
+    y: 47
+  depth: mid
+  lod:
+    far: small metallic fragment
+    mid: key fragment with quantum glow
+    near: detailed key fragment with circuitry patterns and quantum-lock interface
+  puzzle_role: reward
+  new_assets_hint: extracted from ritual_crystal, required for ancient_locked_door
+  parent_object: ritual_crystal
+interaction_targets:
+- object_id: ancient_locked_door
+  is_dangerous: true
+  required_tools:
+  - quantum_key
+  - temporal_wrench
+- object_id: priest_corpse_01
+  is_dangerous: false
+  required_tools: null
+- object_id: holographic_altar
+  is_dangerous: false
+  required_tools: null
+- object_id: neon_circuit_pillar
+  is_dangerous: true
+  required_tools:
+  - insulated_gloves

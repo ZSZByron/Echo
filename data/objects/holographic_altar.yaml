@@ -1,0 +1,11 @@
+id: "holographic_altar"
+name: "Holo-Altar of Echoes"
+type: "interactive"
+hardness: 40
+energy_cost: 15
+is_future_anchor: true
+description: "Altar made of solidified light projection. Ripples distort its surface like water. Offerings placed here vanish into temporal storage, potentially appearing in past or future echoes."
+special_properties:
+  - "temporal_storage"
+  - "god_protected"
+  - "echo_trigger"

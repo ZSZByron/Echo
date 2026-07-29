@@ -1,0 +1,13 @@
+id: "priest_corpse_01"
+name: "Fallen Priest"
+type: "container"
+hardness: 10
+energy_cost: 5
+is_future_anchor: false
+description: "Robed body clutching a corrupted data-core. The priest's robes are torn, revealing skin that flickers between flesh and wire. Their eyes are blank screens scrolling error messages."
+special_properties:
+  - "searchable"
+  - "contains_item"
+contained_items:
+  - "corrupted_data_core"
+  - "ritual_robe_fragment"

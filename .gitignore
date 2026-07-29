@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Testing / Coverage
+.coverage
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.tox/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+backend_err.log
+backend_out.log
+
+# Generated assets (large binary files)
+data/assets/candidates/
+data/assets/meta/
+
+# Playwright
+.playwright-mcp/
+
+# Temp files
+H
+*.tmp
+
+# Env
+.env
+backend/.env
+
+# Sisyphus evidence (regenerated)
+.sisyphus/evidence/

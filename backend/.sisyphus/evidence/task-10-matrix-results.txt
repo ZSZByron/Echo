@@ -1,0 +1,155 @@
+
+============================================================
+STEP 1: Object x Action Matrix Verification
+============================================================
+=== Object x Action Matrix ===
+  ancient_locked_door x brute_force: forced_fail
+  ancient_locked_door x stealth: forced_fail
+  ancient_locked_door x read_memory: forced_fail
+  ancient_locked_door x negotiate: forced_fail
+  ancient_locked_door x probe: forced_fail
+  ancient_locked_door x god_provoke: forced_fail
+  ancient_locked_door x investigate: forced_fail
+  priest_corpse_01 x brute_force: success
+  priest_corpse_01 x stealth: success
+  priest_corpse_01 x read_memory: success
+  priest_corpse_01 x negotiate: success
+  priest_corpse_01 x probe: success
+  priest_corpse_01 x god_provoke: success
+  priest_corpse_01 x investigate: success
+  holographic_altar x brute_force: forced_fail
+  holographic_altar x stealth: forced_fail
+  holographic_altar x read_memory: forced_fail
+  holographic_altar x negotiate: forced_fail
+  holographic_altar x probe: forced_fail
+  holographic_altar x god_provoke: forced_fail
+  holographic_altar x investigate: forced_fail
+  neon_circuit_pillar x brute_force: success
+  neon_circuit_pillar x stealth: success
+  neon_circuit_pillar x read_memory: success
+  neon_circuit_pillar x negotiate: success
+  neon_circuit_pillar x probe: success
+  neon_circuit_pillar x god_provoke: success
+  neon_circuit_pillar x investigate: success
+
+=== Matrix Assertions ===
+  PASS: ancient_locked_door x brute_force = forced_fail
+  PASS: ancient_locked_door x stealth = forced_fail
+  PASS: ancient_locked_door x read_memory = forced_fail
+  PASS: ancient_locked_door x negotiate = forced_fail
+  PASS: ancient_locked_door x probe = forced_fail
+  PASS: ancient_locked_door x god_provoke = forced_fail
+  PASS: ancient_locked_door x investigate = forced_fail
+  PASS: holographic_altar x brute_force = forced_fail
+  PASS: holographic_altar x stealth = forced_fail
+  PASS: holographic_altar x read_memory = forced_fail
+  PASS: holographic_altar x negotiate = forced_fail
+  PASS: holographic_altar x probe = forced_fail
+  PASS: holographic_altar x god_provoke = forced_fail
+  PASS: holographic_altar x investigate = forced_fail
+  PASS: priest_corpse_01 x brute_force = success (strength 60 >= hardness 10)
+  PASS: neon_circuit_pillar x brute_force = success (strength 60 >= hardness 60)
+  PASS: priest_corpse_01 x stealth = success
+  PASS: priest_corpse_01 x read_memory = success
+  PASS: priest_corpse_01 x negotiate = success
+  PASS: priest_corpse_01 x probe = success
+  PASS: priest_corpse_01 x god_provoke = success
+  PASS: priest_corpse_01 x investigate = success
+  PASS: neon_circuit_pillar x stealth = success
+  PASS: neon_circuit_pillar x read_memory = success
+  PASS: neon_circuit_pillar x negotiate = success
+  PASS: neon_circuit_pillar x probe = success
+  PASS: neon_circuit_pillar x god_provoke = success
+  PASS: neon_circuit_pillar x investigate = success
+
+*** All matrix assertions passed! ***
+
+
+============================================================
+STEP 2: God Rules Verification
+============================================================
+=== God Rules Verification ===
+Total gods defined: 5
+  - chronos_order (Chronos the Order), penalty=40
+  - mnemosyne_memory (Mnemosyne the Weaver), penalty=25
+  - ananke_entropy (Ananke of Chaos), penalty=50
+  - aion_cyclical (Aion the Cyclical), penalty=30
+  - caerus_opportunity (Caerus the Moment), penalty=15
+
+Intervention table entries: 5
+  - ancient_locked_door -> chronos_order
+  - holographic_altar -> mnemosyne_memory
+  - quantum_core_any -> ananke_entropy
+  - temporal_anchor_any -> aion_cyclical
+  - opportunity_window_any -> caerus_opportunity
+
+=== Per-God Trigger Check ===
+  chronos_order: protects ['ancient_locked_door']
+  mnemosyne_memory: protects ['holographic_altar']
+  ananke_entropy: protects ['quantum_core_any']
+  aion_cyclical: protects ['temporal_anchor_any']
+  caerus_opportunity: protects ['opportunity_window_any']
+
+=== Active God Trigger Tests ===
+  PASS: ancient_locked_door -> forced_fail by Chronos the Order
+    Penalty: health=-40, stability=-20
+    Damage field: 40
+  PASS: holographic_altar -> forced_fail by Mnemosyne the Weaver
+    Penalty: health=-25, stability=-12
+    Damage field: 25
+
+=== Abstract God Entries (not in scene) ===
+  PASS: ananke_entropy has ['quantum_core_any'] in table
+  PASS: aion_cyclical has ['temporal_anchor_any'] in table
+  PASS: caerus_opportunity has ['opportunity_window_any'] in table
+
+*** All god rule assertions passed! ***
+
+
+============================================================
+STEP 3: Parser Robustness Verification
+============================================================
+=== Parser Robustness (11 test cases, 5 brute_force synonyms) ===
+  PASS: '砸门' -> brute_force
+  PASS: '暴力破门' -> brute_force
+  PASS: '撞开' -> brute_force
+  PASS: '一拳打碎' -> brute_force
+  PASS: '踢开' -> brute_force
+  PASS: '我悄悄检查祭司尸体' -> stealth
+  PASS: '读取记忆' -> read_memory
+  PASS: '试图与祭坛沟通' -> negotiate
+  PASS: '检查周围环境' -> probe
+  PASS: '我向神王挑衅' -> god_provoke
+  PASS: '仔细调查' -> investigate
+
+=== Fallback Tests ===
+  PASS: Invalid action_type -> fallback to probe (confidence=0.0)
+  PASS: Exception in provider -> fallback to probe (confidence=0.0)
+
+*** All parser tests passed! ***
+
+
+============================================================
+STEP 4: Performance Verification
+============================================================
+=== Performance Verification (10 iterations) ===
+  Iteration 1: 5.33ms
+  Iteration 2: 3.45ms
+  Iteration 3: 3.10ms
+  Iteration 4: 3.04ms
+  Iteration 5: 3.02ms
+  Iteration 6: 3.87ms
+  Iteration 7: 3.18ms
+  Iteration 8: 3.06ms
+  Iteration 9: 3.02ms
+  Iteration 10: 3.04ms
+
+  Average: 3.41ms (0.0034s)
+  Min: 3.02ms, Max: 5.33ms
+
+  *** PASS: Average 0.0034s < 5.0s threshold ***
+
+
+============================================================
+ALL VERIFICATIONS PASSED
+============================================================

@@ -1,0 +1,11 @@
+id: "ancient_locked_door"
+name: "Gilded Ancient Door"
+type: "door"
+hardness: 75
+energy_cost: 25
+is_future_anchor: true
+description: "Massive bronze doors inscribed with quantum-lock runes. The metal seems to breathe, and holographic chains bind it shut. A faint shimmer suggests temporal protection."
+special_properties:
+  - "temporal_locked"
+  - "requires_key"
+  - "god_protected"

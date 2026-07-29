@@ -1,0 +1,11 @@
+id: "neon_circuit_pillar"
+name: "Circuit Pillar"
+type: "decoration"
+hardness: 60
+energy_cost: 20
+is_future_anchor: false
+description: "Stone column wrapped in pulsing neon tubes. The circuits show memories of past rituals. Touching it might trigger echo visions or system shocks."
+special_properties:
+  - "hazardous_touch"
+  - "echo_vision_source"
+  - "requires_protection"

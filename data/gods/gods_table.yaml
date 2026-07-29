@@ -1,0 +1,35 @@
+gods:
+  - id: "chronos_order"
+    name: "Chronos the Order"
+    domain: "Time, Stability, Causality"
+    intervention_threshold: 60
+    penalty: 40
+    description: "God of linear time and causality. Intervenes when players attempt actions that would create paradoxes or severely disrupt timeline integrity."
+
+  - id: "mnemosyne_memory"
+    name: "Mnemosyne the Weaver"
+    domain: "Memory, History, Echoes"
+    intervention_threshold: 50
+    penalty: 25
+    description: "Goddess of memory and historical preservation. Protects objects and locations that hold significant past events from alteration."
+
+  - id: "ananke_entropy"
+    name: "Ananke of Chaos"
+    domain: "Entropy, Disruption, Change"
+    intervention_threshold: 70
+    penalty: 50
+    description: "Force of inevitable chaos and entropy. Intervenes when actions attempt to bring too much order to chaotic systems or prevent necessary decay."
+
+  - id: "aion_cyclical"
+    name: "Aion the Cyclical"
+    domain: "Cycles, Rebirth, Patterns"
+    intervention_threshold: 55
+    penalty: 30
+    description: "God of temporal cycles and patterns. Protects events that must repeat or are destined to occur in multiple time loops."
+
+  - id: "caerus_opportunity"
+    name: "Caerus the Moment"
+    domain: "Opportunity, Timing, Synchronicity"
+    intervention_threshold: 40
+    penalty: 15
+    description: "Lesser god of perfect moments and timing. Intervenes when players miss critical opportunities or attempt to act at destiny-inappropriate times."

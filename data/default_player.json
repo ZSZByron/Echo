@@ -1,0 +1,14 @@
+{
+  "id": "player_001",
+  "energy": 80,
+  "health": 90,
+  "strength": 60,
+  "intelligence": 70,
+  "echo_mode_enabled": false,
+  "mental_stability": 85,
+  "location": "temple_ruins",
+  "inventory": [],
+  "status": "normal",
+  "max_energy": 100,
+  "max_health": 100
+}

@@ -1,0 +1,28 @@
+intervention_rules:
+  # Temple Ruins protected objects
+  - object_id: "ancient_locked_door"
+    protected_by: "chronos_order"
+    reason: "Door seals critical timeline event"
+    intervention_level: "high"
+
+  - object_id: "holographic_altar"
+    protected_by: "mnemosyne_memory"
+    reason: "Altar holds historical memories"
+    intervention_level: "medium"
+
+  # Future anchors across all scenes
+  - object_id: "quantum_core_any"
+    protected_by: "ananke_entropy"
+    reason: "Core maintains necessary chaos balance"
+    intervention_level: "critical"
+
+  - object_id: "temporal_anchor_any"
+    protected_by: "aion_cyclical"
+    reason: "Anchor maintains time loops"
+    intervention_level: "high"
+
+  # Opportune moments
+  - object_id: "opportunity_window_any"
+    protected_by: "caerus_opportunity"
+    reason: "Must act at precise moment"
+    intervention_level: "low"
