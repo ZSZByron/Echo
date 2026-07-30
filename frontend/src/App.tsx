@@ -6,6 +6,8 @@ import { GodWatchIndicator } from './components/GodWatchIndicator';
 import { ResetButton } from './components/ResetButton';
 import { SceneView } from './components/SceneView';
 import { AssetReview } from './pages/AssetReview';
+import { GraphAssetReview } from './pages/GraphAssetReview';
+import GraphEditorWrapper from './pages/GraphEditor';
 import { apiClient } from './api/client';
 
 function App() {
@@ -19,6 +21,8 @@ function App() {
 function AppContent() {
   const dispatch = useGameDispatch();
   const isAdmin = window.location.pathname.startsWith('/admin/assets');
+  const isGraphAssets = window.location.pathname.startsWith('/admin/graph-assets');
+  const isGraphEditor = window.location.pathname.startsWith('/graph/editor');
   const [pendingInput, setPendingInput] = useState('');
 
   const handleObjectClick = (objectId: string, objectName: string, isPrimary: boolean) => {
@@ -43,6 +47,14 @@ function AppContent() {
 
   if (isAdmin) {
     return <AssetReview />;
+  }
+
+  if (isGraphAssets) {
+    return <GraphAssetReview />;
+  }
+
+  if (isGraphEditor) {
+    return <GraphEditorWrapper />;
   }
 
   return (
