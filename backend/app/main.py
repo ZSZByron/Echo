@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.assets_routes import router as assets_router, scenes_router as scenes_router
 from app.api.deps import get_state_repository
+from app.api.graph_routes import graph_router
 from app.api.routes import router
 
 # Load .env file from backend root directory (backend/.env)
@@ -47,6 +48,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(assets_router)
 app.include_router(scenes_router)
+app.include_router(graph_router)
 
 # Mount data/assets directory for serving generated images
 _assets_dir = Path(__file__).resolve().parent.parent.parent / "data" / "assets"
