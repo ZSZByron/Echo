@@ -28,7 +28,7 @@ class ProviderConfig:
     api_key: str
     model: str
     temperature: float = 0.7
-    max_tokens: int = 1000
+    max_tokens: int = 4000
 
 
 # Default model names per provider (used as fallbacks)

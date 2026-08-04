@@ -19,9 +19,9 @@ from app.state.migrations import (
     CREATE_GRAPH_NODES_TABLE_SQL,
 )
 
-# project root: state/ -> app/ -> backend/ -> UGC/
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "assets" / "graph.db"
+from app.config.paths import ASSETS_DIR as _ASSETS_DIR
+
+_DEFAULT_DB_PATH = _ASSETS_DIR / "graph.db"
 
 
 class GraphStore:

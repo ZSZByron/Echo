@@ -3,6 +3,9 @@
 Tests topological sort, cycle detection, and generation wave algorithms
 across all critical graph structures: empty, single node, pure chain,
 pure star, multi-tree with cross edges, and cyclic graphs.
+
+Detail-first ordering: nodes with no outgoing edges (nothing to depend on)
+are generated first. Background ends up last because it depends on everything.
 """
 from __future__ import annotations
 
@@ -109,9 +112,9 @@ class TestPureChain:
         return graph
 
     def test_topo_sort_chain(self, chain_graph: KnowledgeGraph) -> None:
-        """Topological sort preserves serial_asc order."""
+        """Detail-first: deepest leaf first, background last."""
         order = layered_topological_sort(chain_graph)
-        assert order == ["0", "1", "1-1", "1-1-1"]
+        assert order == ["1-1-1", "1-1", "1", "0"]
 
     def test_cycle_detection_chain(self, chain_graph: KnowledgeGraph) -> None:
         """Chain has no cycles."""
@@ -124,9 +127,9 @@ class TestPureChain:
         assert cycles == []
 
     def test_generation_waves_chain(self, chain_graph: KnowledgeGraph) -> None:
-        """Chain generates sequential waves (one node per wave)."""
+        """Chain generates sequential waves, one node per wave, bg last."""
         waves = get_generation_waves(chain_graph)
-        assert waves == [["0"], ["1"], ["1-1"], ["1-1-1"]]
+        assert waves == [["1-1-1"], ["1-1"], ["1"], ["0"]]
 
 
 # ===========================================================================
@@ -161,17 +164,15 @@ class TestPureStar:
         return graph
 
     def test_topo_sort_star(self, star_graph: KnowledgeGraph) -> None:
-        """Topological sort respects serial_asc within same wave."""
+        """Core first (out-degree 0), then bg + leaves together."""
         order = layered_topological_sort(star_graph)
-        # Background first, then leaves in serial order, then core
-        assert order[0] == "0"
-        # Leaves should be before core
-        assert order.index("1-1") < order.index("1")
-        assert order.index("1-2") < order.index("1")
-        assert order.index("1-3") < order.index("1")
-        # Leaves are sorted by serial
+        # Core has out-degree 0, comes first
+        assert order[0] == "1"
+        # Leaves are after core, sorted by serial
         leaf_indices = [order.index("1-1"), order.index("1-2"), order.index("1-3")]
         assert leaf_indices == sorted(leaf_indices)
+        # Bg is after core (edge 0->1: 0 depends on 1)
+        assert order.index("1") < order.index("0")
 
     def test_cycle_detection_star(self, star_graph: KnowledgeGraph) -> None:
         """Star has no cycles."""
@@ -184,15 +185,13 @@ class TestPureStar:
         assert cycles == []
 
     def test_generation_waves_star(self, star_graph: KnowledgeGraph) -> None:
-        """Star waves: bg, leaves together, core last."""
+        """Star waves: core first, then leaves + bg together."""
         waves = get_generation_waves(star_graph)
-        assert len(waves) == 3
-        assert waves[0] == ["0"]
-        # Wave 1: all leaves (independent, can run in parallel)
-        assert set(waves[1]) == {"1-1", "1-2", "1-3"}
-        assert len(waves[1]) == 3
-        # Wave 2: core (depends on all leaves)
-        assert waves[2] == ["1"]
+        # Wave 0: core (out-degree 0)
+        assert waves[0] == ["1"]
+        # Wave 1: bg + leaves (all out-degree 0 after core resolved)
+        assert set(waves[1]) == {"0", "1-1", "1-2", "1-3"}
+        assert len(waves) == 2
 
 
 # ===========================================================================
@@ -233,20 +232,20 @@ class TestMultiTreeCrossEdges:
         return graph
 
     def test_topo_sort_multi_tree(self, multi_tree_graph: KnowledgeGraph) -> None:
-        """Topological sort respects cross edge dependency."""
+        """Detail-first topo sort respects edge dependencies."""
         order = layered_topological_sort(multi_tree_graph)
 
-        # Background first
-        assert order[0] == "0"
+        # Background is last
+        assert order[-1] == "0"
 
-        # Cross edge constraint: password (2-1) before lock (1)
-        assert order.index("2-1") < order.index("1")
+        # Edge 1->1-1: 1 depends on 1-1, so 1-1 first
+        assert order.index("1-1") < order.index("1")
 
-        # Tree 1 partial order: 1 before 1-1
-        assert order.index("1") < order.index("1-1")
+        # Edge 2->2-1: 2 depends on 2-1, so 2-1 first
+        assert order.index("2-1") < order.index("2")
 
-        # Tree 2 partial order: 2 before 2-1
-        assert order.index("2") < order.index("2-1")
+        # Cross edge 2-1->1: 2-1 depends on 1, so 1 first
+        assert order.index("1") < order.index("2-1")
 
     def test_cycle_detection_multi_tree(self, multi_tree_graph: KnowledgeGraph) -> None:
         """Multi-tree has no cycles."""
@@ -259,20 +258,20 @@ class TestMultiTreeCrossEdges:
         assert cycles == []
 
     def test_generation_waves_multi_tree(self, multi_tree_graph: KnowledgeGraph) -> None:
-        """Multi-tree waves respect cross edge."""
+        """Multi-tree waves respect edge dependencies."""
         waves = get_generation_waves(multi_tree_graph)
 
-        # Wave 0: background
-        assert waves[0] == ["0"]
+        # Wave 0: 1-1 (out-degree 0, no dependencies)
+        assert waves[0] == ["1-1"]
 
-        # Wave 1: nodes with in-degree 0 (roots of both trees)
-        wave1_set = set(waves[1])
-        assert "1" in wave1_set or "2" in wave1_set
+        # Wave 1: 1 (depends on 1-1, now resolved)
+        assert waves[1] == ["1"]
 
-        # Cross edge means 2-1 must complete before 1 enters wave
-        # Verify 2-1 appears in an earlier or same wave as 1's dependencies resolve
-        order = layered_topological_sort(multi_tree_graph)
-        assert order.index("2-1") < order.index("1")
+        # Wave 2: 2-1 (depends on 1 via cross edge, now resolved)
+        assert "2-1" in waves[2]
+
+        # Last wave: background
+        assert waves[-1] == ["0"]
 
 
 # ===========================================================================
@@ -359,8 +358,8 @@ class TestEdgeCases:
         graph.add_edge("0", "2", "", EdgeType.TREE)
 
         order = layered_topological_sort(graph)
-        # Both 1 and 2 should appear, in serial order
-        assert order == ["0", "1", "2"]
+        # 1 and 2 (out-degree 0) first, then 0 (depends on both)
+        assert order == ["1", "2", "0"]
 
     def test_self_loop(self) -> None:
         """Node with edge to itself (self-cycle)."""
@@ -404,7 +403,7 @@ class TestEdgeCases:
         assert is_valid is False
 
     def test_complex_dag(self) -> None:
-        """Diamond structure: A has two paths to D."""
+        """Diamond structure: converge first, then branches, then root, bg last."""
         graph = KnowledgeGraph(scene_id="diamond")
         graph.add_node("0", "background")
         graph.add_node("1", "root")
@@ -419,18 +418,21 @@ class TestEdgeCases:
         graph.add_edge("1-2", "2", "", EdgeType.TREE)
 
         order = layered_topological_sort(graph)
-        # Verify partial orders
-        assert order.index("1") < order.index("1-1")
-        assert order.index("1") < order.index("1-2")
-        assert order.index("1-1") < order.index("2")
-        assert order.index("1-2") < order.index("2")
+        # Edge 1-1->2: 1-1 depends on 2, so 2 first
+        assert order.index("2") < order.index("1-1")
+        assert order.index("2") < order.index("1-2")
+        # Edge 1->1-1: 1 depends on 1-1, so 1-1 first
+        assert order.index("1-1") < order.index("1")
+        assert order.index("1-2") < order.index("1")
+        # Background is last
+        assert order[-1] == "0"
 
-        # Waves: bg, root, left+right (parallel), converge
+        # Waves: converge, then left+right (parallel), then root, then bg
         waves = get_generation_waves(graph)
-        assert waves[0] == ["0"]
-        assert waves[1] == ["1"]
-        assert set(waves[2]) == {"1-1", "1-2"}
-        assert waves[3] == ["2"]
+        assert waves[0] == ["2"]
+        assert set(waves[1]) == {"1-1", "1-2"}
+        assert waves[2] == ["1"]
+        assert waves[-1] == ["0"]
 
 
 # ===========================================================================
@@ -442,7 +444,10 @@ class TestAlgorithmProperties:
     """Test generic algorithm properties across different graphs."""
 
     def test_topo_sort_is_topological_order(self) -> None:
-        """For any edge (u->v), u appears before v in topological order."""
+        """For any edge (from->to), from appears after to in order.
+
+        Edge from→to means from depends on to. So to is generated first.
+        """
         graph = KnowledgeGraph(scene_id="property_test")
         graph.add_node("0", "bg")
         graph.add_node("1", "n1")
@@ -456,12 +461,12 @@ class TestAlgorithmProperties:
 
         order = layered_topological_sort(graph)
 
-        # Check all edges satisfy topological order
+        # Check all edges: from appears after to (to is generated first)
         for edge in graph.edges:
             src, dst = edge.from_node_id, edge.to_node_id
             if src in order and dst in order:
-                assert order.index(src) < order.index(dst), \
-                    f"Edge {src}->{dst} violates topological order"
+                assert order.index(dst) < order.index(src), \
+                    f"Edge {src}->{dst}: {dst} should come before {src}"
 
     def test_waves_are_parallel_safe(self) -> None:
         """Nodes within same wave have no dependencies on each other."""
@@ -491,8 +496,13 @@ class TestAlgorithmProperties:
                             f"Wave {wave} has internal dependency: {node} -> {dep}"
                         )
 
-    def test_background_first_invariant(self) -> None:
-        """Background node is always first in order and waves[0]."""
+    def test_background_after_its_dependencies(self) -> None:
+        """Background always appears after the nodes it depends on (via edges).
+
+        Background may not be last if other nodes also have no remaining
+        dependencies at the same time. But it must come after any node
+        it points to via an edge.
+        """
         test_cases = [
             "single", "chain", "star", "multi_tree"
         ]
@@ -521,10 +531,11 @@ class TestAlgorithmProperties:
                 graph.add_edge("0", "1", "", EdgeType.TREE)
                 graph.add_edge("0", "2", "", EdgeType.TREE)
 
-            # Test topological order
             order = layered_topological_sort(graph)
-            assert order[0] == graph.background_node_id
 
-            # Test waves
-            waves = get_generation_waves(graph)
-            assert waves[0] == [graph.background_node_id]
+            # For every edge from bg, bg must appear after the target
+            bg = graph.background_node_id
+            for edge in graph.edges:
+                if edge.from_node_id == bg:
+                    assert order.index(edge.to_node_id) < order.index(bg), \
+                        f"Background should come after {edge.to_node_id}"

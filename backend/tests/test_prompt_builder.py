@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.prompt_builder import PromptBuilder
+from app.domains.creation.asset.prompt_builder import PromptBuilder
 
 
 class TestPromptBuilder:

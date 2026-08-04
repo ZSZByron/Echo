@@ -1,0 +1,44 @@
+# 6层×6维权重矩阵 — 每行和=100
+# 值来自实验验证: backend/experiments/layered_weight_experiment.py L109-116
+world:
+  RED: 20
+  LAW: 30
+  ACT: 5
+  NAR: 35
+  WST: 5
+  SOC: 5
+region:
+  RED: 10
+  LAW: 10
+  ACT: 10
+  NAR: 20
+  WST: 5
+  SOC: 45
+scene:
+  RED: 10
+  LAW: 25
+  ACT: 5
+  NAR: 10
+  WST: 40
+  SOC: 10
+campaign:
+  RED: 10
+  LAW: 5
+  ACT: 10
+  NAR: 40
+  WST: 5
+  SOC: 30
+npc:
+  RED: 5
+  LAW: 10
+  ACT: 25
+  NAR: 20
+  WST: 10
+  SOC: 30
+asset:
+  RED: 10
+  LAW: 30
+  ACT: 30
+  NAR: 10
+  WST: 10
+  SOC: 10

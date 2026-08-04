@@ -1,0 +1,206 @@
+{
+  "version": "1.0.0",
+  "description": "标签→维度确定性映射规则库。从 7 个成功实验种子中提取，用户确认后自动回馈新规则。",
+  "rules": [
+    {
+      "id": "R001",
+      "source_tags": ["crystal", "magical", "altar", "ritual"],
+      "target_dim": "constraint",
+      "rule": "魔法物品/祭坛类资产附带属性门槛约束（精神力/魔力检定）",
+      "template": "只有{stat}属性超过{threshold}的角色才能安全{action}{target}，否则受到{penalty_type}伤害",
+      "confidence": 0.9,
+      "hit_count": 2,
+      "source_seeds": ["seed_01", "seed_03"]
+    },
+    {
+      "id": "R002",
+      "source_tags": ["ancient", "guardian", "machine", "mechanical"],
+      "target_dim": "constraint",
+      "rule": "古代机械/守护者附带运作范围或能量限制约束",
+      "template": "所有{entity_type}一旦{trigger_condition}，将{consequence}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_02"]
+    },
+    {
+      "id": "R003",
+      "source_tags": ["quest_item", "relic", "soul", "priest"],
+      "target_dim": "constraint",
+      "rule": "灵体/灵魂相关场景附带理智/精神状态约束",
+      "template": "生者在{condition}下直视/接触{entity}超过{duration}，将陷入'{status_effect}'状态",
+      "confidence": 0.9,
+      "hit_count": 1,
+      "source_seeds": ["seed_03"]
+    },
+    {
+      "id": "R004",
+      "source_tags": ["tech", "data", "lab", "stealth"],
+      "target_dim": "constraint",
+      "rule": "高科技/实验室场景附带武器/行为禁令约束",
+      "template": "在{location}内禁止使用{forbidden_category}，否则触发{failure_consequence}",
+      "confidence": 0.9,
+      "hit_count": 1,
+      "source_seeds": ["seed_04"]
+    },
+    {
+      "id": "R005",
+      "source_tags": ["supernatural", "mineral", "hallucination", "rain"],
+      "target_dim": "constraint",
+      "rule": "超自然环境/天气场景附带精神状态衰减约束",
+      "template": "{weather_condition}下，角色的{stat}下降{rate}，且{effect_type}触发概率提升{percent}%",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_06"]
+    },
+    {
+      "id": "R006",
+      "source_tags": ["stars", "ancient_civilization", "sacred_geometry"],
+      "target_dim": "constraint",
+      "rule": "崇尚秩序/星辰的文明附带几何/结构对称性约束",
+      "template": "所有{category}必须保持{structural_rule}；违反将导致{consequence}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_07"]
+    },
+    {
+      "id": "R007",
+      "source_tags": ["biological_modification", "implant", "underground_society"],
+      "target_dim": "constraint",
+      "rule": "生物改造/植入体社会附带改造程度阈值约束",
+      "template": "角色的{modification_stat}不能超过{mental_stat}的{multiplier}倍。超出将{consequence}，直到{remedy}",
+      "confidence": 0.9,
+      "hit_count": 1,
+      "source_seeds": ["seed_08"]
+    },
+    {
+      "id": "R008",
+      "source_tags": ["crystal", "magical", "altar"],
+      "target_dim": "event",
+      "rule": "魔法物品/祭坛在特定时间释放能量波，吸引敌人波次攻击",
+      "template": "每当{time_trigger}，{target}释放{energy_type}波动，吸引{enemy_type}前来{action}，玩家需{player_objective}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_01"]
+    },
+    {
+      "id": "R009",
+      "source_tags": ["ancient", "guardian", "machine"],
+      "target_dim": "event",
+      "rule": "守护者类资产在被干扰/拆卸时进入狂暴状态",
+      "template": "当玩家{trigger_action}时，{entity}进入{status}，{stat_change}",
+      "confidence": 0.8,
+      "hit_count": 1,
+      "source_seeds": ["seed_02"]
+    },
+    {
+      "id": "R010",
+      "source_tags": ["quest_item", "relic", "soul"],
+      "target_dim": "event",
+      "rule": "灵体相关道具在特定地点触发灵魂低语/幻象事件",
+      "template": "当玩家携带{item}进入{location}时，{environmental_effect}，玩家必须{objective}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_03"]
+    },
+    {
+      "id": "R011",
+      "source_tags": ["tech", "data", "stealth", "lab"],
+      "target_dim": "event",
+      "rule": "高科技设施在被入侵时触发安保封锁/机器人扫描事件",
+      "template": "当玩家{trigger_condition}时，{location}启动{lockdown_procedure}，{enemy_type}开始{action}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_04"]
+    },
+    {
+      "id": "R012",
+      "source_tags": ["stars", "constellation", "ancient_civilization"],
+      "target_dim": "event",
+      "rule": "星辰文明在天体排列时触发能量共鸣+敌人围攻事件",
+      "template": "当{celestial_trigger}时，{location}的{structures}发出{effect}。期间{buff}增强，但{enemy_type}发动{action}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_07"]
+    },
+    {
+      "id": "R013",
+      "source_tags": ["biological_modification", "energy_core", "underground"],
+      "target_dim": "event",
+      "rule": "改造社会在能量核心不稳定时触发群体癫狂事件",
+      "template": "由于{cause}，引发{effect_type}。所有{threshold_condition}的{targets}陷入{status}，{behavior}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_08"]
+    },
+    {
+      "id": "R014",
+      "source_tags": ["crystal", "altar", "magical"],
+      "target_dim": "story",
+      "rule": "魔法物品/祭坛驱动收集+修复型主线任务",
+      "template": "玩家发现{item}状态{condition}，需收集{collectibles}以{objective}，从而{resolution}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_01"]
+    },
+    {
+      "id": "R015",
+      "source_tags": ["ancient", "guardian", "machine"],
+      "target_dim": "story",
+      "rule": "古代机械守护者驱动修复/重置型支线任务",
+      "template": "{entity}卡在{stuck_state}，玩家需寻找{key_item}来{objective}，获取{reward}",
+      "confidence": 0.8,
+      "hit_count": 1,
+      "source_seeds": ["seed_02"]
+    },
+    {
+      "id": "R016",
+      "source_tags": ["stars", "fading", "ancient_civilization"],
+      "target_dim": "story",
+      "rule": "星辰文明衰败驱动重启/拯救型主线任务",
+      "template": "{characters}发现{omen}，预示{catastrophe}。玩家需{path}，寻找{method}以{objective}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_07"]
+    },
+    {
+      "id": "R017",
+      "source_tags": ["biological_modification", "underground_society", "evolution"],
+      "target_dim": "story",
+      "rule": "改造社会驱动基因/进化争夺型主线任务",
+      "template": "玩家需深入{location}，寻找{key_item}——那是{faction}渴望用来{objective}的关键。然而，它被{guardians}守护",
+      "confidence": 0.9,
+      "hit_count": 1,
+      "source_seeds": ["seed_08"]
+    },
+    {
+      "id": "R018",
+      "source_tags": ["crystal", "magical", "stars"],
+      "target_dim": "culture",
+      "rule": "魔法/星辰资产衍生崇拜+知识至上型文化",
+      "template": "{cult_name}：崇拜{entity}。价值观：{values}。美学：{aesthetics}",
+      "confidence": 0.85,
+      "hit_count": 2,
+      "source_seeds": ["seed_01", "seed_07"]
+    },
+    {
+      "id": "R019",
+      "source_tags": ["ancient", "machine", "rust"],
+      "target_dim": "culture",
+      "rule": "古代机械衍生崇拜机械+以废弃为荣型文化",
+      "template": "{cult_name}：崇拜{entity_type}。价值观：{values}。美学：{aesthetics}",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_02"]
+    },
+    {
+      "id": "R020",
+      "source_tags": ["biological_modification", "implant", "underground"],
+      "target_dim": "culture",
+      "rule": "改造社会衍生进化至上+身体改造型文化",
+      "template": "{cult_name}：崇尚{ideal}。价值观：{values}。美学：{aesthetics}（含植入体元素）",
+      "confidence": 0.85,
+      "hit_count": 1,
+      "source_seeds": ["seed_08"]
+    }
+  ]
+}

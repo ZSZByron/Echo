@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -12,17 +10,13 @@ from pydantic import BaseModel
 
 from app.models.knowledge_graph import KnowledgeGraph
 from app.state.graph_store import GraphStore
+from app.utils.gen_helpers import import_cycle_detector
 
 logger = logging.getLogger(__name__)
 
 graph_router = APIRouter(prefix="/api/graph", tags=["graph"])
 
 _store = GraphStore()
-
-# Project root needed by cycle_detector/models.py (from backend.app.models...)
-_PROJECT_ROOT = str(Path(__file__).resolve().parents[3])
-# Path to graph_algorithm test modules (topo_sort, cycle_detector)
-_GRAPH_ALGO_DIR = str(Path(__file__).resolve().parents[3] / "tests" / "graph_algorithm")
 
 
 # ---------------------------------------------------------------------------
@@ -67,21 +61,8 @@ class GenerateResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helper: lazy import cycle detector
+# Endpoints
 # ---------------------------------------------------------------------------
-
-
-def _import_cycle_detector():
-    """Lazy-import cycle_detector.validate_graph."""
-    if _PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, _PROJECT_ROOT)
-    if _GRAPH_ALGO_DIR not in sys.path:
-        sys.path.insert(0, _GRAPH_ALGO_DIR)
-    import cycle_detector
-
-    return cycle_detector
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -91,7 +72,7 @@ def _import_cycle_detector():
 async def extract_graph(body: ExtractRequest) -> dict[str, Any]:
     """Extract a knowledge graph skeleton from free-text scene description via LLM."""
     try:
-        from app.services.graph_extractor import GraphExtractor
+        from app.domains.creation.graph.graph_extractor import GraphExtractor
     except ImportError as exc:
         raise HTTPException(status_code=500, detail="Graph extractor unavailable") from exc
 
@@ -125,7 +106,7 @@ async def validate_graph(body: dict[str, Any]) -> ValidateResponse:
         return ValidateResponse(is_valid=True, cycles=[])
 
     try:
-        cycle_detector_mod = _import_cycle_detector()
+        cycle_detector_mod = import_cycle_detector()
         is_valid, cycles = cycle_detector_mod.validate_graph(graph)
         return ValidateResponse(is_valid=is_valid, cycles=cycles)
     except Exception as exc:
@@ -149,7 +130,7 @@ async def save_graph(body: dict[str, Any]) -> SaveResponse:
 
     # Validate before saving
     try:
-        cycle_detector_mod = _import_cycle_detector()
+        cycle_detector_mod = import_cycle_detector()
         is_valid, cycles = cycle_detector_mod.validate_graph(graph)
         if not is_valid:
             raise HTTPException(
@@ -222,7 +203,7 @@ async def generate_graph(body: dict[str, Any]) -> GenerateResponse:
         raise HTTPException(status_code=400, detail="Graph must contain at least one node")
 
     try:
-        from app.services.generation_scheduler import GenerationScheduler
+        from app.domains.creation.asset.generation_scheduler import GenerationScheduler
     except ImportError as exc:
         raise HTTPException(status_code=500, detail="Generation scheduler unavailable") from exc
 

@@ -89,18 +89,18 @@ def test_main_py_import() -> None:
 
 
 def test_env_example_completeness() -> None:
-    """Verify .env.example contains all 6 provider configurations"""
+    """Verify .env.example contains all provider configurations."""
     root = Path(__file__).parent.parent
     env_example = root / ".env.example"
-    content = env_example.read_text()
+    content = env_example.read_text(encoding="utf-8")
 
     required_providers = [
         "OPENAI_",
         "ANTHROPIC_",
-        "AZURE_",
-        "MISTRAL_",
-        "GROQ_",
-        "OPENROUTER_",
+        "DEEPSEEK_",
+        "QWEN_",
+        "KIMI_",
+        "GLM_",
     ]
 
     for provider in required_providers:

@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 from collections import deque
-from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
-# Same path resolution as asset_store.py
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_SCENES_DIR = _PROJECT_ROOT / "data" / "scenes"
+from app.config.paths import SCENES_DIR as _SCENES_DIR
 
 
 class AssetInfo(BaseModel):

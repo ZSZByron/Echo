@@ -38,7 +38,7 @@ async def test_complete_graph_flow(test_client: AsyncClient, mock_llm_provider):
     """Test the complete graph pipeline from extraction to deletion."""
     
     # Mock LLM provider for extraction
-    with patch("app.services.graph_extractor.create_provider", return_value=mock_llm_provider):
+    with patch("app.domains.creation.graph.graph_extractor.create_provider", return_value=mock_llm_provider):
         # Step 1: Extract graph from text
         extract_response = await test_client.post(
             "/api/graph/extract",
@@ -79,7 +79,7 @@ async def test_complete_graph_flow(test_client: AsyncClient, mock_llm_provider):
     assert len(loaded_graph["nodes"]) == len(graph_data["nodes"])
     
     # Step 5: Generate images (mock ImageGenerator)
-    with patch("app.services.generation_scheduler.ImageGenerator") as mock_gen_class:
+    with patch("app.domains.creation.asset.generation_scheduler.ImageGenerator") as mock_gen_class:
         mock_gen = AsyncMock()
         mock_gen.generate.return_value = None
         mock_gen.close.return_value = None
@@ -151,7 +151,7 @@ async def test_llm_extraction_invalid_json(test_client: AsyncClient):
     mock_provider.chat_json.side_effect = ValueError("Invalid JSON response")
     mock_provider.chat.return_value = "This is not valid JSON output"
     
-    with patch("app.services.graph_extractor.create_provider", return_value=mock_provider):
+    with patch("app.domains.creation.graph.graph_extractor.create_provider", return_value=mock_provider):
         response = await test_client.post(
             "/api/graph/extract",
             json={"scene_description": "A beautiful scene"}
@@ -178,7 +178,7 @@ async def test_llm_extraction_malformed_json_repair(test_client: AsyncClient):
     ```
     '''
     
-    with patch("app.services.graph_extractor.create_provider", return_value=mock_provider):
+    with patch("app.domains.creation.graph.graph_extractor.create_provider", return_value=mock_provider):
         response = await test_client.post(
             "/api/graph/extract",
             json={"scene_description": "A scene"}
@@ -207,7 +207,7 @@ async def test_serial_generation_order(test_client: AsyncClient, sample_graph_da
     load_response = await test_client.get(f"/api/graph/{scene_id}")
     graph_data = load_response.json()
     
-    with patch("app.services.generation_scheduler.ImageGenerator") as mock_gen_class:
+    with patch("app.domains.creation.asset.generation_scheduler.ImageGenerator") as mock_gen_class:
         mock_gen = AsyncMock()
         mock_gen.generate.return_value = None
         mock_gen.close.return_value = None
@@ -218,21 +218,25 @@ async def test_serial_generation_order(test_client: AsyncClient, sample_graph_da
         result = generate_response.json()
         
         # Verify execution order follows wave constraints
-        # Background (1) should come before children (1-1, 1-2)
-        # Children should come before grandchildren (1-1-1)
+        # Detail-first ordering (SPEC §7.2): leaves generated first, background last.
+        # Edge A→B means "A depends on B", so B must be generated before A.
+        # Background node "1" has the most dependencies → generated last.
         order = result["order"]
         assert len(order) == 4  # All nodes generated
-        
-        # Check background is first
-        assert order[0] == "1"
-        
-        # Check dependency order
+
+        # Check dependency order: background "1" depends on "1-1" and "1-2",
+        # "1-1" depends on "1-1-1". So leaves first, background last.
         idx_1 = order.index("1")
         idx_1_1 = order.index("1-1")
+        idx_1_2 = order.index("1-2")
         idx_1_1_1 = order.index("1-1-1")
-        
-        assert idx_1 < idx_1_1, "Background should be generated before child"
-        assert idx_1_1 < idx_1_1_1, "Child should be generated before grandchild"
+
+        # Background generated AFTER its children (detail-first)
+        assert idx_1 > idx_1_1, "Background should be generated after child (detail-first)"
+        assert idx_1 > idx_1_2, "Background should be generated after child (detail-first)"
+
+        # Child generated after grandchild
+        assert idx_1_1 > idx_1_1_1, "Child should be generated after grandchild (detail-first)"
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +343,7 @@ async def test_single_node_graph(test_client: AsyncClient):
     assert loaded["background_node_id"] == "1"
     
     # Generate (should work for single node)
-    with patch("app.services.generation_scheduler.ImageGenerator") as mock_gen_class:
+    with patch("app.domains.creation.asset.generation_scheduler.ImageGenerator") as mock_gen_class:
         mock_gen = AsyncMock()
         mock_gen.generate.return_value = None
         mock_gen.close.return_value = None
@@ -391,7 +395,7 @@ async def test_complex_dag(test_client: AsyncClient):
     loaded = load_response.json()
     
     # Test generation order respects dependencies
-    with patch("app.services.generation_scheduler.ImageGenerator") as mock_gen_class:
+    with patch("app.domains.creation.asset.generation_scheduler.ImageGenerator") as mock_gen_class:
         mock_gen = AsyncMock()
         mock_gen.generate.return_value = None
         mock_gen.close.return_value = None
@@ -404,22 +408,24 @@ async def test_complex_dag(test_client: AsyncClient):
         order = result["order"]
         assert len(order) == 6
         
-        # Verify wave ordering
+        # Verify wave ordering (detail-first: leaves before parents, background last)
         idx_1 = order.index("1")
         idx_1_1 = order.index("1-1")
         idx_1_2 = order.index("1-2")
         idx_1_1_1 = order.index("1-1-1")
         idx_1_1_2 = order.index("1-1-2")
-        
-        # Background before children
-        assert idx_1 < idx_1_1 and idx_1 < idx_1_2
-        
-        # Parents before children
-        assert idx_1_1 < idx_1_1_1 and idx_1_1 < idx_1_1_2
-        assert idx_1_2 < order.index("1-2-1")
-        
-        # Cross-edge dependency
-        assert idx_1_1_1 < idx_1_1_2
+
+        # Background generated AFTER its children (detail-first)
+        assert idx_1 > idx_1_1, "Background should be after child 1-1 (detail-first)"
+        assert idx_1 > idx_1_2, "Background should be after child 1-2 (detail-first)"
+
+        # Parents generated after their children
+        assert idx_1_1 > idx_1_1_1, "Parent 1-1 should be after child 1-1-1 (detail-first)"
+        assert idx_1_1 > idx_1_1_2, "Parent 1-1 should be after child 1-1-2 (detail-first)"
+        assert idx_1_2 > order.index("1-2-1"), "Parent 1-2 should be after child 1-2-1 (detail-first)"
+
+        # Cross-edge dependency: 1-1-1 depends on 1-1-2, so 1-1-2 before 1-1-1
+        assert idx_1_1_2 < idx_1_1_1, "1-1-2 should be before 1-1-1 (cross-edge dependency)"
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +582,7 @@ async def test_generate_invalid_json_structure(test_client: AsyncClient):
 async def test_generation_with_cycle_detection(test_client: AsyncClient, cyclic_graph_data):
     """Test that generation fails for cyclic graphs."""
     
-    with patch("app.services.generation_scheduler.ImageGenerator") as mock_gen_class:
+    with patch("app.domains.creation.asset.generation_scheduler.ImageGenerator") as mock_gen_class:
         mock_gen = AsyncMock()
         mock_gen.generate.return_value = None
         mock_gen.close.return_value = None

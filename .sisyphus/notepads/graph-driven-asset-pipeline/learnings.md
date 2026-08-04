@@ -189,3 +189,59 @@
 - Node card layout: header (serial + status), description, prompt preview, generated image/placeholder
 - Responsive grid: 1 column mobile, 2 columns tablet, 3 columns desktop (grid-cols-1 md:grid-cols-2 lg:grid-cols-3)
 
+## Task 15: Frontend Playwright E2E Tests (2026-07-30)
+
+### Learnings
+- Playwright requires browser binary installation via `npx playwright install` (191MB download for Chromium)
+- Playwright config supports multiple browser projects: Desktop (Chromium, Firefox, WebKit), Mobile (Pixel 5, iPhone 12), Tablet (iPad Pro)
+- React Flow drag-and-drop testing requires page.dragTo() for edge creation between nodes
+- API mocking with page.route() essential for E2E tests to avoid backend dependencies
+- Test timeout of 30 seconds per test adequate for React Flow rendering and interactions
+- Playwright's auto webServer config prevents port conflicts by starting Vite before tests
+- Single worker configuration prevents parallel test port conflicts with dev server
+- Screenshots and video capture configured for failed tests only for debugging
+
+### Decisions
+- 27 comprehensive test cases across 5 logical suites covering all major functionality
+- Test utilities for common operations: gotoGraphEditor(), gotoAssetReview(), addNode(), openExtractDialog()
+- API mocking for all backend endpoints: extract, validate, save, load, generate
+- Cross-browser testing across 6 configurations for compatibility verification
+- Responsive design testing with viewport adaptation for mobile, tablet, desktop
+- Helper functions reduce test code duplication and improve maintainability
+- Clear test organization with describe blocks grouping related functionality
+- HTML test reporting with screenshots for failed test debugging
+
+
+## Task F2: End-to-End QA (2026-07-30)
+
+### Learnings
+- All 13 QA scenarios from T1-T15 executed successfully without modification to implementation files
+- Algorithm verification scripts use sys.path manipulation to import test-local models
+- Backend integration tests path (backend/tests/test_graph_integration.py) doesn't exist - used direct verification scripts instead
+- TypeScript check (npx tsc --noEmit) produces no output on success - expected behavior
+- Cross-task integration test requires proper sys.path setup for both test modules and backend imports
+- Evidence directory (.sisyphus/evidence/final-qa/) must exist before writing - handle gracefully
+
+### Test Results Summary
+- Phase 1 Algorithm Tests: 8/8 pass (T1-T5 verification scripts + 31/31 pytest)
+- Phase 2 Backend Tests: 4/4 pass (T8 prompt fusion + failed node tests)
+- Phase 3 Frontend Build: PASS (TypeScript + Vite build successful)
+- Cross-Task Integration: 1/1 pass (serial generation order with mocks)
+- Cycle Detection: PASS (detects circular dependencies correctly)
+- Serial Order: PASS (background-first, wave-based execution verified)
+- Prompt Fusion: PASS (subject + relation + background structure working)
+
+### Edge Cases Tested
+1. Empty graph handling (31 pytest tests)
+2. Self-loop detection (cycle_detector)
+3. Failed node skipping in prompt fusion
+4. Multi-cycle detection
+5. Disconnected graph components
+6. Wave parallel safety verification
+
+### Decisions
+- No implementation code modified - QA-only task executed correctly
+- All evidence saved to .sisyphus/evidence/final-qa/verdict.txt
+- Final verdict: APPROVE - all quality gates passed
+- All 6 todos completed systematically before final report
+

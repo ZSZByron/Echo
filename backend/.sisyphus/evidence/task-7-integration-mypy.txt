@@ -1,0 +1,15 @@
+=== MYPY STRICT RESULTS ===
+Command: mypy app/models/story_graph.py app/models/event_graph.py app/models/culture.py app/models/constraint.py app/models/asset.py --strict
+
+Status: FAILED - 6 mypy errors found in asset.py
+
+Errors:
+- app\models\asset.py:52: error: Missing type arguments for generic type 'dict'
+- app\models\asset.py:54: error: Missing type arguments for generic type 'dict'
+- app\models\asset.py:55: error: Missing type arguments for generic type 'dict'
+- app\models\asset.py:115: error: Function is missing a type annotation
+- app\models\asset.py:122: error: Function is missing a type annotation
+- app\models\asset.py:155: error: Unused 'type: ignore' comment
+
+Note: story_graph.py, event_graph.py, culture.py, constraint.py all pass mypy strict (0 errors)
+Note: Errors in asset.py are PRE-EXISTING, not from Phase 1 work

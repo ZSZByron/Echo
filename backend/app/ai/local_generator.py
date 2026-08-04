@@ -1,7 +1,6 @@
 """Local image generator using fallback rendering."""
 from __future__ import annotations
 
-import json
 import logging
 import random
 from pathlib import Path
@@ -10,11 +9,14 @@ from typing import Any, Optional
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
+from app.config.paths import ASSETS_DIR, ASSETS_META_DIR
+from app.utils.gen_helpers import parse_size, save_generation_meta
+
 logger = logging.getLogger(__name__)
 
 # Local assets directory
-_ASSETS_DIR = Path(r"H:\UGC\data\assets")
-_META_DIR = _ASSETS_DIR / "meta"
+_ASSETS_DIR = ASSETS_DIR
+_META_DIR = ASSETS_META_DIR
 
 
 class LocalImageGenerator:
@@ -36,8 +38,10 @@ class LocalImageGenerator:
         negative_prompt: str = "",
         size: str = "1024x1024",
         seed: Optional[int] = None,
-        num_candidates: int = 1,
+        num_candidates: int = 4,
         asset_id: str = "",
+        asset_name: str = "",
+        reference_asset_ids: list[str] | None = None,
     ) -> list[Any]:
         """Generate local images with prompt rendering.
         
@@ -58,7 +62,7 @@ class LocalImageGenerator:
         from app.ai.image_generator import GeneratedImage
         
         results = []
-        width, height = self._parse_size(size)
+        width, height = parse_size(size)
         
         for i in range(num_candidates):
             candidate_seed = (
@@ -88,14 +92,8 @@ class LocalImageGenerator:
                 results.append(result)
                 
                 # Save metadata
-                self._save_meta(
-                    asset_id=asset_id,
-                    index=i,
-                    seed=candidate_seed,
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    size=size,
-                    provider="local"
+                save_generation_meta(
+                    asset_id, i, candidate_seed, prompt, negative_prompt, size, "local"
                 )
                 
                 # Image saved — frontend will display it via /assets/<filename>
@@ -108,14 +106,6 @@ class LocalImageGenerator:
                 )
         
         return results
-    
-    def _parse_size(self, size_str: str) -> tuple[int, int]:
-        """Parse size string like '1024x1024' to (1024, 1024)."""
-        try:
-            width, height = size_str.lower().split("x")
-            return int(width), int(height)
-        except (ValueError, AttributeError):
-            return 1024, 1024
     
     async def _create_cyberpunk_placeholder(
         self,
@@ -259,33 +249,6 @@ class LocalImageGenerator:
         
         return lines
     
-    def _save_meta(
-        self,
-        asset_id: str,
-        index: int,
-        seed: int,
-        prompt: str,
-        negative_prompt: str,
-        size: str,
-        provider: str
-    ) -> None:
-        """Save generation metadata to JSON file."""
-        meta = {
-            "seed": seed,
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            "size": size,
-            "provider": provider,
-            "asset_id": asset_id,
-            "index": index
-        }
-        
-        filepath = self._meta_dir / f"{asset_id}_{index}.json"
-        filepath.write_text(
-            json.dumps(meta, ensure_ascii=False, indent=2), 
-            encoding="utf-8"
-        )
-        logger.info(f"Saved metadata: {filepath}")
 
 
 # Singleton instance

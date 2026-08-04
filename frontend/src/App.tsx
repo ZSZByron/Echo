@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { GameStateProvider, useGameDispatch } from './hooks/useGameState';
-import { Terminal } from './components/Terminal';
-import { StatusPanel } from './components/StatusPanel';
-import { GodWatchIndicator } from './components/GodWatchIndicator';
-import { ResetButton } from './components/ResetButton';
-import { SceneView } from './components/SceneView';
-import { AssetReview } from './pages/AssetReview';
-import { GraphAssetReview } from './pages/GraphAssetReview';
-import GraphEditorWrapper from './pages/GraphEditor';
+import { Terminal } from './components/terminal/Terminal';
+import { StatusPanel } from './components/terminal/StatusPanel';
+import { GodWatchIndicator } from './components/terminal/GodWatchIndicator';
+import { ResetButton } from './components/shared/ResetButton';
+import { SceneView } from './components/terminal/SceneView';
+import { AssetReview } from './pages/graph/AssetReview';
+import { GraphAssetReview } from './pages/graph/GraphAssetReview';
+import GraphEditorWrapper from './pages/graph/GraphEditor';
 import { apiClient } from './api/client';
 
 function App() {

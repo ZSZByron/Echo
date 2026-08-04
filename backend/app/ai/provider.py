@@ -35,9 +35,27 @@ class OpenAICompatibleProvider(LLMProvider):
             api_key=config.api_key,
             base_url=config.base_url,
         )
+        # DeepSeek V4 defaults to thinking=on which truncates JSON output;
+        # disable it globally for reliable structured generation.
+        self._default_extra_body: dict[str, Any] = {}
+        if config.provider_type == "deepseek":
+            self._default_extra_body["enable_thinking"] = False
+
+    def _merge_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Merge default extra_body with caller-provided kwargs."""
+        if not self._default_extra_body:
+            return kwargs
+        merged = dict(kwargs)
+        existing = dict(self._default_extra_body)
+        caller_body = merged.get("extra_body")
+        if isinstance(caller_body, dict):
+            existing.update(caller_body)
+        merged["extra_body"] = existing
+        return merged
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         """Send messages and return text content from first choice."""
+        kwargs = self._merge_kwargs(kwargs)
         response = await self._client.chat.completions.create(
             model=self._config.model,
             messages=cast(Any, messages),
@@ -50,6 +68,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
     async def chat_json(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, Any]:
         """Send messages requesting JSON output, return parsed dict."""
+        kwargs = self._merge_kwargs(kwargs)
         response = await self._client.chat.completions.create(
             model=self._config.model,
             messages=cast(Any, messages),

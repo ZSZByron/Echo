@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.generation_planner import (
+from app.domains.creation.asset.generation_planner import (
     AssetGenerationSpec,
     GenerationPlan,
     GenerationPlanner,
@@ -87,7 +87,7 @@ class TestGenerationPlanner:
     def test_no_image_generator_calls(self) -> None:
         """Test that GenerationPlanner source does not call ImageGenerator."""
         # Read the generation_planner.py source file
-        planner_path = Path(__file__).parent.parent / "app" / "services" / "generation_planner.py"
+        planner_path = Path(__file__).parent.parent / "app" / "domains" / "creation" / "asset" / "generation_planner.py"
         source = planner_path.read_text()
 
         # Verify it doesn't import or call ImageGenerator

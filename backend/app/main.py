@@ -13,9 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.assets_routes import router as assets_router, scenes_router as scenes_router
+from app.api.constraints_routes import constraints_router
 from app.api.deps import get_state_repository
 from app.api.graph_routes import graph_router
 from app.api.routes import router
+from app.api.seed_routes import router as seed_router
 
 # Load .env file from backend root directory (backend/.env)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -49,6 +51,8 @@ app.include_router(router)
 app.include_router(assets_router)
 app.include_router(scenes_router)
 app.include_router(graph_router)
+app.include_router(seed_router)
+app.include_router(constraints_router)
 
 # Mount data/assets directory for serving generated images
 _assets_dir = Path(__file__).resolve().parent.parent.parent / "data" / "assets"

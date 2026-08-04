@@ -8,13 +8,12 @@ from typing import Any
 
 import yaml
 
+from app.config.paths import (
+    PROJECT_ROOT as _PROJECT_ROOT,
+    PROMPTS_PATH as _PROMPTS_PATH,
+    SCENES_DIR as _SCENES_DIR,
+)
 from app.models.asset import Asset, AssetStatus, AssetType
-
-
-# project root: state/ -> app/ -> backend/ -> UGC/
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_SCENES_DIR = _PROJECT_ROOT / "data" / "scenes"
-_PROMPTS_PATH = _PROJECT_ROOT / "data" / "visual" / "prompts.yaml"
 
 
 class InvalidTransitionError(Exception):
@@ -41,9 +40,7 @@ _ALLOWED_TRANSITIONS: set[tuple[AssetStatus, AssetStatus]] = {
     (AssetStatus.GENERATING, AssetStatus.FAILED),
     (AssetStatus.COMPLETED, AssetStatus.APPROVED),
     (AssetStatus.COMPLETED, AssetStatus.REJECTED),
-    (AssetStatus.COMPLETED, AssetStatus.GENERATING),
     (AssetStatus.REJECTED, AssetStatus.PENDING),
-    (AssetStatus.REJECTED, AssetStatus.GENERATING),
     (AssetStatus.FAILED, AssetStatus.PENDING),
     (AssetStatus.FAILED, AssetStatus.GENERATING),
     (AssetStatus.APPROVED, AssetStatus.PENDING),

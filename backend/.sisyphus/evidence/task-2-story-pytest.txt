@@ -1,0 +1,103 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- H:\UGC\backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: H:\UGC\backend
+configfile: pyproject.toml
+plugins: anyio-4.14.2, asyncio-1.4.0, cov-7.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 35 items
+
+tests/models/test_story_graph.py::TestStoryNodeType::test_values PASSED  [  2%]
+tests/models/test_story_graph.py::TestStoryNodeType::test_is_str_enum PASSED [  5%]
+tests/models/test_story_graph.py::TestStoryNodeType::test_construct_from_string PASSED [  8%]
+tests/models/test_story_graph.py::TestStoryNodeType::test_invalid_value_raises PASSED [ 11%]
+tests/models/test_story_graph.py::TestStoryNodeType::test_all_members PASSED [ 14%]
+tests/models/test_story_graph.py::TestStoryCondition::test_string_requirement PASSED [ 17%]
+tests/models/test_story_graph.py::TestStoryCondition::test_dict_requirement PASSED [ 20%]
+tests/models/test_story_graph.py::TestStoryCondition::test_custom_type PASSED [ 22%]
+tests/models/test_story_graph.py::TestStoryCondition::test_serialization_round_trip PASSED [ 25%]
+tests/models/test_story_graph.py::TestStoryChoice::test_basic_choice PASSED [ 28%]
+tests/models/test_story_graph.py::TestStoryChoice::test_choice_with_conditions PASSED [ 31%]
+tests/models/test_story_graph.py::TestStoryChoice::test_multiple_conditions PASSED [ 34%]
+tests/models/test_story_graph.py::TestStoryChoice::test_mutation_safety PASSED [ 37%]
+tests/models/test_story_graph.py::TestStoryEdge::test_basic_edge PASSED  [ 40%]
+tests/models/test_story_graph.py::TestStoryEdge::test_edge_with_condition PASSED [ 42%]
+tests/models/test_story_graph.py::TestStoryEdge::test_serialization_round_trip PASSED [ 45%]
+tests/models/test_story_graph.py::TestStoryEdge::test_condition_serialization_round_trip PASSED [ 48%]
+tests/models/test_story_graph.py::TestStoryNode::test_basic_node PASSED  [ 51%]
+tests/models/test_story_graph.py::TestStoryNode::test_node_with_assets PASSED [ 54%]
+tests/models/test_story_graph.py::TestStoryNode::test_node_with_choices PASSED [ 57%]
+tests/models/test_story_graph.py::TestStoryNode::test_node_with_scene_link PASSED [ 60%]
+tests/models/test_story_graph.py::TestStoryNode::test_node_with_metadata PASSED [ 62%]
+tests/models/test_story_graph.py::TestStoryNode::test_mutation_safety_lists PASSED [ 65%]
+tests/models/test_story_graph.py::TestStoryNode::test_mutation_safety_dict PASSED [ 68%]
+tests/models/test_story_graph.py::TestStoryNode::test_serialization_round_trip PASSED [ 71%]
+tests/models/test_story_graph.py::TestStoryGraph::test_basic_graph PASSED [ 74%]
+tests/models/test_story_graph.py::TestStoryGraph::test_graph_with_nodes PASSED [ 77%]
+tests/models/test_story_graph.py::TestStoryGraph::test_graph_with_edges PASSED [ 80%]
+tests/models/test_story_graph.py::TestStoryGraph::test_serialization_round_trip PASSED [ 82%]
+tests/models/test_story_graph.py::TestStoryGraph::test_full_round_trip_with_nested_models PASSED [ 85%]
+tests/models/test_story_graph.py::TestStoryGraph::test_datetime_defaults PASSED [ 88%]
+tests/models/test_story_graph.py::TestStoryGraph::test_datetime_preserved_in_round_trip PASSED [ 91%]
+tests/models/test_story_graph.py::TestStoryGraph::test_empty_graph_json PASSED [ 94%]
+tests/models/test_story_graph.py::TestStoryGraph::test_mutation_safety PASSED [ 97%]
+tests/models/test_story_graph.py::TestStoryGraph::test_custom_version PASSED [100%]
+ERROR: Coverage failure: total of 1 is less than fail-under=85
+
+
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.12.10-final-0 _______________
+
+Name                                   Stmts   Miss Branch BrPart  Cover   Missing
+----------------------------------------------------------------------------------
+app\ai\bg_remover.py                      25     25      2      0     0%   14-62
+app\ai\config.py                          27     27      6      0     0%   7-96
+app\ai\fallback_renderer.py               11     11      4      0     0%   3-27
+app\ai\image_generator.py                202    202     78      0     0%   10-511
+app\ai\local_generator.py                115    115     30      0     0%   2-263
+app\ai\parser.py                          31     31      2      0     0%   3-58
+app\ai\prompts\parser_prompt.py           11     11      2      0     0%   3-87
+app\ai\prompts\renderer_prompt.py         11     11      4      0     0%   3-47
+app\ai\provider.py                        68     68     18      0     0%   3-149
+app\ai\renderer.py                        22     22      0      0     0%   3-40
+app\ai\style_extractor.py                 61     61     36      0     0%   2-101
+app\api\assets_routes.py                 192    192     44      0     0%   3-335
+app\api\deps.py                           34     34      0      0     0%   7-91
+app\api\graph_routes.py                  129    129     14      0     0%   3-222
+app\api\routes.py                         54     54     10      0     0%   3-118
+app\config\features.py                     2      2      0      0     0%   2-4
+app\config\paths.py                       16     16      0      0     0%   10-36
+app\engine\god_intervention.py            17     17      8      0     0%   2-29
+app\engine\physics.py                      9      9      0      0     0%   2-26
+app\engine\rules_engine.py                44     44     20      0     0%   2-111
+app\engine\world_loader.py                31     31      2      0     0%   2-51
+app\main.py                               28     28      2      0     0%   3-56
+app\models\action.py                      45     45      0      0     0%   3-170
+app\models\api.py                         15     15      0      0     0%   3-63
+app\models\asset.py                      100    100     20      0     0%   2-171
+app\models\constraint.py                  18     18      0      0     0%   3-33
+app\models\culture.py                     14     14      0      0     0%   2-22
+app\models\event_graph.py                 44     44      0      0     0%   6-83
+app\models\knowledge_graph.py             60     60      8      0     0%   6-205
+app\models\player.py                      24     24      0      0     0%   3-90
+app\models\puzzle_graph.py                73     73     28      0     0%   6-140
+app\models\scene_graph.py                 59     59     20      0     0%   2-110
+app\models\scene_response.py              22     22      0      0     0%   3-38
+app\models\story_graph.py                 42      0      0      0   100%
+app\models\world.py                       36     36      0      0     0%   3-158
+app\orchestrator.py                       57     57     20      0     0%   3-106
+app\services\generation_planner.py       111    111     48      0     0%   6-235
+app\services\generation_scheduler.py      54     54      8      0     0%   13-162
+app\services\graph_extractor.py           84     84     22      0     0%   7-243
+app\services\prompt_builder.py            94     94     36      0     0%   6-235
+app\services\prompt_fusion.py             44     44     16      0     0%   14-129
+app\state\asset_store.py                  96     96     40      0     0%   2-222
+app\state\database.py                     44     44      6      0     0%   2-111
+app\state\graph_store.py                  83     83     16      0     0%   2-258
+app\state\migrations.py                    3      3      0      0     0%   3-27
+app\utils\gen_helpers.py                  34     34      8      0     0%   5-105
+----------------------------------------------------------------------------------
+TOTAL                                   2396   2354    578      0     1%
+Coverage HTML written to dir htmlcov
+FAIL Required test coverage of 85% not reached. Total coverage: 1.41%
+============================= 35 passed in 1.77s ==============================

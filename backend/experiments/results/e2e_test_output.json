@@ -1,0 +1,147 @@
+{
+  "summary": "种子: 古代水晶祭坛\n类型: asset\n已填充: 5/5 维度\n循环校验: 1/4 通过\n耗时: 71.5s",
+  "dimensions": {
+    "asset": {
+      "source": "input",
+      "content": {
+        "name": "古代水晶祭坛",
+        "description": "一个散发幽蓝光芒的水晶祭坛，表面刻有星辰纹路"
+      }
+    },
+    "story": {
+      "source": "backward",
+      "content": {
+        "name": "星辰祭坛的苏醒",
+        "description": "玩家在古代遗迹中发现了一座散发幽蓝光芒的水晶祭坛，但其表面星辰纹路黯淡破碎。为阻止即将降临的黑暗，玩家需收集散落在世界各地的星辰碎片，修复并激活祭坛，从而唤醒上古星灵，获得对抗黑暗的力量。",
+        "type": "main_quest",
+        "key_elements": [
+          "古代水晶祭坛",
+          "星辰纹路",
+          "星辰碎片",
+          "上古星灵",
+          "黑暗降临"
+        ]
+      }
+    },
+    "event": {
+      "source": "cycle_verified",
+      "content": {
+        "name": "星辰能量波",
+        "description": "每当午夜时分，古代水晶祭坛释放幽蓝的星辰能量波动，吸引暗影生物前来吞噬能量，玩家需在限定时间内保护祭坛不被摧毁。",
+        "trigger": {
+          "type": "time",
+          "condition": "每天午夜0点"
+        },
+        "event_type": "combat"
+      }
+    },
+    "culture": {
+      "source": "backward",
+      "content": {
+        "name": "星辉教派",
+        "values": [
+          "星辰崇拜",
+          "知识至上",
+          "奥术和谐"
+        ],
+        "aesthetic_principles": [
+          "星辰纹路",
+          "幽蓝光辉",
+          "水晶纯净"
+        ]
+      }
+    },
+    "constraint": {
+      "source": "backward",
+      "content": {
+        "rule": "只有精神力属性超过50的角色才能安全激活古代水晶祭坛，否则受到精神冲击伤害",
+        "type": "hard",
+        "priority": 80,
+        "applicable_types": [
+          "玩家角色",
+          "NPC"
+        ]
+      }
+    }
+  },
+  "cycle_reports": [
+    {
+      "target": "story",
+      "score": 0.3,
+      "consistent": false,
+      "differences": [
+        "原始内容描述的是祭坛，反推重建为碎片，实体类型完全不同",
+        "反推添加了能量脉动等原始未提及的细节"
+      ],
+      "reconstructed": {
+        "name": "星辰碎片",
+        "description": "一块散发着幽蓝星光的水晶碎片，表面有微弱的星辰纹路流动，握在手中能感受到上古星辰的能量脉动。",
+        "tags": [
+          "星辰碎片",
+          "水晶",
+          "发光",
+          "能量"
+        ]
+      }
+    },
+    {
+      "target": "event",
+      "score": 0.8,
+      "consistent": true,
+      "differences": [
+        "反推描述增加了悬浮核心和能量释放细节，原始未提及",
+        "原始描述强调星辰纹路，反推未明确提及"
+      ],
+      "reconstructed": {
+        "name": "古代水晶祭坛",
+        "description": "一座由星辰陨铁与幽蓝水晶构筑的古老祭坛，中央悬浮着一枚脉动的核心，在午夜时分向天际释放出绚丽的能量波动。",
+        "tags": [
+          "古代遗迹",
+          "水晶",
+          "祭坛",
+          "星辰能量"
+        ]
+      }
+    },
+    {
+      "target": "culture",
+      "score": 0.2,
+      "consistent": false,
+      "differences": [
+        "原始为祭坛建筑结构，反推为典籍书本",
+        "祭坛用于仪式，典籍用于记载知识，功能完全不一致"
+      ],
+      "reconstructed": {
+        "name": "星辉圣典",
+        "description": "一本由纯净水晶雕琢而成的厚重典籍，封面镌刻着繁复的星辰纹路，周围萦绕着幽蓝光辉。书页由月光浸染的羊皮纸制成，记载着星辉教派积累的星辰知识与奥术秘法。",
+        "tags": [
+          "星辰",
+          "知识",
+          "奥术",
+          "水晶"
+        ]
+      }
+    },
+    {
+      "target": "constraint",
+      "score": 0.1,
+      "consistent": false,
+      "differences": [
+        "原始asset是祭坛（建筑/地点），反推asset是消耗品（石头）",
+        "名称和核心功能完全不同：原始为'古代水晶祭坛'，反推为'精神共鸣石'",
+        "原始描述祭坛本身，反推描述的是用于激活祭坛的道具"
+      ],
+      "reconstructed": {
+        "name": "精神共鸣石",
+        "description": "一颗经过特殊切割的共鸣水晶，内部流动着淡蓝色的精神力能量。当持有者尝试激活古代水晶祭坛时，它会释放储存的精神力共鸣，使祭坛误认为持有者精神力达标，从而安全激活。使用后能量耗尽，需要由精神力超过50的角色进行充能或替换。",
+        "tags": [
+          "消耗品",
+          "精神力",
+          "古代科技",
+          "祭坛激活"
+        ]
+      }
+    }
+  ],
+  "errors": []
+}

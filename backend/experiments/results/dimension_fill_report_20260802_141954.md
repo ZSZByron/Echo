@@ -1,0 +1,763 @@
+# Dimension Fill Experiment Report
+
+- **Provider**: deepseek (deepseek-v4-pro)
+- **Date**: 2026-08-02T14:19:54.444293+00:00
+- **Total Seeds**: 10
+
+## Evaluation Instructions
+
+For each seed, rate the 4 filled dimensions on a 1-5 scale:
+- **5**: Excellent — perfectly consistent, creative, directly usable
+- **4**: Good — mostly consistent, minor adjustments needed
+- **3**: Okay — plausible but generic, needs significant work
+- **2**: Poor — weak connection to seed, mostly irrelevant
+- **1**: Bad — contradictory or nonsensical
+
+Average score ≥ 3.5 → core hypothesis confirmed.
+
+---
+
+## seed_01: 古代水晶祭坛
+
+**Seed type**: `asset` | **Known dimension**: `asset`
+
+### Known (Seed)
+```json
+{
+  "name": "古代水晶祭坛",
+  "description": "由整块水晶雕琢而成的祭坛，表面刻有星辰图案，散发着微弱的蓝色光芒",
+  "tags": [
+    "altar",
+    "crystal",
+    "ancient",
+    "ritual",
+    "glowing"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| constraint | | |
+| culture | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_02: 锈蚀的机械守护者
+
+**Seed type**: `asset` | **Known dimension**: `asset`
+
+### Known (Seed)
+```json
+{
+  "name": "锈蚀的机械守护者",
+  "description": "一具古老的青铜机械人偶，关节处覆盖着铜绿，眼中仍然闪烁着红色光芒",
+  "tags": [
+    "robot",
+    "ancient",
+    "bronze",
+    "guardian",
+    "rusted"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "story": {
+    "name": "沉睡的守护者",
+    "description": "玩家在一座被遗忘的青铜宫殿深处发现了这具锈蚀的机械守护者。根据古老的铭文，修复它就能开启通往核心圣所的道路，那里藏有失落文明的终极秘密。玩家需要收集散落在遗迹中的齿轮核心、能量导管和青铜零件，并在锻造祭坛上重新激活守护者，从而获得它的认可和指引。",
+    "type": "main_quest",
+    "key_elements": [
+      "收集古代机械零件",
+      "修复锈蚀的守护者",
+      "激活守护者并获取密码"
+    ]
+  },
+  "event": {
+    "name": "守护者苏醒",
+    "description": "当玩家在青铜大厅中错误地触摸了控制台时，原本静止的锈蚀机械守护者突然发出刺耳的金属摩擦声，眼中的红光变得刺眼。它用生锈的关节举起巨大的青铜剑，开始无差别攻击任何入侵者。必须利用环境中的电磁脉冲陷阱才能暂时瘫痪它。",
+    "trigger": {
+      "type": "location",
+      "condition": "玩家靠近古代控制台并触发错误操作"
+    },
+    "event_type": "combat"
+  },
+  "culture": {
+    "name": "青铜纪元文明",
+    "values": [
+      "机械永恒",
+      "秩序至上",
+      "技术崇拜"
+    ],
+    "aesthetic_principles": [
+      "精密的齿轮对称美学",
+      "青铜与锈蚀的沧桑质感",
+      "几何符号与回路纹理"
+    ]
+  },
+  "constraint": {
+    "rule": "所有青铜守护者免疫常规物理伤害，仅受电磁脉冲或特定古代能量攻击影响。修复守护者需要完整的古代工具套装，否则会导致不可逆损坏。",
+    "type": "hard",
+    "priority": 85,
+    "applicable_types": [
+      "combat",
+      "interaction",
+      "repair"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| constraint | | |
+| culture | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_03: 一个失落祭司的遗愿任务
+
+**Seed type**: `story` | **Known dimension**: `story`
+
+### Known (Seed)
+```json
+{
+  "name": "失落祭司的遗愿",
+  "description": "玩家发现一个已故祭司的灵魂，他请求玩家完成他生前未完成的仪式",
+  "type": "quest",
+  "key_elements": [
+    "priest_ghost",
+    "unfinished_ritual",
+    "last_wish"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "幽灵祭司与仪式圣器",
+    "description": "一位半透明的年老祭司灵魂，身着破损的鎏金长袍，手中紧握一柄断裂的月光石法杖。在他周围悬浮着三样关键仪式道具：尚未点燃的圣火盆，刻有古老符文的石板，以及一枚黯淡的灵魂水晶。祭司的眼神充满恳求，身体边缘散发着微弱的蓝白色光芒。",
+    "tags": [
+      "ghost",
+      "priest",
+      "ritual_tools",
+      "ancient_relics",
+      "broken_staff"
+    ]
+  },
+  "event": {
+    "name": "暗影阻挠：守护最后仪式",
+    "description": "在午夜时分的废弃神殿中，祭司灵魂开始引导未完成的仪式。圣火盆燃起苍蓝火焰，但仪式能量波动引来了盘踞神殿的暗影生物。玩家必须在限定时间内保护祭司灵魂免受攻击，同时协助激活三块符文石板，让仪式走向终结。若祭司被击中三次，灵魂将彻底消散。",
+    "trigger": {
+      "type": "state",
+      "condition": "玩家持有关键道具'裂解法杖'，并在午夜进入'月陨神殿'遗址"
+    },
+    "event_type": "combat"
+  },
+  "culture": {
+    "name": "光殒教团",
+    "description": "一个崇拜月光与牺牲的古老宗教团体，相信通过奉献自我可以维系世界的光暗平衡。祭司被视为连接凡世与灵界的媒介，其最高使命是以死亡完成某个重大仪式。",
+    "values": [
+      "牺牲",
+      "奉献",
+      "轮回平衡",
+      "知识守护"
+    ],
+    "aesthetic_principles": [
+      "神圣几何与圆形阵列",
+      "月光石与暗银材质的交融",
+      "苍蓝冷光与破碎鎏金的对比",
+      "幽灵态的透明质感"
+    ]
+  },
+  "constraint": {
+    "rule": "仪式守护：在'失落祭司的遗愿'任务仪式进行期间，祭司灵魂具有3点防护层，每受到一次暗影生物的直接攻击减少1点。若防护层归零，祭司灵魂消散，任务永久失败，无法重试。",
+    "type": "hard",
+    "priority": 100,
+    "applicable_types": [
+      "quest"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| culture | | |
+| event | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_04: 帮助叛逃科学家偷回她的研究数据
+
+**Seed type**: `story` | **Known dimension**: `story`
+
+### Known (Seed)
+```json
+{
+  "name": "盗回研究数据",
+  "description": "一个叛逃的科学家请求玩家潜入她 former 实验室，偷回被没收的研究数据",
+  "type": "quest",
+  "key_elements": [
+    "scientist_defector",
+    "stealth_infiltration",
+    "research_data"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "加密数据水晶",
+    "description": "一个巴掌大的八角棱柱形晶体，内部游动着细密的蓝色数据流，基座带有微型接口，表面蚀刻着量子加密纹路，只有特定解密器才能读取。",
+    "tags": [
+      "research_data",
+      "quantum_storage",
+      "infiltrator_target"
+    ]
+  },
+  "event": {
+    "name": "周期性安全扫描",
+    "description": "实验室安保系统每隔几分钟会放射一次扫描脉冲，检测未授权生物信号；玩家必须在脉冲到来前躲进蔽体或伪造认证信号，否则会触发警报。",
+    "trigger": {
+      "type": "time",
+      "condition": "潜入实验室内部区域后，每3分钟触发一次，持续10秒。"
+    },
+    "event_type": "exploration"
+  },
+  "culture": {
+    "name": "垄断科研主义",
+    "values": [
+      "知识即资本",
+      "公司忠诚高于个人自由",
+      "科技无国界，但数据有主权"
+    ],
+    "aesthetic_principles": [
+      "功能至上的透明无机质",
+      "冷色光带与全息投影的层级化空间",
+      "人体工学中的强制规训符号"
+    ]
+  },
+  "constraint": {
+    "rule": "所有研究数据必须通过物理接口传输，且需匹配持有者实时生物特征（指纹+虹膜），任何无线复制尝试都会激活数据自毁。",
+    "type": "hard",
+    "priority": 95,
+    "applicable_types": [
+      "asset",
+      "event"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| culture | | |
+| event | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_05: 夜晚森林出现狼群袭击
+
+**Seed type**: `event` | **Known dimension**: `event`
+
+### Known (Seed)
+```json
+{
+  "name": "夜狼袭击",
+  "description": "夜幕降临时，森林中涌出异常凶猛的狼群攻击旅人",
+  "trigger": {
+    "type": "time",
+    "condition": "night",
+    "location": "forest"
+  },
+  "event_type": "combat"
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "暗月狼灵",
+    "description": "狼群首领，体型巨大，浑身覆盖着暗影般的毛发，双眼在夜幕中泛着幽蓝寒光。普通狼则通体灰黑，利爪如刃。",
+    "tags": [
+      "怪物",
+      "夜间生物",
+      "首领"
+    ]
+  },
+  "story": {
+    "name": "月影之灾",
+    "description": "森林边缘的村庄近日不断遭到夜狼袭击，村民传说这与古代封印的月神遗物有关。调查狼群异变背后的真相，阻止更大的灾祸降临。",
+    "type": "quest",
+    "key_elements": [
+      "封印石",
+      "狼群首领",
+      "古月神殿"
+    ]
+  },
+  "culture": {
+    "name": "月隐信仰",
+    "values": [
+      "敬畏自然",
+      "月亮崇拜",
+      "平衡生死"
+    ],
+    "aesthetic_principles": [
+      "暗蓝与银白配色",
+      "弯月图腾",
+      "皮毛与骨饰"
+    ]
+  },
+  "constraint": {
+    "rule": "在夜晚进入森林区域时，遭遇狼群袭击的概率提高80%，且移动速度降低30%。",
+    "type": "hard",
+    "priority": 90,
+    "applicable_types": [
+      "exploration",
+      "combat"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| culture | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_06: 暴雨夜废弃矿洞传来哭声
+
+**Seed type**: `event` | **Known dimension**: `event`
+
+### Known (Seed)
+```json
+{
+  "name": "矿洞哭声",
+  "description": "暴雨之夜，废弃矿洞深处传来阵阵哭泣声，引人探查",
+  "trigger": {
+    "type": "weather",
+    "condition": "heavy_rain",
+    "location": "abandoned_mine"
+  },
+  "event_type": "exploration"
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "废弃矿洞",
+    "description": "被遗弃的矿洞入口在暴雨中显得阴森，内部洞壁渗水，散落着生锈的矿车和工具。哭声似乎来自最深处。",
+    "tags": [
+      "矿洞",
+      "废弃",
+      "暴雨",
+      "阴森",
+      "哭声"
+    ]
+  },
+  "story": {
+    "name": "哭泣的亡灵",
+    "description": "镇上传说十年前矿难中失踪的矿工依旧在矿洞中徘徊，暴雨之夜他们的哭声呼唤着安息。你需要找到哭声的源头，解开矿难的真相。",
+    "type": "side_quest",
+    "key_elements": [
+      "矿难",
+      "幽灵",
+      "未解之谜",
+      "安息"
+    ]
+  },
+  "culture": {
+    "name": "矿镇信仰",
+    "values": [
+      "坚韧",
+      "对亡灵的敬畏",
+      "集体记忆"
+    ],
+    "aesthetic_principles": [
+      "工业遗迹美学",
+      "阴郁自然主义",
+      "悲怆叙事"
+    ]
+  },
+  "constraint": {
+    "rule": "废弃矿洞仅在暴雨天气开启，且内部部分区域存在不稳定结构，需要小心探索。",
+    "type": "soft",
+    "priority": 70,
+    "applicable_types": [
+      "exploration",
+      "weather"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| culture | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_07: 一个崇拜星辰的古代文明
+
+**Seed type**: `culture` | **Known dimension**: `culture`
+
+### Known (Seed)
+```json
+{
+  "name": "星辰文明",
+  "values": [
+    "cosmic_harmony",
+    "celestial_wisdom",
+    "light_over_darkness"
+  ],
+  "aesthetic_principles": [
+    "geometric_patterns",
+    "crystalline_materials",
+    "blue_gold_palette"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "星辉水晶",
+    "description": "一块蕴含星辰能量的晶体，表面浮现着不断变化的星座图案，在黑暗中散发出柔和的蓝金色光芒，是星辰文明祭司的法器核心。",
+    "tags": [
+      "crystal",
+      "celestial",
+      "ritual",
+      "light_source"
+    ]
+  },
+  "story": {
+    "name": "失落的星座图",
+    "description": "玩家在古老的天文台遗迹中发现一卷残缺的星座图，上面记载着早已被遗忘的星辰排列。修复并解读这些图案，解锁控制星辰之力的秘密，阻止即将到来的永夜。",
+    "type": "main_quest",
+    "key_elements": [
+      "ancient_observatory",
+      "constellation_puzzle",
+      "darkness_invasion",
+      "stellar_ritual"
+    ]
+  },
+  "event": {
+    "name": "星辰共鸣",
+    "description": "当特定星座升至天顶时，遗迹中的水晶柱会与星光共振，打开隐藏的密室，同时召唤出守护灵体。玩家需在有限时间内解开谜题，否则共振消失。",
+    "trigger": {
+      "type": "time",
+      "condition": "每晚子时，当猎户座占据天空正中"
+    },
+    "event_type": "exploration"
+  },
+  "constraint": {
+    "rule": "星辰魔法的施放依赖真实的星空状态，白天或阴天时威力大幅减弱，只有在晴朗的夜晚，且对应的星座可见时，相应的法术才能发挥最大效果。",
+    "type": "hard",
+    "priority": 85,
+    "applicable_types": [
+      "magic",
+      "combat"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_08: 崇尚生物改造的地下社会
+
+**Seed type**: `culture` | **Known dimension**: `culture`
+
+### Known (Seed)
+```json
+{
+  "name": "地下改造者",
+  "values": [
+    "evolution_through_modification",
+    "survival_at_any_cost",
+    "rejection_of_natural_order"
+  ],
+  "aesthetic_principles": [
+    "bioluminescence",
+    "organic_metallic_fusion",
+    "asymmetric_designs"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "Chimeric Graft Armor",
+    "description": "A living armor formed from multiple grafted organisms, with pulsing veins and fused chitin plates that writhe slowly. It grants enhanced resilience and can regrow after damage by absorbing nearby organic matter.",
+    "tags": [
+      "biotic",
+      "armor",
+      "symbiotic",
+      "self-repairing"
+    ]
+  },
+  "story": {
+    "name": "The Genesis Strain",
+    "description": "Rumors speak of a primordial genetic template, code-named Genesis, hidden in the deep ruins of an ancient bio-lab. This strain is said to unlock true transcendence, allowing a host to adapt instantly to any environment. The underground clans race to find it, but so do the surface purists who seek to destroy it.",
+    "type": "main_quest",
+    "key_elements": [
+      "ancient_lab",
+      "genetic_template",
+      "faction_race",
+      "transcendence"
+    ]
+  },
+  "event": {
+    "name": "Flesh Market Stampede",
+    "description": "During an illicit trade of black-market grafts in the caverns, a latent mutation in a newly sold servitor organism triggers a berserk frenzy. The creature bursts its restraints and begins rampaging through the market stalls, causing chaos and smashing containment tanks, releasing other unstable beasts.",
+    "trigger": {
+      "type": "location",
+      "condition": "Player enters the Undermarket district during trade hours"
+    },
+    "event_type": "combat"
+  },
+  "constraint": {
+    "rule": "Excessive grafting without stabilization induces 'Graft-Rot': a progressive tissue rejection that first causes abilities to malfunction, then leads to a violent, mindless state before death. Stabilizers must be administered regularly.",
+    "type": "hard",
+    "priority": 85,
+    "applicable_types": [
+      "player_character",
+      "npc",
+      "creature"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| constraint | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_09: 禁止使用任何金属材质的武器
+
+**Seed type**: `constraint` | **Known dimension**: `constraint`
+
+### Known (Seed)
+```json
+{
+  "rule": "所有武器必须是非金属材质（木、骨、石、水晶）",
+  "type": "hard",
+  "priority": 100,
+  "applicable_types": [
+    "weapon",
+    "armor",
+    "tool"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "晶脉大陆",
+    "description": "一个以水晶、木材、骨骼和石材为主要材料的装备体系，武器和工具泛着柔和的光芒，雕刻着自然的符文。",
+    "tags": [
+      "水晶",
+      "自然材质",
+      "符文雕刻"
+    ]
+  },
+  "story": {
+    "name": "晶脉的守护者",
+    "description": "玩家作为晶脉守护者，需要调查一系列神秘事件：有人暗中开采禁忌的金属矿脉，试图打造金属武器，威胁整个大陆的平衡。玩家必须阻止这场阴谋，维护古老的禁忌。",
+    "type": "main_quest",
+    "key_elements": [
+      "金属禁忌",
+      "水晶矿脉",
+      "阴谋集团",
+      "守护者组织"
+    ]
+  },
+  "event": {
+    "name": "水晶收获祭",
+    "description": "每年一度的水晶矿脉开放日，玩家可以进入矿脉采集高品质水晶，但需小心矿脉中的野生晶石兽。成功采集可获得独特水晶武器图纸。",
+    "trigger": {
+      "type": "time",
+      "condition": "每年收获季的第三天"
+    },
+    "event_type": "exploration"
+  },
+  "culture": {
+    "name": "晶石文明",
+    "values": [
+      "自然和谐",
+      "晶体崇拜",
+      "非暴力共处"
+    ],
+    "aesthetic_principles": [
+      "晶体剔透之美",
+      "天然材质纹理",
+      "符文简约装饰"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| culture | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---
+
+## seed_10: 所有建筑必须悬浮于地面之上
+
+**Seed type**: `constraint` | **Known dimension**: `constraint`
+
+### Known (Seed)
+```json
+{
+  "rule": "所有建筑结构必须悬浮在地面以上至少3米，通过反重力或磁悬浮支撑",
+  "type": "hard",
+  "priority": 90,
+  "applicable_types": [
+    "building",
+    "structure",
+    "environment"
+  ]
+}
+```
+
+### Filled Dimensions
+```json
+{
+  "asset": {
+    "name": "以太浮石",
+    "description": "散发着淡蓝微光的漂浮岩石，是支撑所有悬浮建筑的核心反重力材料。大小不一，从拳头大到房屋大，表面刻有古老的能量纹路。",
+    "tags": [
+      "反重力",
+      "能源矿物",
+      "建筑材料",
+      "空中平台"
+    ]
+  },
+  "story": {
+    "name": "下界回声",
+    "description": "主角在一次例行维护中，意外从悬浮城的底部通讯器中接收到来自地面的规律信号。人们被告知地面早已是剧毒废土，但信号中的语言却是早已消亡的古文明语。主角必须违抗天空议会的禁令，秘密组建一支小队，乘坐老旧的勘探飞艇降至3米禁区之下，揭开地面的真相。",
+    "type": "main_quest",
+    "key_elements": [
+      "地面真相",
+      "禁忌探索",
+      "古老信号",
+      "议会秘密"
+    ]
+  },
+  "event": {
+    "name": "万向节的悲鸣",
+    "description": "一座小型悬浮空岛的核心浮石突然进入衰变周期，整座岛屿开始不规则倾斜，并缓缓下坠。居民陷入恐慌，你需要驾驶抓取飞艇，在限时内稳定建筑结构，并将注能装置重新插入浮石核心，否则整个街区将坠入下方的永恒云雾中。",
+    "trigger": {
+      "type": "state",
+      "condition": "居民区的悬浮高度首次低于3.2米，且核心浮石能量读数低于15%"
+    },
+    "event_type": "quest"
+  },
+  "culture": {
+    "name": "至高之风",
+    "description": "悬浮文明发展出的独特文化，居民以居住高度为阶层象征，越靠近天空之城顶端的人地位越高。他们崇尚轻盈、精美和反重力的美学，极度恐惧和鄙视一切接触地面的行为，将地面称为“渊域”。",
+    "values": [
+      "升腾",
+      "轻盈",
+      "稳定性",
+      "纯净化"
+    ],
+    "aesthetic_principles": [
+      "悬垂结构",
+      "流线型设计",
+      "发光材料",
+      "无地基的平衡感"
+    ]
+  }
+}
+```
+
+### Evaluation
+| Dimension | Score (1-5) | Notes |
+|-----------|-------------|-------|
+| asset | | |
+| culture | | |
+| event | | |
+| story | | |
+
+**Overall**: ___ / 5
+
+---

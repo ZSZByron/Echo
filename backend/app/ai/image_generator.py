@@ -9,7 +9,6 @@ inside functions so the module can be imported without them installed.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
@@ -20,12 +19,15 @@ from typing import Any, Optional
 import httpx
 from pydantic import BaseModel
 
+from app.config.paths import ASSETS_DIR, ASSETS_META_DIR, ASSETS_CANDIDATES_DIR
+from app.utils.gen_helpers import parse_size, save_generation_meta
+
 logger = logging.getLogger(__name__)
 
 # Absolute path for meta file storage and image output
-_META_DIR = Path(r"H:\UGC\data\assets\meta")
-_OUTPUT_DIR = Path(r"H:\UGC\data\assets")
-_CANDIDATES_DIR = _OUTPUT_DIR / "candidates"
+_OUTPUT_DIR = ASSETS_DIR
+_META_DIR = ASSETS_META_DIR
+_CANDIDATES_DIR = ASSETS_CANDIDATES_DIR
 
 
 # -- Exceptions ----------------------------------------------------------------
@@ -197,8 +199,8 @@ class ImageGenerator:
                 img = await self._download_image(img, asset_id, i, asset_name)
 
                 results.append(img)
-                self._save_meta(
-                    asset_id, i, candidate_seed, prompt, negative_prompt, size
+                save_generation_meta(
+                    asset_id, i, candidate_seed, prompt, negative_prompt, size, self._provider
                 )
             except Exception as exc:
                 logger.warning(
@@ -209,31 +211,6 @@ class ImageGenerator:
                 )
 
         return results
-
-    def _save_meta(
-        self,
-        asset_id: str,
-        index: int,
-        seed: int,
-        prompt: str,
-        negative_prompt: str,
-        size: str,
-    ) -> None:
-        """Save generation metadata to JSON file."""
-        if not asset_id:
-            return
-
-        meta = {
-            "seed": seed,
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            "size": size,
-            "provider": self._provider,
-        }
-        filepath = _META_DIR / f"{asset_id}_{index}.json"
-        filepath.write_text(
-            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
 
     async def _call_local(
         self,
@@ -253,7 +230,7 @@ class ImageGenerator:
         from app.ai.local_generator import get_local_generator
         
         local_gen = get_local_generator()
-        width, height = self._parse_size(size)
+        width, height = parse_size(size)
         
         # Generate local image with prompts
         image_path = await local_gen._create_cyberpunk_placeholder(
@@ -480,14 +457,6 @@ class ImageGenerator:
             raise ImageGenerationError(
                 f"Qwen API error {exc.response.status_code}: {exc.response.text}"
             ) from exc
-
-    def _parse_size(self, size_str: str) -> tuple[int, int]:
-        """Parse size string like '1024x1024' to (1024, 1024)."""
-        try:
-            width, height = size_str.lower().split("x")
-            return int(width), int(height)
-        except (ValueError, AttributeError):
-            return 1024, 1024
 
     async def _download_image(
         self,

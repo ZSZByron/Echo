@@ -254,9 +254,13 @@ async def test_generate_zhipu_batch(tmp_path: Path) -> None:
     mock_client.is_closed = False
     gen._client = mock_client
 
-    # Patch _META_DIR to use tmp_path
+    # Patch _META_DIR to use tmp_path and skip download (unit test focuses on generation)
     meta_dir = tmp_path / "meta"
-    with patch("app.ai.image_generator._META_DIR", meta_dir):
+    with (
+        patch("app.ai.image_generator._META_DIR", meta_dir),
+        patch("app.utils.gen_helpers.ASSETS_META_DIR", meta_dir),
+        patch.object(gen, "_download_image", side_effect=lambda img, *a, **kw: img),
+    ):
         results = await gen.generate(
             prompt="cyberpunk terminal",
             negative_prompt="blurry",
@@ -303,7 +307,10 @@ async def test_generate_partial_failure(tmp_path: Path) -> None:
     mock_client.is_closed = False
     gen._client = mock_client
 
-    with patch("app.ai.image_generator._META_DIR", tmp_path / "meta"):
+    with (
+        patch("app.ai.image_generator._META_DIR", tmp_path / "meta"),
+        patch.object(gen, "_download_image", side_effect=lambda img, *a, **kw: img),
+    ):
         results = await gen.generate(
             prompt="test",
             num_candidates=3,
@@ -329,7 +336,10 @@ async def test_generate_random_seed_when_none(tmp_path: Path) -> None:
     mock_client.is_closed = False
     gen._client = mock_client
 
-    with patch("app.ai.image_generator._META_DIR", tmp_path / "meta"):
+    with (
+        patch("app.ai.image_generator._META_DIR", tmp_path / "meta"),
+        patch.object(gen, "_download_image", side_effect=lambda img, *a, **kw: img),
+    ):
         results = await gen.generate(
             prompt="test",
             num_candidates=2,
@@ -358,7 +368,10 @@ async def test_generate_no_meta_when_no_asset_id(tmp_path: Path) -> None:
     gen._client = mock_client
 
     meta_dir = tmp_path / "meta"
-    with patch("app.ai.image_generator._META_DIR", meta_dir):
+    with (
+        patch("app.ai.image_generator._META_DIR", meta_dir),
+        patch.object(gen, "_download_image", side_effect=lambda img, *a, **kw: img),
+    ):
         results = await gen.generate(
             prompt="test",
             num_candidates=1,

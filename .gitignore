@@ -31,6 +31,7 @@ frontend/dist/
 .idea/
 *.swp
 *.swo
+.obsidian/
 
 # OS
 Thumbs.db

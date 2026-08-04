@@ -1,0 +1,106 @@
+[
+  {
+    "seed_id": "seed_05",
+    "seed_type": "event",
+    "raw_input": "夜晚森林出现狼群袭击",
+    "known_dimension": "event",
+    "missing_dimensions": [
+      "asset",
+      "constraint",
+      "culture",
+      "story"
+    ],
+    "filled_dimensions": {},
+    "raw_llm_response": "",
+    "elapsed_seconds": 59.99,
+    "error": "RuntimeError: LLM request timed out after 60s"
+  },
+  {
+    "seed_id": "seed_08",
+    "seed_type": "culture",
+    "raw_input": "崇尚生物改造的地下社会",
+    "known_dimension": "culture",
+    "missing_dimensions": [
+      "asset",
+      "constraint",
+      "event",
+      "story"
+    ],
+    "filled_dimensions": {
+      "asset": {
+        "name": "共生脊骨刃",
+        "description": "一种由合成肌肉组织和抛光铬合金融合而成的近战武器。它不通过手柄握持，而是直接植入使用者的前臂，利用神经脉冲控制。刀刃平时折叠在皮下，战斗时会弹出并发出幽暗的生物蓝光。",
+        "tags": [
+          "melee_weapon",
+          "implant",
+          "organic_metallic",
+          "bioluminescent"
+        ]
+      },
+      "story": {
+        "name": "飞升协议",
+        "description": "玩家必须深入废弃的“原始地层”，寻找传说中未受污染的基因序列——那是地下社会领袖渴望用来突破当前改造瓶颈、实现“终极进化”的关键。然而，该序列被一群拒绝改造的古老变种人守护着。",
+        "type": "main_quest",
+        "key_elements": [
+          "genetic_purity",
+          "ideological_conflict",
+          "forbidden_technology"
+        ]
+      },
+      "event": {
+        "name": "神经风暴过载",
+        "description": "由于地下能量核心的不稳定，引发了一次全范围的电磁脉冲与神经干扰。所有拥有超过50%身体改造程度的居民会陷入短暂的癫狂，视觉系统故障，且会无意识地攻击身边的任何生物。",
+        "trigger": {
+          "type": "time",
+          "condition": "random_interval_72h"
+        },
+        "event_type": "combat"
+      },
+      "constraint": {
+        "rule": "排异阈值",
+        "description": "角色的身体改造程度（Cybernetic Level）不能超过当前精神意志（Sanity）的2倍。一旦超过，身体将产生严重的排异反应，导致持续的生命值流失和属性随机波动，直到注射昂贵的免疫抑制剂。",
+        "type": "hard",
+        "priority": 90,
+        "applicable_types": [
+          "player_character",
+          "npc"
+        ]
+      }
+    },
+    "raw_llm_response": "{\"asset\": {\"name\": \"共生脊骨刃\", \"description\": \"一种由合成肌肉组织和抛光铬合金融合而成的近战武器。它不通过手柄握持，而是直接植入使用者的前臂，利用神经脉冲控制。刀刃平时折叠在皮下，战斗时会弹出并发出幽暗的生物蓝光。\", \"tags\": [\"melee_weapon\", \"implant\", \"organic_metallic\", \"bioluminescent\"]}, \"story\": {\"name\": \"飞升协议\", \"description\": \"玩家必须深入废弃的“原始地层”，寻找传说中未受污染的基因序列——那是地下社会领袖渴望用来突破当前改造瓶颈、实现“终极进化”的关键。然而，该序列被一群拒绝改造的古老变种人守护着。\", \"type\": \"main_quest\", \"key_elements\": [\"genetic_purity\", \"ideological_conflict\", \"forbidden_technology\"]}, \"event\": {\"name\": \"神经风暴过载\", \"description\": \"由于地下能量核心的不稳定，引发了一次全范围的电磁脉冲与神经干扰。所有拥有超过50%身体改造程度的居民会陷入短暂的癫狂，视觉系统故障，且会无意识地攻击身边的任何生物。\", \"trigger\": {\"type\": \"time\", \"condition\": \"random_interval_72h\"}, \"event_type\": \"combat\"}, \"constraint\": {\"rule\": \"排异阈值\", \"description\": \"角色的身体改造程度（Cybernetic Level）不能超过当前精神意志（Sanity）的2倍。一旦超过，身体将产生严重的排异反应，导致持续的生命值流失和属性随机波动，直到注射昂贵的免疫抑制剂。\", \"type\": \"hard\", \"priority\": 90, \"applicable_types\": [\"player_character\", \"npc\"]}}",
+    "elapsed_seconds": 51.29,
+    "error": null
+  },
+  {
+    "seed_id": "seed_09",
+    "seed_type": "constraint",
+    "raw_input": "禁止使用任何金属材质的武器",
+    "known_dimension": "constraint",
+    "missing_dimensions": [
+      "asset",
+      "culture",
+      "event",
+      "story"
+    ],
+    "filled_dimensions": {},
+    "raw_llm_response": "",
+    "elapsed_seconds": 60.0,
+    "error": "RuntimeError: LLM request timed out after 60s"
+  },
+  {
+    "seed_id": "seed_10",
+    "seed_type": "constraint",
+    "raw_input": "所有建筑必须悬浮于地面之上",
+    "known_dimension": "constraint",
+    "missing_dimensions": [
+      "asset",
+      "culture",
+      "event",
+      "story"
+    ],
+    "filled_dimensions": {},
+    "raw_llm_response": "{}",
+    "elapsed_seconds": 28.16,
+    "error": null
+  }
+]

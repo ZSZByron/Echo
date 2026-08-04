@@ -62,7 +62,7 @@ async def _run_generation(asset_id: str) -> None:
 
     if SCENE_CONSISTENCY:
         try:
-            from app.services.generation_planner import GenerationPlanner
+            from app.domains.creation.asset.generation_planner import GenerationPlanner
 
             planner = GenerationPlanner()
             plan = planner.create_plan(asset.parent_scene)
@@ -240,7 +240,7 @@ async def update_prompt(asset_id: str, body: PromptBody) -> Asset:
 @router.post("/generate-all")
 async def generate_all() -> dict[str, Any]:
     """Trigger generation for all pending assets using GenerationPlanner ordering."""
-    from app.services.generation_planner import GenerationPlanner
+    from app.domains.creation.asset.generation_planner import GenerationPlanner
 
     planner = GenerationPlanner()
 
@@ -290,7 +290,7 @@ async def bulk_approve() -> dict[str, int]:
 @scenes_router.post("/{scene_id}/orchestrate")
 async def orchestrate_scene(scene_id: str) -> dict[str, Any]:
     """Orchestrate generation of all assets in a scene using GenerationPlanner order."""
-    from app.services.generation_planner import GenerationPlanner
+    from app.domains.creation.asset.generation_planner import GenerationPlanner
 
     planner = GenerationPlanner()
     plan = planner.create_plan(scene_id)

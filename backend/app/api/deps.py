@@ -16,6 +16,11 @@ from app.engine.world_loader import WorldLoader
 from app.models.action import JudgmentResult, ParsedIntent
 from app.models.player import PlayerState
 
+# Forward declaration for type hint in get_dimension_generator
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.domains.creation.constraint.dimension_generator import DimensionGenerator
+
 
 # ---------------------------------------------------------------------------
 # Protocol definitions for modules under parallel development (T5 / T6)
@@ -89,3 +94,11 @@ def get_narrative_renderer() -> NarrativeRenderer:
     from app.ai.renderer import NarrativeRenderer as _NR
 
     return _NR(get_llm_provider())
+
+
+@lru_cache(maxsize=1)
+def get_dimension_generator() -> DimensionGenerator:
+    """Singleton DimensionGenerator for constraint generation."""
+    from app.domains.creation.constraint.dimension_generator import DimensionGenerator
+    
+    return DimensionGenerator(provider=get_llm_provider())

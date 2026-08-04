@@ -1,0 +1,18 @@
+=== V3 SPEC FILE VERIFICATION ===
+
+File Existence Check:
+- File path: docs/SYSTEM_DESIGN_SPEC_v3.md
+- Status: EXISTS (True)
+
+§17 Section Check:
+- Pattern searched: '## 17.'
+- Status: NOT FOUND
+
+Current Document State:
+- Version header: v2.0 (NOT v3.0)
+- Last section: §16 (编辑器设计文档勘误)
+- §17 status: MISSING (Task 1 known failure from plan)
+
+Conclusion:
+V3 spec file exists but is INCOMPLETE. It's a v2.0 copy without the §17 phase interface registry.
+This is a KNOWN ISSUE from Task 1 (noted in plan as 'Task 1 failed - V3 spec incomplete').

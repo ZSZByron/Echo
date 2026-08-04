@@ -14,7 +14,7 @@ from collections import defaultdict
 
 import pytest
 
-from app.services.generation_planner import (
+from app.domains.creation.asset.generation_planner import (
     GenerationPlanner,
     GenerationPlan,
     AssetGenerationSpec,
@@ -22,7 +22,7 @@ from app.services.generation_planner import (
 from app.models.puzzle_graph import PuzzleGraph, PuzzleNodeType
 from app.models.scene_graph import SceneGraph
 from app.models.asset import Asset, AssetStatus
-from app.services.prompt_builder import PromptBuilder
+from app.domains.creation.asset.prompt_builder import PromptBuilder
 
 
 class TestFullGenerationChain:

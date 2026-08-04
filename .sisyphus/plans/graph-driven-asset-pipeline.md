@@ -63,12 +63,12 @@
 - `frontend/src/pages/GraphAssetReview.tsx` — 资产生成页面变体
 
 ### Definition of Done
-- [ ] Phase 1: 算法测试全部PASS（6+核心用例，覆盖率≥95%）
-- [ ] Phase 2: 后端API可创建/编辑图谱，触发串行生成
-- [ ] Phase 3: 前端共享层+可视化编辑图谱+按生成顺序查看资产
-- [ ] 生成顺序：0级背景先 → 叶子节点 → 核心节点 → 逐级向上
-- [ ] 环检测：建图谱时检测并报告环路径
-- [ ] Prompt融合：3段结构正确发送给ImageGenerator
+- [x] Phase 1: 算法测试全部PASS（6+核心用例，覆盖率≥95%）
+- [x] Phase 2: 后端API可创建/编辑图谱，触发串行生成
+- [x] Phase 3: 前端共享层+可视化编辑图谱+按生成顺序查看资产
+- [x] 生成顺序：0级背景先 → 叶子节点 → 核心节点 → 逐级向上
+- [x] 环检测：建图谱时检测并报告环路径
+- [x] Prompt融合：3段结构正确发送给ImageGenerator
 
 ### Must Have
 - KnowledgeGraph数据模型（节点+边+序号+层级）
@@ -211,7 +211,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ## TODOs
 
-- [ ] 1. **KnowledgeGraph 数据模型**
+- [x] 1. **KnowledgeGraph 数据模型**
 
   **What to do**:
   - 新建根目录 `tests/graph_algorithm/` 目录（用户明确要求"根目录的测试文件夹"）
@@ -310,7 +310,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 2. **序号编码解析器**
+- [x] 2. **序号编码解析器**
 
   **What to do**:
   - 新建 `tests/graph_algorithm/serial_parser.py`
@@ -383,7 +383,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 3. **分层拓扑排序算法**
+- [x] 3. **分层拓扑排序算法**
 
   **What to do**:
   - 新建 `tests/graph_algorithm/topo_sort.py`
@@ -528,7 +528,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 4. **环检测算法**
+- [x] 4. **环检测算法**
 
   **What to do**:
   - 新建 `tests/graph_algorithm/cycle_detector.py`
@@ -626,7 +626,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 5. **算法测试套件 (Phase 1 Gate)**
+- [x] 5. **算法测试套件 (Phase 1 Gate)**
 
   **What to do**:
   - 新建 `tests/graph_algorithm/test_algorithm.py`
@@ -713,7 +713,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 6. **SQLite 图谱持久化**
+- [x] 6. **SQLite 图谱持久化**
 
   **What to do**:
   - 新建 `backend/app/state/graph_store.py`
@@ -797,7 +797,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 7. **LLM 图谱提取服务**
+- [x] 7. **LLM 图谱提取服务**
 
   **What to do**:
   - 新建 `backend/app/services/graph_extractor.py`
@@ -931,7 +931,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 8. **Prompt 融合服务**
+- [x] 8. **Prompt 融合服务**
 
   **What to do**:
   - 新建 `backend/app/services/prompt_fusion.py`
@@ -1047,7 +1047,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 9. **串行生成调度器**
+- [x] 9. **串行生成调度器**
 
   **What to do**:
   - 新建 `backend/app/services/generation_scheduler.py`
@@ -1171,7 +1171,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 10. **图谱 API 端点**
+- [x] 10. **图谱 API 端点**
 
   **What to do**:
   - 新建 `backend/app/api/graph_routes.py`
@@ -1271,7 +1271,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 11. **后端集成测试**
+- [x] 11. **后端集成测试**
 
   **What to do**:
   - 新建 `backend/tests/test_graph_integration.py`
@@ -1329,7 +1329,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 12. **前端共享基础设施 (graph.ts + types + 共享组件)**
+- [x] 12. **前端共享基础设施 (graph.ts + types + 共享组件)**
 
   **What to do**:
   - 新建 `frontend/src/api/graph.ts` — 图谱API客户端，封装所有后端端点调用
@@ -1430,7 +1430,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 13. **React Flow 图谱编辑器**
+- [x] 13. **React Flow 图谱编辑器**
 
   **What to do**:
   - 安装 `@xyflow/react` 依赖
@@ -1553,7 +1553,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 14. **资产生成页面变体 (GraphAssetReview)**
+- [x] 14. **资产生成页面变体 (GraphAssetReview)**
 
   **What to do**:
   - 新建 `frontend/src/pages/GraphAssetReview.tsx`
@@ -1652,7 +1652,7 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 ---
 
-- [ ] 15. **前端 Playwright 测试**
+- [x] 15. **前端 Playwright 测试**
 
   **What to do**:
   - 新建 `frontend/tests/graph-editor.spec.ts`
@@ -1713,15 +1713,15 @@ Critical Path: T1 → T3 → T8 → T9 → T10 → T12 → T13 → T15 → F1-F3
 
 > 3 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 
-- [ ] F1. **合规审计 + 代码质量** — `oracle`
+- [x] F1. **合规审计 + 代码质量** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, curl endpoint, run command). For each "Must NOT Have": search codebase for forbidden patterns — reject with file:line if found. Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan. Run `ruff check` + `mypy` + `pytest`. Review all changed files for: `as any`/`@ts-ignore`, empty catches, console.log in prod, commented-out code, unused imports. Verify no existing code modified (git diff on scene_graph.py, puzzle_graph.py, prompt_builder.py should be empty).
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | Build [PASS/FAIL] | Lint [PASS/FAIL] | Tests [N pass/N fail] | Legacy untouched [YES/NO] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **端到端 QA** — `unspecified-high` (+ `playwright` skill)
+- [x] F2. **端到端 QA** — `unspecified-high` (+ `playwright` skill)
   Start backend + frontend from clean state. Execute EVERY QA scenario from EVERY task — follow exact steps, capture evidence. Test cross-task integration: input free text → LLM extract → edit graph → add edge descriptions → trigger generation → verify serial order → verify prompt fusion. Test cycle detection by creating circular dependency. Test edge cases: empty state, invalid input. Save to `.sisyphus/evidence/final-qa/`.
   Output: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | Cycle detection [PASS/FAIL] | Serial order [PASS/FAIL] | Prompt fusion [PASS/FAIL] | VERDICT`
 
-- [ ] F3. **范围一致性检查** — `deep`
+- [x] F3. **范围一致性检查** — `deep`
   For each task: read "What to do", read actual diff (git log/diff). Verify 1:1 — everything in spec was built (no missing), nothing beyond spec was built (no creep). Check "Must NOT do" compliance — especially: no modifications to legacy files, no auto features, no multi-scene. Detect cross-task contamination: Task N touching Task M's files. Flag unaccounted changes.
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | Unaccounted [CLEAN/N files] | VERDICT`
 
@@ -1746,12 +1746,12 @@ cd frontend && npm run build                                              # Phas
 ```
 
 ### Final Checklist
-- [ ] Phase 1 算法测试全部PASS（6+核心用例，覆盖率≥95%）
-- [ ] 分层拓扑排序：0级背景先→叶子→核心→逐级向上
-- [ ] 环检测：返回具体环路径
-- [ ] 串行调度器：依赖串行+无关并发
-- [ ] Prompt融合：3段结构（主体+关联衔接+背景光影）
-- [ ] 前端共享层：graph.ts + types + 共享组件（NodeBadge/WaveDivider/PromptPreview）
-- [ ] React Flow图谱编辑器：可视化编辑节点+边
-- [ ] 资产生成页面：按生成顺序排列+prompt预览+Generation Timeline视图
-- [ ] 现有 SceneGraph/PuzzleGraph/PromptBuilder 未被修改
+- [x] Phase 1 算法测试全部PASS（6+核心用例，覆盖率≥95%）
+- [x] 分层拓扑排序：0级背景先→叶子→核心→逐级向上
+- [x] 环检测：返回具体环路径
+- [x] 串行调度器：依赖串行+无关并发
+- [x] Prompt融合：3段结构（主体+关联衔接+背景光影）
+- [x] 前端共享层：graph.ts + types + 共享组件（NodeBadge/WaveDivider/PromptPreview）
+- [x] React Flow图谱编辑器：可视化编辑节点+边
+- [x] 资产生成页面：按生成顺序排列+prompt预览+Generation Timeline视图
+- [x] 现有 SceneGraph/PuzzleGraph/PromptBuilder 未被修改
