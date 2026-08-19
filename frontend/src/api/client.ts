@@ -35,3 +35,35 @@ export const apiClient = {
     return res.json();
   },
 };
+
+export class ApiError extends Error {
+  constructor(public status: number, public body: unknown) {
+    super(`HTTP ${status}`);
+    this.name = 'ApiError';
+  }
+}
+
+export async function fetchJson<T>(
+  url: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<T> {
+  const timeoutMs = init?.timeoutMs ?? TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(response.status, body);
+    }
+
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
