@@ -1,0 +1,243 @@
+# 标签+枚举词典 - 断点A数据层
+# 来源：.sisyphus/drafts/A模块层级图-含断点.md L105-130
+# 结构：维度 -> 标签 -> 封闭枚举值列表
+#
+# 6维约束维度（ConstraintDimension）
+LAW:
+  world_structure:
+    - FLOATING_ISLANDS
+    - SPHERE
+    - TREE
+    - FLAT_PLANE
+    - TORUS
+    - TOWER
+    - CAVE_SYSTEM
+    - OCEAN_WORLD
+
+  gravity:
+    - HIGH
+    - NORMAL
+    - LOW
+    - ZERO
+    - "TRUE"
+    - "FALSE"
+    - VARIABLE
+
+  conservation:
+    - "TRUE"
+    - "FALSE"
+    - PARTIAL
+    - THEME_BASED
+    - NARRATIVE_OVERRIDE
+
+  divine_intervention:
+    - NONE
+    - SUBTLE
+    - MODERATE
+    - DIRECT
+    - MIRACULOUS
+
+  afterlife:
+    - NONE
+    - SPIRIT_WORLD
+    - REINCARNATION
+    - ASCENSION
+    - DESCENT
+    - CYCLE
+
+ACT:
+  dice_mode:
+    - LINEAR_D20
+    - D100
+    - BELL_CURVE_3D6
+    - D10
+    - CARD_BASED
+    - DICELESS
+
+  check_direction:
+    - PLAYER_CALLS
+    - GM_CALLS
+    - AUTOMATED
+    - HYBRID
+    - NARRATIVE_FIRST
+
+  cost_function:
+    - LINEAR
+    - EXPONENTIAL
+    - FIXED
+    - SCENARIO_BASED
+    - DRAMA_BASED
+
+  core_action:
+    - ATTACK
+    - DEFEND
+    - SKILL_CHECK
+    - SOCIAL
+    - EXPLORE
+    - REST
+    - CRAFT
+
+NAR:
+  era_stage:
+    - PRIMORDIAL
+    - ANCIENT
+    - MEDIEVAL
+    - RENAISSANCE
+    - INDUSTRIAL
+    - MODERN
+    - FUTURE
+    - POST_APOCALYPTIC
+
+  time_mode:
+    - LINEAR
+    - CYCLICAL
+    - BRANCHING
+    - PARALLEL
+    - FLASHBACKS
+    - NON_LINEAR
+
+  trajectory:
+    - EPISODIC
+    - SERIALIZED
+    - ANTHOLOGY
+    - SANDOX
+    - RAILROAD
+    - EMERGENT
+
+  success_granularity:
+    - BINARY
+    - DEGREES
+    - NARRATIVE
+    - CONDITIONAL
+    - CATASTROPHIC
+
+WST:
+  cost_type:
+    - HEALTH
+    - MANA
+    - STAMINA
+    - RESOURCES
+    - REPUTATION
+    - TIME
+    - KARMA
+
+  feedback_loop:
+    - IMMEDIATE
+    - DELAYED
+    - CUMULATIVE
+    - DIMINISHING
+    - ESCALATING
+    - NONE
+
+  climate_zone:
+    - TROPICAL
+    - TEMPERATE
+    - ARCTIC
+    - DESERT
+    - OCEANIC
+    - ALPINE
+    - SUBTERRANEAN
+    - AETHERIAL
+
+  power_saturation:
+    - SCARCE
+    - LOW
+    - MODERATE
+    - HIGH
+    - OVERFLOWING
+    - CHAOTIC
+
+SOC:
+  political_type:
+    - ANARCHY
+    - TRIBAL
+    - FEUDAL
+    - MONARCHY
+    - DEMOCRACY
+    - AUTOCRACY
+    - MAGOCRACY
+    - TECHNOCRACY
+    - THEOCRACY
+
+  access_topology:
+    - OPEN
+    - RESTRICTED
+    - HIERARCHICAL
+    - GATED
+    - SECRETIVE
+    - SEGMENTED
+
+  threshold:
+    - FIXED
+    - DYNAMIC
+    - CUMULATIVE
+    - DISCRETIONARY
+    - EMERGENCY
+    - RITUAL
+
+  economy_type:
+    - SUBSISTENCE
+    - BARTER
+    - CURRENCY
+    - RESOURCE_BASED
+    - GUILD_CONTROLLED
+    - BLACK_MARKET
+    - GIFT_ECONOMY
+
+RED:
+  forbidden_categories:
+    - SEXUAL_EXPLICIT
+    - HATE_SPEECH
+    - SELF_HARM
+    - EXTREME_VIOLENCE
+    - ILLEGAL_ACTIVITIES
+
+  severity:
+    - BLOCK
+    - WARN
+    - FILTER
+
+# A2新增组
+LOC:
+  loc_topology:
+    - LINEAR
+    - HUB_AND_SPOKE
+    - MESH
+    - TREE
+    - RING
+    - CLUSTERED
+    - OVERWORLD_MAP
+    - DUNGEON_CRAWL
+
+  loc_connectivity:
+    - FULLY_CONNECTED
+    - BOTTLENECKS
+    - GATED
+    - DISCOVERABLE
+    - DYNAMIC
+    - CONDITIONAL
+
+STY:
+  style_keywords:
+    - CYBERPUNK
+    - FANTASY
+    - HORROR
+    - STEAMPUNK
+    - SCIFI
+    - DARK_FANTASY
+    - URBAN_FANTASY
+    - WESTERN
+    - POST_APOCALYPTIC
+    - MYTHOLOGICAL
+
+  architecture_style:
+    - GOTHIC
+    - BRUTALIST
+    - ORGANIC
+    - GEOMETRIC
+    - RUINED
+    - CRYSTALLINE
+    - MACHINATED
+    - ANCIENT
+    - FUTURISTIC
+    - SUBTERRANEAN
