@@ -45,11 +45,46 @@ class GraphStore:
         return self._connection
 
     async def init_db(self) -> None:
-        """Create graph tables if they do not exist."""
+        """Create graph tables if they do not exist.
+
+        Also runs migration to add new columns for backward compatibility.
+        """
         conn = await self._get_connection()
         await conn.execute(CREATE_GRAPH_NODES_TABLE_SQL)
         await conn.execute(CREATE_GRAPH_EDGES_TABLE_SQL)
+
+        # Migration: Add new columns if they don't exist (backward compatible)
+        await self._migrate_add_graph_columns(conn)
+
         await conn.commit()
+
+    async def _migrate_add_graph_columns(self, conn: aiosqlite.Connection) -> None:
+        """Add status, parent_graph_code, and change_set columns to graph_nodes.
+
+        This migration is idempotent - it checks if columns exist before adding them.
+        Ensures backward compatibility with databases created before T5.
+        """
+        # Check existing columns
+        cursor = await conn.execute("PRAGMA table_info(graph_nodes)")
+        existing_columns = await cursor.fetchall()
+        await cursor.close()
+
+        column_names = {col[1] for col in existing_columns}  # col[1] is the name
+
+        # Add status column if not exists (reusing existing status field)
+        # Note: status already exists in old schema, so we don't add it again
+
+        # Add parent_graph_code column if not exists
+        if "parent_graph_code" not in column_names:
+            await conn.execute(
+                "ALTER TABLE graph_nodes ADD COLUMN parent_graph_code TEXT"
+            )
+
+        # Add change_set column if not exists (JSON string)
+        if "change_set" not in column_names:
+            await conn.execute(
+                "ALTER TABLE graph_nodes ADD COLUMN change_set TEXT"
+            )
 
     # ------------------------------------------------------------------
     # Whole-graph operations

@@ -34,9 +34,15 @@ class StateRepository:
         return self._connection
 
     async def init_db(self) -> None:
-        """Create table if not exists."""
+        """Create table if not exists and enable WAL mode."""
         conn = await self._get_connection()
         await conn.execute(CREATE_TABLE_SQL)
+
+        # Enable WAL mode for better concurrent read/write performance
+        # WAL allows readers to proceed without blocking writers
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+
         await conn.commit()
 
     async def get_state(self, player_id: str = "player_001") -> PlayerState | None:
