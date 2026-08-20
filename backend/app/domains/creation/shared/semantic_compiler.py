@@ -17,11 +17,11 @@
         - 创新语句（分类/提案）：返回classification_proposal等待用户确认
 """
 
-from typing import Protocol, Optional
-from pydantic import BaseModel, field_validator, model_validator
+from typing import Protocol, runtime_checkable
+from pydantic import BaseModel, Field
 
 
-class Write(BaseModel):
+class FieldWrite(BaseModel):
     """写入字段指令"""
     field: str
     value: str
@@ -30,7 +30,7 @@ class Write(BaseModel):
 class Suggestion(BaseModel):
     """分类建议"""
     field: str
-    category: str = "其他"
+    category: str = "其他"  # "其他"仅存不一致内容
 
 
 class ClassificationProposal(BaseModel):
@@ -46,25 +46,11 @@ class CompileResult(BaseModel):
         - 创新语句 → classification_proposal（有值），writes=[]
         - 两者互斥，不能同时有值
     """
-    writes: list[Write] = []
-    classification_proposal: Optional[ClassificationProposal] = None
-    source: str = ""  # seed|rule|llm|unresolved
-
-    @model_validator(mode='after')
-    def validate_exclusive_result(self):
-        """验证二选一不变式：writes和proposal互斥"""
-        has_writes = len(self.writes) > 0
-        has_proposal = self.classification_proposal is not None
-
-        if has_writes and has_proposal:
-            raise ValueError(
-                "CompileResult违反二选一不变式："
-                "writes和classification_proposal不能同时有值"
-            )
-
-        return self
+    writes: list[FieldWrite] = Field(default_factory=list)
+    classification_proposal: ClassificationProposal | None = None
 
 
+@runtime_checkable
 class SemanticCompiler(Protocol):
     """语义编译器契约
     
@@ -90,47 +76,44 @@ class FakeCompiler:
     """确定性假实现 - 用于测试
     
     规则：
-        - 包含"设定"的文本 → 常规write（模拟Level1种子库匹配）
-        - 包含"分类"的文本 → 分类提案（模拟创新语句）
-        - 其他文本 → 默认write（兜底处理）
+        - 接受 rules 参数（字典：关键词 → FieldWrite列表）
+        - 文本包含关键词 → 返回对应的 writes
+        - 文本不包含任何规则 → 返回 classification_proposal
+        - 大小写不敏感匹配
     
     注意：
         这是骨架实现，仅用于契约验证和测试。
         真实的词典匹配和LLM调用在断点A任务（T-A）中实现。
     """
     
+    def __init__(self, rules: dict[str, list[FieldWrite]] | None = None) -> None:
+        """初始化假编译器
+        
+        Args:
+            rules: 关键词到写入列表的映射
+        """
+        self._rules: dict[str, list[FieldWrite]] = rules or {}
+    
     def compile(self, session_id: str, text: str) -> CompileResult:
         """编译自然语言为结构化指令（假实现）"""
         
-        if "设定" in text:
-            # 模拟常规语句：提取字段设定
-            # 示例: "设定标题为xxx" → Write(field="标题", value="xxx")
-            parts = text.replace("设定", "").replace("为", "｜").split("｜")
-            if len(parts) >= 2:
-                field = parts[0].strip()
-                value = parts[1].strip()
-                return CompileResult(
-                    writes=[Write(field=field, value=value)],
-                    classification_proposal=None,
-                    source="seed"
-                )
+        # 收集所有匹配的规则
+        matched_writes: list[FieldWrite] = []
+        text_lower = text.lower()
         
-        elif "分类" in text:
-            # 模拟创新语句：返回分类提案
-            # 示例: "这是一个分类语句" → ClassificationProposal
-            return CompileResult(
-                writes=[],
-                classification_proposal=ClassificationProposal(
-                    suggestions=[
-                        Suggestion(field="content", category="创新")
-                    ]
-                ),
-                source="rule"
-            )
+        for keyword, writes in self._rules.items():
+            if keyword.lower() in text_lower:
+                matched_writes.extend(writes)
         
-        # 兜底：默认为常规write
+        # 如果有匹配规则，返回 writes
+        if matched_writes:
+            return CompileResult(writes=matched_writes)
+        
+        # 无匹配规则，返回分类提案
         return CompileResult(
-            writes=[Write(field="content", value=text)],
-            classification_proposal=None,
-            source="unresolved"
+            classification_proposal=ClassificationProposal(
+                suggestions=[
+                    Suggestion(field="content", category="其他")
+                ]
+            )
         )

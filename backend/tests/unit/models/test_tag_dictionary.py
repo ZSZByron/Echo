@@ -235,7 +235,95 @@ class TestTagDictionaryTDD:
             assert dim_name in data, f"YAML missing dimension: {dim_name}"
             assert isinstance(data[dim_name], dict), f"Dimension {dim_name} must be a mapping"
 
-            # Each dimension should contain tags
-            for tag_name, enum_values in data[dim_name].items():
-                assert isinstance(enum_values, list), f"{dim_name}.{tag_name} values must be a list"
-                assert len(enum_values) > 0, f"{dim_name}.{tag_name} has empty enum list"
+            # Each dimension should contain tags with attested/proposed structure
+            for tag_name, tag_data in data[dim_name].items():
+                # New layered structure
+                assert isinstance(tag_data, dict), f"{dim_name}.{tag_name} must be a mapping"
+                assert "attested" in tag_data, f"{dim_name}.{tag_name} missing 'attested' key"
+                assert "proposed" in tag_data, f"{dim_name}.{tag_name} missing 'proposed' key"
+                assert isinstance(tag_data["attested"], list), f"{dim_name}.{tag_name}.attested must be list"
+                assert isinstance(tag_data["proposed"], list), f"{dim_name}.{tag_name}.proposed must be list"
+
+                # Combined list should be non-empty
+                combined = tag_data["attested"] + tag_data["proposed"]
+                assert len(combined) > 0, f"{dim_name}.{tag_name} has empty combined enum list"
+
+    def test_layered_api_methods_work(self):
+        """Test that the new layered API methods work correctly."""
+        from app.models.tag_dictionary import load_tag_dictionary
+
+        dictionary = load_tag_dictionary()
+
+        # Test get_enum_values (returns merged attested + proposed)
+        law_world = dictionary.get_enum_values("LAW", "world_structure")
+        assert "FLOATING_ISLANDS" in law_world, "Should contain attested value FLOATING_ISLANDS"
+        assert "FLAT_PLANE" in law_world, "Should contain proposed value FLAT_PLANE"
+
+        # Test get_attested_values (returns only attested)
+        attested = dictionary.get_attested_values("LAW", "world_structure")
+        assert "FLOATING_ISLANDS" in attested, "Attested should contain FLOATING_ISLANDS"
+        assert "FLAT_PLANE" not in attested, "Attested should not contain proposed value FLAT_PLANE"
+
+        # Test get_proposed_values (returns only proposed)
+        proposed = dictionary.get_proposed_values("LAW", "world_structure")
+        assert "FLOATING_ISLANDS" not in proposed, "Proposed should not contain attested value"
+        assert "FLAT_PLANE" in proposed, "Proposed should contain FLAT_PLANE"
+
+    def test_attested_values_match_hierarchy_l105_130(self):
+        """Test that attested values match hierarchy diagram L105-130 exactly."""
+        from app.models.tag_dictionary import load_tag_dictionary
+
+        dictionary = load_tag_dictionary()
+
+        # world_structure: FLOATING_ISLANDS / SPHERE / TREE(+"/...")
+        law_world_attested = dictionary.get_attested_values("LAW", "world_structure")
+        assert "FLOATING_ISLANDS" in law_world_attested, "Must contain FLOATING_ISLANDS from hierarchy"
+        assert "SPHERE" in law_world_attested, "Must contain SPHERE from hierarchy"
+        assert "TREE" in law_world_attested, "Must contain TREE from hierarchy"
+        assert len(law_world_attested) == 3, "world_structure should have exactly 3 attested values"
+
+        # gravity: HIGH
+        law_gravity_attested = dictionary.get_attested_values("LAW", "gravity")
+        assert "HIGH" in law_gravity_attested, "Must contain HIGH from hierarchy"
+        assert len(law_gravity_attested) == 1, "gravity should have exactly 1 attested value"
+
+        # conservation: TRUE
+        law_conservation_attested = dictionary.get_attested_values("LAW", "conservation")
+        assert "TRUE" in law_conservation_attested, "Must contain TRUE from hierarchy"
+        assert len(law_conservation_attested) == 1, "conservation should have exactly 1 attested value"
+
+    def test_gravity_does_not_contain_true_false(self):
+        """Test that gravity no longer contains TRUE/FALSE (they belong to conservation)."""
+        from app.models.tag_dictionary import load_tag_dictionary
+
+        dictionary = load_tag_dictionary()
+        law_gravity = dictionary.get_enum_values("LAW", "gravity")
+
+        assert "TRUE" not in law_gravity, "gravity should not contain TRUE (belongs to conservation)"
+        assert "FALSE" not in law_gravity, "gravity should not contain FALSE (belongs to conservation)"
+        assert "HIGH" in law_gravity, "gravity should still contain HIGH"
+
+    def test_conservation_contains_true(self):
+        """Test that conservation contains TRUE (and optionally FALSE)."""
+        from app.models.tag_dictionary import load_tag_dictionary
+
+        dictionary = load_tag_dictionary()
+        law_conservation = dictionary.get_enum_values("LAW", "conservation")
+
+        assert "TRUE" in law_conservation, "conservation must contain TRUE from hierarchy"
+
+    def test_proposed_values_extension_works(self):
+        """Test that proposed values properly extend attested values."""
+        from app.models.tag_dictionary import load_tag_dictionary
+
+        dictionary = load_tag_dictionary()
+
+        # gravity should have HIGH (attested) + NORMAL/LOW/ZERO/VARIABLE (proposed)
+        gravity_all = dictionary.get_enum_values("LAW", "gravity")
+        gravity_attested = dictionary.get_attested_values("LAW", "gravity")
+        gravity_proposed = dictionary.get_proposed_values("LAW", "gravity")
+
+        assert len(gravity_attested) == 1, "gravity should have 1 attested value"
+        assert len(gravity_proposed) > 0, "gravity should have proposed extensions"
+        assert len(gravity_all) == len(gravity_attested) + len(gravity_proposed), "Total should equal attested + proposed"
+        assert set(gravity_all) == set(gravity_attested + gravity_proposed), "Combined values should match union"

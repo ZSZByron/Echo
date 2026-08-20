@@ -1,243 +1,307 @@
-# 标签+枚举词典 - 断点A数据层
-# 来源：.sisyphus/drafts/A模块层级图-含断点.md L105-130
-# 结构：维度 -> 标签 -> 封闭枚举值列表
+# 标签+枚举词典 - 断点A数据层（溯源分层版本）
+# ============================================
+# 权威源：.sisyphus/drafts/A模块层级图-含断点.md L105-130
 #
+# 结构说明：
+# - attested: 逐字来自层级图L105-130的示例枚举值（绝对权威，不允许添加或修改）
+# - proposed: 现有词典中的扩展值（视为提案，最终以用户裁决为准）
+# - 加载器默认返回 attested+proposed 合并（保持接口兼容性）
+# - 可通过 get_attested_values() 单独获取权威值
+#
+# 层级图中明确示例：
+# world_structure: FLOATING_ISLANDS / SPHERE / TREE(+"/...")
+# gravity: HIGH
+# conservation: TRUE
+# ============================================
+
 # 6维约束维度（ConstraintDimension）
 LAW:
   world_structure:
-    - FLOATING_ISLANDS
-    - SPHERE
-    - TREE
-    - FLAT_PLANE
-    - TORUS
-    - TOWER
-    - CAVE_SYSTEM
-    - OCEAN_WORLD
+    attested:
+      - FLOATING_ISLANDS
+      - SPHERE
+      - TREE
+    proposed:
+      - FLAT_PLANE
+      - TORUS
+      - TOWER
+      - CAVE_SYSTEM
+      - OCEAN_WORLD
 
   gravity:
-    - HIGH
-    - NORMAL
-    - LOW
-    - ZERO
-    - "TRUE"
-    - "FALSE"
-    - VARIABLE
+    attested:
+      - HIGH
+    proposed:
+      - NORMAL
+      - LOW
+      - ZERO
+      - VARIABLE
 
   conservation:
-    - "TRUE"
-    - "FALSE"
-    - PARTIAL
-    - THEME_BASED
-    - NARRATIVE_OVERRIDE
+    attested:
+      - "TRUE"
+    proposed:
+      - "FALSE"
+      - PARTIAL
+      - THEME_BASED
+      - NARRATIVE_OVERRIDE
 
   divine_intervention:
-    - NONE
-    - SUBTLE
-    - MODERATE
-    - DIRECT
-    - MIRACULOUS
+    attested: []
+    proposed:
+      - NONE
+      - SUBTLE
+      - MODERATE
+      - DIRECT
+      - MIRACULOUS
 
   afterlife:
-    - NONE
-    - SPIRIT_WORLD
-    - REINCARNATION
-    - ASCENSION
-    - DESCENT
-    - CYCLE
+    attested: []
+    proposed:
+      - NONE
+      - SPIRIT_WORLD
+      - REINCARNATION
+      - ASCENSION
+      - DESCENT
+      - CYCLE
 
 ACT:
   dice_mode:
-    - LINEAR_D20
-    - D100
-    - BELL_CURVE_3D6
-    - D10
-    - CARD_BASED
-    - DICELESS
+    attested: []
+    proposed:
+      - LINEAR_D20
+      - D100
+      - BELL_CURVE_3D6
+      - D10
+      - CARD_BASED
+      - DICELESS
 
   check_direction:
-    - PLAYER_CALLS
-    - GM_CALLS
-    - AUTOMATED
-    - HYBRID
-    - NARRATIVE_FIRST
+    attested: []
+    proposed:
+      - PLAYER_CALLS
+      - GM_CALLS
+      - AUTOMATED
+      - HYBRID
+      - NARRATIVE_FIRST
 
   cost_function:
-    - LINEAR
-    - EXPONENTIAL
-    - FIXED
-    - SCENARIO_BASED
-    - DRAMA_BASED
+    attested: []
+    proposed:
+      - LINEAR
+      - EXPONENTIAL
+      - FIXED
+      - SCENARIO_BASED
+      - DRAMA_BASED
 
   core_action:
-    - ATTACK
-    - DEFEND
-    - SKILL_CHECK
-    - SOCIAL
-    - EXPLORE
-    - REST
-    - CRAFT
+    attested: []
+    proposed:
+      - ATTACK
+      - DEFEND
+      - SKILL_CHECK
+      - SOCIAL
+      - EXPLORE
+      - REST
+      - CRAFT
 
 NAR:
   era_stage:
-    - PRIMORDIAL
-    - ANCIENT
-    - MEDIEVAL
-    - RENAISSANCE
-    - INDUSTRIAL
-    - MODERN
-    - FUTURE
-    - POST_APOCALYPTIC
+    attested: []
+    proposed:
+      - PRIMORDIAL
+      - ANCIENT
+      - MEDIEVAL
+      - RENAISSANCE
+      - INDUSTRIAL
+      - MODERN
+      - FUTURE
+      - POST_APOCALYPTIC
 
   time_mode:
-    - LINEAR
-    - CYCLICAL
-    - BRANCHING
-    - PARALLEL
-    - FLASHBACKS
-    - NON_LINEAR
+    attested: []
+    proposed:
+      - LINEAR
+      - CYCLICAL
+      - BRANCHING
+      - PARALLEL
+      - FLASHBACKS
+      - NON_LINEAR
 
   trajectory:
-    - EPISODIC
-    - SERIALIZED
-    - ANTHOLOGY
-    - SANDOX
-    - RAILROAD
-    - EMERGENT
+    attested: []
+    proposed:
+      - EPISODIC
+      - SERIALIZED
+      - ANTHOLOGY
+      - SANDOX
+      - RAILROAD
+      - EMERGENT
 
   success_granularity:
-    - BINARY
-    - DEGREES
-    - NARRATIVE
-    - CONDITIONAL
-    - CATASTROPHIC
+    attested: []
+    proposed:
+      - BINARY
+      - DEGREES
+      - NARRATIVE
+      - CONDITIONAL
+      - CATASTROPHIC
 
 WST:
   cost_type:
-    - HEALTH
-    - MANA
-    - STAMINA
-    - RESOURCES
-    - REPUTATION
-    - TIME
-    - KARMA
+    attested: []
+    proposed:
+      - HEALTH
+      - MANA
+      - STAMINA
+      - RESOURCES
+      - REPUTATION
+      - TIME
+      - KARMA
 
   feedback_loop:
-    - IMMEDIATE
-    - DELAYED
-    - CUMULATIVE
-    - DIMINISHING
-    - ESCALATING
-    - NONE
+    attested: []
+    proposed:
+      - IMMEDIATE
+      - DELAYED
+      - CUMULATIVE
+      - DIMINISHING
+      - ESCALATING
+      - NONE
 
   climate_zone:
-    - TROPICAL
-    - TEMPERATE
-    - ARCTIC
-    - DESERT
-    - OCEANIC
-    - ALPINE
-    - SUBTERRANEAN
-    - AETHERIAL
+    attested: []
+    proposed:
+      - TROPICAL
+      - TEMPERATE
+      - ARCTIC
+      - DESERT
+      - OCEANIC
+      - ALPINE
+      - SUBTERRANEAN
+      - AETHERIAL
 
   power_saturation:
-    - SCARCE
-    - LOW
-    - MODERATE
-    - HIGH
-    - OVERFLOWING
-    - CHAOTIC
+    attested: []
+    proposed:
+      - SCARCE
+      - LOW
+      - MODERATE
+      - HIGH
+      - OVERFLOWING
+      - CHAOTIC
 
 SOC:
   political_type:
-    - ANARCHY
-    - TRIBAL
-    - FEUDAL
-    - MONARCHY
-    - DEMOCRACY
-    - AUTOCRACY
-    - MAGOCRACY
-    - TECHNOCRACY
-    - THEOCRACY
+    attested: []
+    proposed:
+      - ANARCHY
+      - TRIBAL
+      - FEUDAL
+      - MONARCHY
+      - DEMOCRACY
+      - AUTOCRACY
+      - MAGOCRACY
+      - TECHNOCRACY
+      - THEOCRACY
 
   access_topology:
-    - OPEN
-    - RESTRICTED
-    - HIERARCHICAL
-    - GATED
-    - SECRETIVE
-    - SEGMENTED
+    attested: []
+    proposed:
+      - OPEN
+      - RESTRICTED
+      - HIERARCHICAL
+      - GATED
+      - SECRETIVE
+      - SEGMENTED
 
   threshold:
-    - FIXED
-    - DYNAMIC
-    - CUMULATIVE
-    - DISCRETIONARY
-    - EMERGENCY
-    - RITUAL
+    attested: []
+    proposed:
+      - FIXED
+      - DYNAMIC
+      - CUMULATIVE
+      - DISCRETIONARY
+      - EMERGENCY
+      - RITUAL
 
   economy_type:
-    - SUBSISTENCE
-    - BARTER
-    - CURRENCY
-    - RESOURCE_BASED
-    - GUILD_CONTROLLED
-    - BLACK_MARKET
-    - GIFT_ECONOMY
+    attested: []
+    proposed:
+      - SUBSISTENCE
+      - BARTER
+      - CURRENCY
+      - RESOURCE_BASED
+      - GUILD_CONTROLLED
+      - BLACK_MARKET
+      - GIFT_ECONOMY
 
 RED:
   forbidden_categories:
-    - SEXUAL_EXPLICIT
-    - HATE_SPEECH
-    - SELF_HARM
-    - EXTREME_VIOLENCE
-    - ILLEGAL_ACTIVITIES
+    attested: []
+    proposed:
+      - SEXUAL_EXPLICIT
+      - HATE_SPEECH
+      - SELF_HARM
+      - EXTREME_VIOLENCE
+      - ILLEGAL_ACTIVITIES
 
   severity:
-    - BLOCK
-    - WARN
-    - FILTER
+    attested: []
+    proposed:
+      - BLOCK
+      - WARN
+      - FILTER
 
 # A2新增组
 LOC:
   loc_topology:
-    - LINEAR
-    - HUB_AND_SPOKE
-    - MESH
-    - TREE
-    - RING
-    - CLUSTERED
-    - OVERWORLD_MAP
-    - DUNGEON_CRAWL
+    attested: []
+    proposed:
+      - LINEAR
+      - HUB_AND_SPOKE
+      - MESH
+      - TREE
+      - RING
+      - CLUSTERED
+      - OVERWORLD_MAP
+      - DUNGEON_CRAWL
 
   loc_connectivity:
-    - FULLY_CONNECTED
-    - BOTTLENECKS
-    - GATED
-    - DISCOVERABLE
-    - DYNAMIC
-    - CONDITIONAL
+    attested: []
+    proposed:
+      - FULLY_CONNECTED
+      - BOTTLENECKS
+      - GATED
+      - DISCOVERABLE
+      - DYNAMIC
+      - CONDITIONAL
 
 STY:
   style_keywords:
-    - CYBERPUNK
-    - FANTASY
-    - HORROR
-    - STEAMPUNK
-    - SCIFI
-    - DARK_FANTASY
-    - URBAN_FANTASY
-    - WESTERN
-    - POST_APOCALYPTIC
-    - MYTHOLOGICAL
+    attested: []
+    proposed:
+      - CYBERPUNK
+      - FANTASY
+      - HORROR
+      - STEAMPUNK
+      - SCIFI
+      - DARK_FANTASY
+      - URBAN_FANTASY
+      - WESTERN
+      - POST_APOCALYPTIC
+      - MYTHOLOGICAL
 
   architecture_style:
-    - GOTHIC
-    - BRUTALIST
-    - ORGANIC
-    - GEOMETRIC
-    - RUINED
-    - CRYSTALLINE
-    - MACHINATED
-    - ANCIENT
-    - FUTURISTIC
-    - SUBTERRANEAN
+    attested: []
+    proposed:
+      - GOTHIC
+      - BRUTALIST
+      - ORGANIC
+      - GEOMETRIC
+      - RUINED
+      - CRYSTALLINE
+      - MACHINATED
+      - ANCIENT
+      - FUTURISTIC
+      - SUBTERRANEAN
