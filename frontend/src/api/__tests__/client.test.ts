@@ -3,7 +3,7 @@ import { fetchJson, ApiError } from '../client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.stubGlobal('fetch', mockFetch);
 
 describe('fetchJson', () => {
   beforeEach(() => {
