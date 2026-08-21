@@ -71,60 +71,49 @@ class TestTagDictionary:
         assert "style_keywords" in data["STY"]
         assert "architecture_style" in data["STY"]
 
-    def test_each_tag_has_layered_structure(self):
-        """Each tag has attested/proposed layered structure."""
+    def test_each_tag_has_values_structure(self):
+        """Each tag has 'values' key with flat list (post-ruling A structure)."""
         with open(TAG_DICT_PATH, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         for dim_name, dim_data in data.items():
             for tag_name, tag_data in dim_data.items():
-                assert "attested" in tag_data, f"{dim_name}.{tag_name} missing attested key"
-                assert "proposed" in tag_data, f"{dim_name}.{tag_name} missing proposed key"
-                assert isinstance(tag_data["attested"], list), f"{dim_name}.{tag_name} attested must be list"
-                assert isinstance(tag_data["proposed"], list), f"{dim_name}.{tag_name} proposed must be list"
-                # Combined should be non-empty
-                combined = tag_data["attested"] + tag_data["proposed"]
-                assert len(combined) > 0, f"{dim_name}.{tag_name} combined values cannot be empty"
+                assert "values" in tag_data, f"{dim_name}.{tag_name} missing 'values' key"
+                assert isinstance(tag_data["values"], list), f"{dim_name}.{tag_name} values must be list"
+                # Values list should be non-empty
+                assert len(tag_data["values"]) > 0, f"{dim_name}.{tag_name} values list cannot be empty"
 
     def test_enum_values_match_hierarchy_diagram(self):
         """Sample enum values match hierarchy diagram (A模块层级图-含断点.md L105-130)."""
         with open(TAG_DICT_PATH, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
-        # Spot-check LAW attested values (from example: FLOATING_ISLANDS, SPHERE, TREE)
-        law_world_attested = data["LAW"]["world_structure"]["attested"]
-        assert "FLOATING_ISLANDS" in law_world_attested, "Must contain FLOATING_ISLANDS from hierarchy"
-        assert "SPHERE" in law_world_attested, "Must contain SPHERE from hierarchy"
-        assert "TREE" in law_world_attested, "Must contain TREE from hierarchy"
+        # Spot-check LAW world_structure values (from example: FLOATING_ISLANDS, SPHERE, TREE)
+        law_world_values = data["LAW"]["world_structure"]["values"]
+        assert "FLOATING_ISLANDS" in law_world_values, "Must contain FLOATING_ISLANDS from hierarchy"
+        assert "SPHERE" in law_world_values, "Must contain SPHERE from hierarchy"
+        assert "TREE" in law_world_values, "Must contain TREE from hierarchy"
 
-        # Spot-check LAW gravity attested (from example: HIGH)
-        law_gravity_attested = data["LAW"]["gravity"]["attested"]
-        assert "HIGH" in law_gravity_attested, "Must contain HIGH from hierarchy"
+        # Spot-check LAW gravity values (from example: HIGH)
+        law_gravity_values = data["LAW"]["gravity"]["values"]
+        assert "HIGH" in law_gravity_values, "Must contain HIGH from hierarchy"
 
-        # Spot-check LAW conservation attested (from example: TRUE)
-        law_conservation_attested = data["LAW"]["conservation"]["attested"]
-        assert "TRUE" in law_conservation_attested, "Must contain TRUE from hierarchy"
+        # Spot-check LAW conservation values (from example: TRUE)
+        law_conservation_values = data["LAW"]["conservation"]["values"]
+        assert "TRUE" in law_conservation_values, "Must contain TRUE from hierarchy"
 
         # Verify ACT has dice_mode (plan requirement)
-        act_dice_attested = data["ACT"]["dice_mode"]["attested"]
-        act_dice_proposed = data["ACT"]["dice_mode"]["proposed"]
-        act_dice_all = act_dice_attested + act_dice_proposed
-        assert len(act_dice_all) > 0, "dice_mode must have enum values"
+        act_dice_values = data["ACT"]["dice_mode"]["values"]
+        assert len(act_dice_values) > 0, "dice_mode must have enum values"
 
         # Verify NAR has era_stage (plan requirement)
-        nar_era_attested = data["NAR"]["era_stage"]["attested"]
-        nar_era_proposed = data["NAR"]["era_stage"]["proposed"]
-        nar_era_all = nar_era_attested + nar_era_proposed
-        assert len(nar_era_all) > 0, "era_stage must have enum values"
+        nar_era_values = data["NAR"]["era_stage"]["values"]
+        assert len(nar_era_values) > 0, "era_stage must have enum values"
 
         # Verify WST has cost_type (plan requirement)
-        wst_cost_attested = data["WST"]["cost_type"]["attested"]
-        wst_cost_proposed = data["WST"]["cost_type"]["proposed"]
-        wst_cost_all = wst_cost_attested + wst_cost_proposed
-        assert len(wst_cost_all) > 0, "cost_type must have enum values"
+        wst_cost_values = data["WST"]["cost_type"]["values"]
+        assert len(wst_cost_values) > 0, "cost_type must have enum values"
 
         # Verify SOC has political_type (plan requirement)
-        soc_political_attested = data["SOC"]["political_type"]["attested"]
-        soc_political_proposed = data["SOC"]["political_type"]["proposed"]
-        soc_political_all = soc_political_attested + soc_political_proposed
-        assert len(soc_political_all) > 0, "political_type must have enum values"
+        soc_political_values = data["SOC"]["political_type"]["values"]
+        assert len(soc_political_values) > 0, "political_type must have enum values"

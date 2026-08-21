@@ -1,12 +1,10 @@
-# 标签+枚举词典 - 断点A数据层（溯源分层版本）
+# 标签+枚举词典 - 断点A数据层（裁决A转正版本）
 # ============================================
-# 权威源：.sisyphus/drafts/A模块层级图-含断点.md L105-130
+# 来源: 层级图L105-130 attested值 + 2026-08-21用户裁决A转正的扩展值（原proposed）
 #
 # 结构说明：
-# - attested: 逐字来自层级图L105-130的示例枚举值（绝对权威，不允许添加或修改）
-# - proposed: 现有词典中的扩展值（视为提案，最终以用户裁决为准）
-# - 加载器默认返回 attested+proposed 合并（保持接口兼容性）
-# - 可通过 get_attested_values() 单独获取权威值
+# - values: 合并后的枚举值列表（attested + proposed，已转正）
+# - 2026-08-21 用户裁决A批准：所有 proposed 值转正为正式枚举值
 #
 # 层级图中明确示例：
 # world_structure: FLOATING_ISLANDS / SPHERE / TREE(+"/...")
@@ -17,11 +15,10 @@
 # 6维约束维度（ConstraintDimension）
 LAW:
   world_structure:
-    attested:
+    values:
       - FLOATING_ISLANDS
       - SPHERE
       - TREE
-    proposed:
       - FLAT_PLANE
       - TORUS
       - TOWER
@@ -29,26 +26,22 @@ LAW:
       - OCEAN_WORLD
 
   gravity:
-    attested:
+    values:
       - HIGH
-    proposed:
       - NORMAL
       - LOW
       - ZERO
       - VARIABLE
 
   conservation:
-    attested:
+    values:
       - "TRUE"
-    proposed:
-      - "FALSE"
       - PARTIAL
       - THEME_BASED
       - NARRATIVE_OVERRIDE
 
   divine_intervention:
-    attested: []
-    proposed:
+    values:
       - NONE
       - SUBTLE
       - MODERATE
@@ -56,8 +49,7 @@ LAW:
       - MIRACULOUS
 
   afterlife:
-    attested: []
-    proposed:
+    values:
       - NONE
       - SPIRIT_WORLD
       - REINCARNATION
@@ -67,8 +59,7 @@ LAW:
 
 ACT:
   dice_mode:
-    attested: []
-    proposed:
+    values:
       - LINEAR_D20
       - D100
       - BELL_CURVE_3D6
@@ -77,8 +68,7 @@ ACT:
       - DICELESS
 
   check_direction:
-    attested: []
-    proposed:
+    values:
       - PLAYER_CALLS
       - GM_CALLS
       - AUTOMATED
@@ -86,8 +76,7 @@ ACT:
       - NARRATIVE_FIRST
 
   cost_function:
-    attested: []
-    proposed:
+    values:
       - LINEAR
       - EXPONENTIAL
       - FIXED
@@ -95,8 +84,7 @@ ACT:
       - DRAMA_BASED
 
   core_action:
-    attested: []
-    proposed:
+    values:
       - ATTACK
       - DEFEND
       - SKILL_CHECK
@@ -107,8 +95,7 @@ ACT:
 
 NAR:
   era_stage:
-    attested: []
-    proposed:
+    values:
       - PRIMORDIAL
       - ANCIENT
       - MEDIEVAL
@@ -119,8 +106,7 @@ NAR:
       - POST_APOCALYPTIC
 
   time_mode:
-    attested: []
-    proposed:
+    values:
       - LINEAR
       - CYCLICAL
       - BRANCHING
@@ -129,8 +115,7 @@ NAR:
       - NON_LINEAR
 
   trajectory:
-    attested: []
-    proposed:
+    values:
       - EPISODIC
       - SERIALIZED
       - ANTHOLOGY
@@ -139,8 +124,7 @@ NAR:
       - EMERGENT
 
   success_granularity:
-    attested: []
-    proposed:
+    values:
       - BINARY
       - DEGREES
       - NARRATIVE
@@ -149,8 +133,7 @@ NAR:
 
 WST:
   cost_type:
-    attested: []
-    proposed:
+    values:
       - HEALTH
       - MANA
       - STAMINA
@@ -160,8 +143,7 @@ WST:
       - KARMA
 
   feedback_loop:
-    attested: []
-    proposed:
+    values:
       - IMMEDIATE
       - DELAYED
       - CUMULATIVE
@@ -170,8 +152,7 @@ WST:
       - NONE
 
   climate_zone:
-    attested: []
-    proposed:
+    values:
       - TROPICAL
       - TEMPERATE
       - ARCTIC
@@ -182,8 +163,7 @@ WST:
       - AETHERIAL
 
   power_saturation:
-    attested: []
-    proposed:
+    values:
       - SCARCE
       - LOW
       - MODERATE
@@ -193,8 +173,7 @@ WST:
 
 SOC:
   political_type:
-    attested: []
-    proposed:
+    values:
       - ANARCHY
       - TRIBAL
       - FEUDAL
@@ -206,8 +185,7 @@ SOC:
       - THEOCRACY
 
   access_topology:
-    attested: []
-    proposed:
+    values:
       - OPEN
       - RESTRICTED
       - HIERARCHICAL
@@ -216,8 +194,7 @@ SOC:
       - SEGMENTED
 
   threshold:
-    attested: []
-    proposed:
+    values:
       - FIXED
       - DYNAMIC
       - CUMULATIVE
@@ -226,8 +203,7 @@ SOC:
       - RITUAL
 
   economy_type:
-    attested: []
-    proposed:
+    values:
       - SUBSISTENCE
       - BARTER
       - CURRENCY
@@ -238,8 +214,7 @@ SOC:
 
 RED:
   forbidden_categories:
-    attested: []
-    proposed:
+    values:
       - SEXUAL_EXPLICIT
       - HATE_SPEECH
       - SELF_HARM
@@ -247,8 +222,7 @@ RED:
       - ILLEGAL_ACTIVITIES
 
   severity:
-    attested: []
-    proposed:
+    values:
       - BLOCK
       - WARN
       - FILTER
@@ -256,8 +230,7 @@ RED:
 # A2新增组
 LOC:
   loc_topology:
-    attested: []
-    proposed:
+    values:
       - LINEAR
       - HUB_AND_SPOKE
       - MESH
@@ -268,8 +241,7 @@ LOC:
       - DUNGEON_CRAWL
 
   loc_connectivity:
-    attested: []
-    proposed:
+    values:
       - FULLY_CONNECTED
       - BOTTLENECKS
       - GATED
@@ -279,8 +251,7 @@ LOC:
 
 STY:
   style_keywords:
-    attested: []
-    proposed:
+    values:
       - CYBERPUNK
       - FANTASY
       - HORROR
@@ -293,8 +264,7 @@ STY:
       - MYTHOLOGICAL
 
   architecture_style:
-    attested: []
-    proposed:
+    values:
       - GOTHIC
       - BRUTALIST
       - ORGANIC
@@ -304,4 +274,3 @@ STY:
       - MACHINATED
       - ANCIENT
       - FUTURISTIC
-      - SUBTERRANEAN
