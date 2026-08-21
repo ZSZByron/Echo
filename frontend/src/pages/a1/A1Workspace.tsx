@@ -28,17 +28,23 @@ interface SeedsResponse {
   seeds: Seed[];
 }
 
+interface QuestionPayload {
+  section: string;
+  question: string;
+  hint: string;
+}
+
 interface SessionStartResponse {
   session_id: string;
   file_id: string;
   ip_code: string;
-  first_question: string;
+  first_question: QuestionPayload | null;
   file: StructuredFile;
 }
 
 interface ChatResponse {
   reply: string;
-  next_question: string;
+  next_question: QuestionPayload | null;
   file_diff?: DiffChange[];
   progress: {
     sections: Array<{ id: string; label: string; done: boolean }>;
@@ -134,10 +140,11 @@ export function A1Workspace() {
       setFile(response.file);
       
       // Initialize messages with first question
+      const fq = response.first_question;
       setMessages([{
         id: Date.now().toString(),
         type: 'assistant',
-        text: response.first_question,
+        text: fq ? `【${fq.section}】${fq.question}` : '',
       }]);
       
       setWorkspaceState('guided_chat');
