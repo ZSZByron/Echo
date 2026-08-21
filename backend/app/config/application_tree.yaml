@@ -1,0 +1,241 @@
+# 约束应用逻辑树（断点C）— 6维约束 × 6生成层 = 36条注入映射
+# 字段（逐字对照层级图断点C节）:
+#   source_field:       从约束哪个字段读（DIM.field，field 来自 dimension.py 各 Output 模型）
+#   target_prompt_layer: 注入 PromptBuilder 哪一层（8层: world/location/camera/subject/
+#                        gameplay/interaction/material/lighting）
+#   target_node_field:  影响什么节点字段（必须是 GraphNode/GraphEdge 真实字段，
+#                       knowledge_graph.py: description/visual_description/level/... ）
+#   target_edge_type:   触发什么拓扑边（语义边标签，T-F 建边时落为 CROSS 边）
+#   transform:          用什么转换函数
+#   priority:           在该层内的注入优先级（1 最高，层内不重复）
+#
+# 注: 层级图示例值 "Geography.vertical_layer" 不是 GraphNode 真实字段（MUST NOT 虚构），
+#     语义下沉到 transform=map_to_vertical_layer_enum，注入目标用真实字段 description。
+
+world:
+  - source_field: LAW.world_structure
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_SHAPES_GEO
+    transform: map_to_vertical_layer_enum
+    priority: 1
+  - source_field: SOC.political_type
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_CULTURE_ORDER
+    transform: map_to_political_enum
+    priority: 2
+  - source_field: NAR.era_stage
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_ERA_MARK
+    transform: map_to_era_stage_enum
+    priority: 3
+  - source_field: RED.forbidden
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 4
+  - source_field: WST.climate_zone
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_CLIMATE_ZONE
+    transform: map_to_climate_enum
+    priority: 5
+  - source_field: ACT.core_action
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_ACTION_SCOPE
+    transform: map_to_action_verbs
+    priority: 6
+
+region:
+  - source_field: SOC.political_type
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_CULTURE_ORDER
+    transform: map_to_political_enum
+    priority: 1
+  - source_field: LAW.gravity
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_SHAPES_GEO
+    transform: map_to_terrain_formation
+    priority: 2
+  - source_field: NAR.style
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_ERA_MARK
+    transform: map_to_style_tags
+    priority: 3
+  - source_field: RED.forbidden
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 4
+  - source_field: WST.power_saturation
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_POWER_SATURATION
+    transform: map_to_saturation_enum
+    priority: 5
+  - source_field: ACT.check_direction
+    target_prompt_layer: world
+    target_node_field: description
+    target_edge_type: RULE_ACTION_SCOPE
+    transform: map_to_check_direction_enum
+    priority: 6
+
+scene:
+  - source_field: WST.climate_zone
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_ENV_STATE
+    transform: map_to_climate_enum
+    priority: 1
+  - source_field: LAW.world_structure
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_SHAPES_GEO
+    transform: map_to_spatial_layout_enum
+    priority: 2
+  - source_field: RED.forbidden
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 3
+  - source_field: SOC.threshold
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_SOCIAL_DENSITY
+    transform: map_to_threshold_enum
+    priority: 4
+  - source_field: NAR.time_mode
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_TIME_FLOW
+    transform: map_to_time_mode_enum
+    priority: 5
+  - source_field: ACT.dice_mode
+    target_prompt_layer: location
+    target_node_field: description
+    target_edge_type: RULE_CHECK_SITE
+    transform: map_to_dice_enum
+    priority: 6
+
+campaign:
+  - source_field: NAR.trajectory
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_STORY_ARC
+    transform: map_to_trajectory_enum
+    priority: 1
+  - source_field: SOC.economy_type
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_ECONOMY_LOOP
+    transform: map_to_economy_enum
+    priority: 2
+  - source_field: ACT.cost_function
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_COST_CURVE
+    transform: map_to_cost_function_enum
+    priority: 3
+  - source_field: RED.forbidden
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 4
+  - source_field: WST.feedback_loop
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_STATE_FEEDBACK
+    transform: map_to_feedback_loop_enum
+    priority: 5
+  - source_field: LAW.conservation
+    target_prompt_layer: gameplay
+    target_node_field: description
+    target_edge_type: RULE_ENERGY_BUDGET
+    transform: map_to_power_exchange_law
+    priority: 6
+
+npc:
+  - source_field: SOC.relations
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_SOCIAL_ROLE
+    transform: map_to_faction_role
+    priority: 1
+  - source_field: ACT.core_action
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_SKILL_CHECK
+    transform: map_to_skill_check_modifiers
+    priority: 2
+  - source_field: NAR.tone
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_VOICE_TONE
+    transform: map_to_tone_tags
+    priority: 3
+  - source_field: LAW.world_structure
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_SHAPES_MOBILITY
+    transform: map_to_mobility_description
+    priority: 4
+  - source_field: RED.forbidden
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 5
+  - source_field: WST.cost_type
+    target_prompt_layer: subject
+    target_node_field: description
+    target_edge_type: RULE_STATE_COST
+    transform: map_to_cost_type_enum
+    priority: 6
+
+asset:
+  - source_field: LAW.world_structure
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_SHAPES_PHYSICS
+    transform: map_to_physics_traits
+    priority: 1
+  - source_field: ACT.core_action
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_USAGE_MODE
+    transform: map_to_usage_verbs
+    priority: 2
+  - source_field: RED.forbidden
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_CONTENT_GATE
+    transform: map_to_forbidden_tags
+    priority: 3
+  - source_field: WST.effects
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_STATE_EFFECT
+    transform: map_to_state_effects
+    priority: 4
+  - source_field: NAR.keywords
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_STYLE_MARK
+    transform: map_to_style_keywords
+    priority: 5
+  - source_field: SOC.economy_type
+    target_prompt_layer: material
+    target_node_field: description
+    target_edge_type: RULE_VALUE_TIER
+    transform: map_to_value_tier_enum
+    priority: 6
