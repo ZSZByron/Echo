@@ -9,6 +9,8 @@ import { AssetReview } from './pages/graph/AssetReview';
 import { GraphAssetReview } from './pages/graph/GraphAssetReview';
 import GraphEditorWrapper from './pages/graph/GraphEditor';
 import { apiClient } from './api/client';
+import { A1Workspace } from './pages/a1/A1Workspace';
+import { IPPoster } from './pages/a1/IPPoster';
 
 function App() {
   return (
@@ -23,6 +25,8 @@ function AppContent() {
   const isAdmin = window.location.pathname.startsWith('/admin/assets');
   const isGraphAssets = window.location.pathname.startsWith('/admin/graph-assets');
   const isGraphEditor = window.location.pathname.startsWith('/graph/editor');
+  const isA1Workspace = window.location.pathname.startsWith('/a1') && !window.location.pathname.startsWith('/a1/poster');
+  const isA1Poster = window.location.pathname.startsWith('/a1/poster');
   const [pendingInput, setPendingInput] = useState('');
 
   const handleObjectClick = (objectId: string, objectName: string, isPrimary: boolean) => {
@@ -55,6 +59,14 @@ function AppContent() {
 
   if (isGraphEditor) {
     return <GraphEditorWrapper />;
+  }
+
+  if (isA1Workspace) {
+    return <A1Workspace />;
+  }
+
+  if (isA1Poster) {
+    return <IPPoster />;
   }
 
   return (
