@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.a1_routes import router as a1_router
 from app.api.assets_routes import router as assets_router, scenes_router as scenes_router
 from app.api.constraints_routes import constraints_router
 from app.api.deps import get_state_repository
@@ -57,6 +58,7 @@ app.include_router(seed_router)
 app.include_router(constraints_router)
 app.include_router(graph_registry_router)
 app.include_router(identity_router)
+app.include_router(a1_router)
 
 # Mount data/assets directory for serving generated images
 _assets_dir = Path(__file__).resolve().parent.parent.parent / "data" / "assets"
