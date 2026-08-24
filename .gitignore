@@ -59,3 +59,19 @@ backend/.env
 
 # Sisyphus evidence (regenerated)
 .sisyphus/evidence/
+
+# Session runtime state (regenerated)
+.sisyphus/run-continuation/
+
+# Runtime databases (SQLite)
+*.db
+*.db-shm
+*.db-wal
+
+# Scratch scripts (question-tree generation helpers, etc.)
+backend/_*.py
+backend/_*.json
+chk1.py
+
+# Mind maps / binary working files
+*.xmind
