@@ -1,6 +1,6 @@
 ---
 tags: [governance, moc]
-updated: 2026-08-04
+updated: 2026-08-05
 ---
 
 # Echo UGC 项目治理体系 — 总览
@@ -73,4 +73,6 @@ updated: 2026-08-04
 | `docs/SYSTEM_DESIGN_SPEC_v4.md` | → [[3_knowledge-assets]] 知识资产 + [[5_engineering-governance]] 工程 | 3419行设计规范，按章节归入 |
 | `docs/plans/2026-08-04-directory-structure-recommendations.md` | → [[5_engineering-governance]] 工程治理 | 目录结构建议 |
 | `docs/plans/2026-08-03-layered-constraint-architecture.md` | → [[3_knowledge-assets]] 知识资产 | 分层约束架构 |
+| `[[2-A2-v0.2-产品策划顾问+模组合成]]` | → [[2_product-architecture]] 产品架构 | A2 产品策划工作台设计规范 |
+| `[[2-A-v0.3-A模块架构总览]]` | → [[2_product-architecture]] 产品架构 | A模块架构独立总览，从表2提取 |
 | `.sisyphus/plans/*` | → [[1_project-control-tower]] 控制塔 | 具体实施计划 |

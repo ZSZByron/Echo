@@ -50,7 +50,7 @@
 |:---:|---|---|---|:---:|---|
 | **①** | **厂家设计 TRPG**<br>• 世界观<br>• 基础规则（判定/构建/组织结构） | **A1. 世界编辑器**<br>• 6 维约束生成<br>• 6 维生成引擎<br>• 知识图谱输出 | ✅ `DimensionGenerator`<br>✅ `SeedEngine`<br>✅ `KnowledgeGraph`<br>✅ 7 个图模型 | ✅ 已有 | 🔴 **缺口 1**: 层级标签缺失<br>• 缺 `ConstraintLevel` 枚举（CORE/MODULE/SCENARIO）<br>• 所有约束平铺，无法区分厂家规则 vs 模组规则 |
 | **②** | **设计核心玩法**<br>• 玩法动力环<br>• 构建→交互→升华 | **A1. 世界编辑器**<br>（延伸）<br>+ **A5. AI GM 运行时**（逆向定义需求） | ✅ `SeedEngine` 反向推理<br>✅ `DimensionGenerator` 权重驱动 | 🔴 断层 | 🔴 **缺口 2**: 厂家规则（硬）vs 模组规则（软）混在一起<br>• 权重矩阵 6×6 过度复杂<br>• 没有 CORE/MODULE/SCENARIO 层级区分<br>• 无法表达"厂家硬约束"的优先级 |
-| **③** | **设计主模组**<br>• 大地图<br>• 主线剧情<br>• 区域文化<br>• 权力者<br>• 全局物品/力量/经济/声望 | **A2. 主模组编辑器**<br>（筛选层）<br>• 从 A1 输出筛选全局性内容<br>• 标注为 MODULE 层级 | 🔴 **缺失**<br>（需要新建） | 🔴 **缺口 3**: 主模组编辑器不存在<br>• **逻辑**: 自顶向下，从完整世界提取全局设定<br>• 需要: **全局性筛选器**<br>  - 筛选世界级地理（大地图）<br>  - 筛选世界级剧情（主线）<br>  - 筛选全局力量体系<br>• 输出: `main_module.json` (ConstraintLevel.MODULE)<br>• 可被次模组覆写 |
+| **③** | **设计主模组**<br>• 大地图<br>• 主线剧情<br>• 区域文化<br>• 权力者<br>• 全局物品/力量/经济/声望 | **A2. 产品策划工作台**<br>（四阶段：产品分析→模组编成→骰子模板→角色模板）<br>• Phase 1-2: 从 A1 输出筛选全局性内容<br>• Phase 3: 生成骰子模板（判定规则+数值区间）<br>• Phase 4: 生成角色卡模板<br>• 标注为 MODULE 层级 | 🔴 **缺失**<br>（需要新建） | 🔴 **缺口 3**: 产品策划工作台不存在<br>• **逻辑**: 先分析后筛选，AI 产品策划顾问<br>• 需要: **FeatureExtractor + GenreMatcher + RAG + ModuleComposer + DiceTemplateGenerator + CharacterTemplateGenerator**<br>  - 筛选世界级地理（大地图）<br>  - 筛选世界级剧情（主线）<br>  - 筛选全局力量体系<br>  - 生成骰子核心+等级系统+难度系统<br>  - 生成角色卡模板（4相位拓扑）<br>• 输出: `main_module.json` + `dice_template.json` + `character_template.json` (ConstraintLevel.MODULE)<br>• 可被次模组覆写 |
 | **④** | **设计次模组（战役）**<br>• 局部地图<br>• 区域剧情<br>• 增补物品/力量<br>• 局部权力者/人物 | **A3. 次模组编辑器**<br>（合并层）<br>• 继承主模组<br>• 覆写局部内容<br>• 合并为完整战役包 | 🔴 **缺失**<br>（需要新建） | 🔴 **缺口 4**: 次模组编辑器不存在<br>• **逻辑**: 增量式，继承+覆写<br>• 需要: `ModuleInheritor.merge()`<br>  - CORE 约束直接复制（不可覆写）<br>  - MODULE 约束默认继承，有冲突则覆写<br>  - SCENARIO 约束新增临时规则<br>  - 图谱节点: 主模组节点 + 次模组节点<br>  - 文化树: 主树 + 分支挂载<br>• 输出: `campaign_package.json` (完整战役包) |
 | **⑤** | **装订成册 → 给 GM**<br>• GM 拿到手册<br>• 自行增补细节<br>• 创建角色组织 | **A4. 装订成册导出器**<br>（导出层）<br>• 双输出:<br>  - Markdown 手册（人类）<br>  - AI 配置包（机器） | 🔴 **缺失**<br>（需要新建） | 🔴 **缺口 5**: 装订成册导出器不存在<br>• 需要: `ModuleExporter`<br>• 人类可读: `module_handbook.md`<br>  - 世界概览<br>  - 区域详情<br>  - NPC 名录<br>  - 物品表<br>  - 时间线<br>• 机器可读: `gm_ai_config.json`<br>  - 场景卡<br>  - 判例基线<br>  - NPC 行为树<br>  - 约束层级 |
 | **⑥** | **找人成团 → 创建角色**<br>• 玩家车卡<br>• 角色属性<br>• 技能/装备 | **F2. 角色卡系统**<br>（游戏运行时）<br>• 角色创建向导<br>• 车卡管理<br>• 角色成长 | 🟡 Demo 级别<br>✅ `player.py` (HP/物品)<br>🔴 缺角色创建向导 | 🟡 **缺口 6**: 角色卡系统不完整<br>• MVP 可暂缓<br>• 后置到 Sprint 5 |
@@ -146,18 +146,18 @@
 │     自动标注 ConstraintLevel 枚举（CORE/MODULE/SCENARIO）        │
 │     ↓                                                            │
 │                                                                 │
-│  【A2. 主模组编辑器 — 筛选层】                                   │
+│  【A2. 产品策划工作台 — 四阶段（分析→编成→骰子→角色）】            │
 │     TRPG 阶段: ③                                                │
-│     输入: A1 输出的 world_knowledge.json                         │
-│     过程: 全局性筛选器                                            │
-│           • 筛选世界级地理（大地图）                             │
-│           • 筛选世界级剧情（主线时间线）                         │
-│           • 筛选全局力量体系（魔法/科技）                         │
-│           • 筛选世界级声望系统                                   │
-│     逻辑: 自顶向下，从完整世界提取全局设定                       │
-│     输出: main_module.json（MODULE 层级，可被次模组覆写）         │
+│     输入: A1 输出的 world_package.json                          │
+│     过程: 产品策划顾问                                            │
+│           • Phase 1: 特征提取+类型匹配+案例推理 → ProductPlan   │
+│           • Phase 2: 模组编成（筛选时代/区域/文明/冲突）         │
+│           • Phase 3: 骰子模板生成（骰子核心+等级系统+难度系统）  │
+│           • Phase 4: 角色模板生成（4相位映射+排序+精简）         │
+│     逻辑: 先分析后筛选，AI 产品策划顾问                           │
+│     输出: main_module.json + dice_template.json + character_template.json │
 │     现状: 🔴 完全缺失                                            │
-│     缺口: 全局性筛选器算法                                        │
+│     缺口: 四阶段管线全部需要新建                                   │
 │                                                                 │
 │  【A3. 次模组编辑器 — 合并层】                                   │
 │     TRPG 阶段: ④                                                │
