@@ -10,12 +10,16 @@ import "../theme.css";
 export interface DiffHighlightProps {
   oldText: string;
   newText: string;
+  module?: string;
+  section?: string;
   className?: string;
 }
 
 export function DiffHighlight({
   oldText,
   newText,
+  module,
+  section,
   className = "",
 }: DiffHighlightProps) {
   // Simple diff algorithm: highlight removed characters in red, added in green
@@ -70,6 +74,14 @@ export function DiffHighlight({
 
   return (
     <div className={`space-y-1 ${className}`}>
+      {/* Two-level diff header */}
+      {(module || section) && (
+        <div className="text-void-400 text-xs font-mono mb-2">
+          {module && <span className="text-stardust-300">{module}</span>}
+          {module && section && <span> → </span>}
+          {section && <span className="text-nebula-400">{section}</span>}
+        </div>
+      )}
       {highlightDiff(oldText, newText)}
     </div>
   );

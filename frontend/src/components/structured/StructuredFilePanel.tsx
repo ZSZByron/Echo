@@ -10,8 +10,17 @@ import { DiffHighlight } from "./DiffHighlight";
 
 export interface DiffChange {
   field: string;
+  module?: string;
+  section?: string;
   old: string;
   new: string;
+}
+
+export interface Field {
+  id: string;
+  label: string;
+  content: string;
+  done: boolean;
 }
 
 export interface StructuredFile {
@@ -22,8 +31,14 @@ export interface StructuredFile {
   sections?: Array<{
     id: string;
     label: string;
-    content: string;
-    done: boolean;
+    content?: string;
+    done?: boolean;
+    subs?: Array<{
+      id: string;
+      label: string;
+      content?: string;
+      done: boolean;
+    }>;
   }>;
   status?: "draft" | "finalized";
   size?: string;
@@ -89,7 +104,12 @@ export function StructuredFilePanel({
                   <div className="text-void-500 text-xs font-mono mb-1">
                     BEFORE
                   </div>
-                  <DiffHighlight oldText={change.old} newText={change.new} />
+                  <DiffHighlight 
+                    oldText={change.old} 
+                    newText={change.new}
+                    module={change.module}
+                    section={change.section}
+                  />
                 </div>
                 <div>
                   <div className="text-cosmos-success text-xs font-mono mb-1">
@@ -108,28 +128,62 @@ export function StructuredFilePanel({
       {/* Sections */}
       {file.sections && file.sections.length > 0 && (
         <div className="p-6 pt-0 space-y-4">
-          {file.sections.map((section) => (
-            <div
-              key={section.id}
-              className={`glass-card p-4 ${
-                section.done
-                  ? "border-cosmos-success/30"
-                  : "border-white/5"
-              }`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <h4 className="text-gray-200 font-medium">{section.label}</h4>
-                {section.done && (
-                  <span className="text-cosmos-success text-sm">✓</span>
+          {file.sections.map((section) => {
+            // Check if section has subs (two-level structure)
+            const hasSubs = section.subs && section.subs.length > 0;
+            const allSubsDone = hasSubs ? section.subs?.every(sub => sub.done) : section.done;
+            
+            return (
+              <div
+                key={section.id}
+                className={`glass-card p-4 ${
+                  allSubsDone
+                    ? "border-cosmos-success/30"
+                    : "border-white/5"
+                }`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="text-gray-200 font-medium">{section.label}</h4>
+                  {allSubsDone && (
+                    <span className="text-cosmos-success text-sm">✓</span>
+                  )}
+                </div>
+                
+                {/* Two-level structure with subs */}
+                {hasSubs ? (
+                  <div className="space-y-2">
+                    {section.subs?.map((sub) => (
+                      <div
+                        key={sub.id}
+                        className="flex items-start gap-2 text-sm"
+                      >
+                        <div className={`flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1.5 ${
+                          sub.done
+                            ? "bg-cosmos-success"
+                            : "bg-void-600"
+                        }`} />
+                        <div className="flex-1">
+                          <span className="text-void-400 font-medium">
+                            {sub.label}:
+                          </span>{" "}
+                          <span className={sub.done ? "text-gray-300" : "text-void-500 italic"}>
+                            {sub.content || "Not yet filled"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* Legacy single-content structure (backward compatibility) */
+                  <p className="text-gray-300 text-sm leading-relaxed">
+                    {section.content || (
+                      <span className="text-void-500 italic">Not yet filled</span>
+                    )}
+                  </p>
                 )}
               </div>
-              <p className="text-gray-300 text-sm leading-relaxed">
-                {section.content || (
-                  <span className="text-void-500 italic">Not yet filled</span>
-                )}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

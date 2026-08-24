@@ -30,8 +30,28 @@ interface SeedsResponse {
 
 interface QuestionPayload {
   section: string;
+  section_label?: string;
+  sub_id?: string;
+  sub_label?: string;
   question: string;
   hint: string;
+}
+
+interface DiceRecommendation {
+  field: string;
+  value: string;
+  reason: string;
+}
+
+interface DiceRecommendationResponse {
+  recommendations: DiceRecommendation[];
+  summary: string;
+}
+
+interface SeedInfo {
+  name: string;
+  genre: string;
+  description: string;
 }
 
 interface SessionStartResponse {
@@ -40,6 +60,7 @@ interface SessionStartResponse {
   ip_code: string;
   first_question: QuestionPayload | null;
   file: StructuredFile;
+  seed?: SeedInfo;
 }
 
 interface ChatResponse {
@@ -47,11 +68,21 @@ interface ChatResponse {
   next_question: QuestionPayload | null;
   file_diff?: DiffChange[];
   progress: {
-    sections: Array<{ id: string; label: string; done: boolean }>;
+    sections: Array<{ 
+      id: string; 
+      label: string; 
+      done: boolean;
+      subs?: Array<{
+        id: string;
+        label: string;
+        done: boolean;
+      }>;
+    }>;
     done: number;
   };
   phase: string;
-  classification_proposal?: string;
+  classification_proposal?: ClassificationProposalData;
+  dice_recommendation?: DiceRecommendationResponse;
 }
 
 interface FinalizeResponse {
@@ -70,6 +101,15 @@ interface MissingSectionsError {
   missing_sections: string[];
 }
 
+interface ProposalSuggestion {
+  field: string;
+  category: string;
+}
+
+interface ClassificationProposalData {
+  suggestions: ProposalSuggestion[];
+}
+
 // Workspace States
 type WorkspaceState = 'seed_selector' | 'guided_chat' | 'poster_view';
 
@@ -86,16 +126,26 @@ export function A1Workspace() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
   const [ipCode, setIpCode] = useState<string | null>(null);
+  const [seedInfo, setSeedInfo] = useState<SeedInfo | null>(null);
   
   // Chat State
   const [messages, setMessages] = useState<Message[]>([]);
   const [file, setFile] = useState<StructuredFile | null>(null);
-  const [progressSections, setProgressSections] = useState<Array<{ id: string; label: string; done: boolean }>>([]);
+  const [progressSections, setProgressSections] = useState<Array<{ 
+    id: string; 
+    label: string; 
+    done: boolean;
+    subs?: Array<{
+      id: string;
+      label: string;
+      done: boolean;
+    }>;
+  }>>([]);
   const [progressDone, setProgressDone] = useState(0);
   const [isChatLoading, setIsChatLoading] = useState(false);
   
   // Classification Proposal State
-  const [classificationProposal, setClassificationProposal] = useState<string | null>(null);
+  const [classificationProposal, setClassificationProposal] = useState<ClassificationProposalData | null>(null);
   const [showClassificationModal, setShowClassificationModal] = useState(false);
   
   // Error State
@@ -137,14 +187,26 @@ export function A1Workspace() {
       setSessionId(response.session_id);
       setFileId(response.file_id);
       setIpCode(response.ip_code);
+      setSeedInfo(response.seed ?? null);
       setFile(response.file);
-      
-      // Initialize messages with first question
+
+      // Initialize messages with first question, anchored on the seed
       const fq = response.first_question;
+      const seedPrefix = response.seed?.name
+        ? `你选择了种子「${response.seed.name}」（${response.seed.genre}）：${response.seed.description}。我将围绕这个基调引导你展开世界观。\n\n`
+        : response.seed?.description
+        ? `你的初始创意：${response.seed.description}。我将围绕它引导你展开世界观。\n\n`
+        : '';
+      const questionText = fq
+        ? (fq.sub_label
+          ? `【${fq.section_label || fq.section} · ${fq.sub_label}】${fq.question}`
+          : `【${fq.section_label || fq.section}】${fq.question}`)
+        : '';
+      
       setMessages([{
         id: Date.now().toString(),
         type: 'assistant',
-        text: fq ? `【${fq.section}】${fq.question}` : '',
+        text: seedPrefix + questionText,
       }]);
       
       setWorkspaceState('guided_chat');
@@ -186,8 +248,23 @@ export function A1Workspace() {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         text: response.reply,
+        diceRecommendation: response.dice_recommendation,
       };
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Add next question with two-level formatting
+      if (response.next_question) {
+        const nq = response.next_question;
+        const questionText = nq.sub_label
+          ? `【${nq.section_label || nq.section} · ${nq.sub_label}】${nq.question}`
+          : `【${nq.section_label || nq.section}】${nq.question}`;
+        
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 2).toString(),
+          type: 'assistant',
+          text: questionText,
+        }]);
+      }
       
       // Update file and progress
       if (response.file_diff && file) {
@@ -226,17 +303,18 @@ export function A1Workspace() {
 
   // Confirm classification
   const confirmClassification = async (choice: string) => {
-    if (!sessionId) return;
-    
+    if (!sessionId || !classificationProposal) return;
+
     setIsChatLoading(true);
     setShowClassificationModal(false);
-    
+
     try {
       const response = await fetchJson<ChatResponse>('/api/a1/chat/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
+          proposal: classificationProposal,
           choice,
         }),
       });
@@ -248,6 +326,20 @@ export function A1Workspace() {
         text: response.reply,
       };
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Add next question with two-level formatting
+      if (response.next_question) {
+        const nq = response.next_question;
+        const questionText = nq.sub_label
+          ? `【${nq.section_label || nq.section} · ${nq.sub_label}】${nq.question}`
+          : `【${nq.section_label || nq.section}】${nq.question}`;
+        
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          text: questionText,
+        }]);
+      }
       
       if (response.file_diff && file) {
         const updatedFile = { ...file };
@@ -381,7 +473,17 @@ export function A1Workspace() {
                 <div className="text-stardust-400 text-xl">✦</div>
                 <div>
                   <h1 className="text-stardust-300 text-lg font-medium">A1 Workbench</h1>
-                  <p className="text-void-500 text-sm">IP Code: {ipCode || 'Loading...'}</p>
+                  <p className="text-void-500 text-sm">
+                    IP Code: {ipCode || 'Loading...'}
+                    {seedInfo?.name && (
+                      <span className="ml-2 text-nebula-400">
+                        | 种子: {seedInfo.name}（{seedInfo.genre}）
+                      </span>
+                    )}
+                    {!seedInfo?.name && seedInfo?.description && (
+                      <span className="ml-2 text-nebula-400">| 自定义创意</span>
+                    )}
+                  </p>
                 </div>
               </div>
             <button
@@ -451,19 +553,29 @@ export function A1Workspace() {
         <div className="fixed inset-0 bg-space-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-8">
           <div className="glass-panel max-w-2xl w-full p-8">
             <h2 className="text-stardust-300 text-xl font-medium mb-4">Classification Proposal</h2>
-            <p className="text-gray-200 mb-6">{classificationProposal}</p>
+            <p className="text-gray-200 mb-4">
+              这条内容无法直接映射到词典枚举值，请选择处理方式：
+            </p>
+            <div className="mb-6 space-y-2">
+              {classificationProposal.suggestions.map((s, idx) => (
+                <div key={idx} className="bg-space-800/40 border border-white/5 rounded p-3 text-sm">
+                  <span className="text-gray-300">{s.field}</span>
+                  <span className="text-void-400 ml-2">→ 建议分类: {s.category}</span>
+                </div>
+              ))}
+            </div>
             <div className="flex gap-4">
               <button
-                onClick={() => confirmClassification('accept')}
+                onClick={() => confirmClassification('其他')}
                 className="flex-1 bg-cosmos-success text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-cosmos-success/80 transition-colors"
               >
-                Accept
+                保留原文（其他）
               </button>
               <button
-                onClick={() => confirmClassification('reject')}
+                onClick={() => confirmClassification('放弃')}
                 className="flex-1 bg-cosmos-error text-white px-6 py-3 rounded-lg font-medium hover:bg-cosmos-error/80 transition-colors"
               >
-                Reject
+                放弃
               </button>
             </div>
           </div>

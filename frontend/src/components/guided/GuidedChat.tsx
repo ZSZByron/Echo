@@ -1,16 +1,59 @@
 import { useState } from 'react';
+import '../theme.css';
+
+export interface DiceRecommendation {
+  field: string;
+  value: string;
+  reason: string;
+}
+
+export interface DiceRecommendationResponse {
+  recommendations: DiceRecommendation[];
+  summary: string;
+}
 
 export interface Message {
   id: string;
   type: 'user' | 'assistant' | 'system';
   text: string;
   timestamp?: Date;
+  diceRecommendation?: DiceRecommendationResponse;
 }
 
 export interface GuidedChatProps {
   messages: Message[];
   onSend: (text: string) => void;
   disabled?: boolean;
+}
+
+function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
+  return (
+    <div className="glass-panel mt-3 p-4 border border-nebula-400/20">
+      <div className="text-stardust-300 text-sm font-medium mb-3">
+        🎲 Dice Recommendations
+      </div>
+      <div className="text-gray-300 text-xs mb-3 italic">
+        {recommendation.summary}
+      </div>
+      <div className="space-y-2">
+        {recommendation.recommendations.map((rec, idx) => (
+          <div key={idx} className="bg-space-800/40 border border-white/5 rounded p-3">
+            <div className="flex items-start gap-2">
+              <span className="text-nebula-400 text-lg">🎲</span>
+              <div className="flex-1">
+                <div className="text-stardust-300 text-sm font-medium mb-1">
+                  {rec.field}: {rec.value}
+                </div>
+                <div className="text-void-400 text-xs">
+                  Based on: {rec.reason}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function GuidedChat({ messages, onSend, disabled = false }: GuidedChatProps) {
@@ -45,6 +88,9 @@ export function GuidedChat({ messages, onSend, disabled = false }: GuidedChatPro
               }`}
             >
               {message.text}
+              {message.diceRecommendation && (
+                <DiceRecommendationCard recommendation={message.diceRecommendation} />
+              )}
             </div>
           </div>
         ))}
