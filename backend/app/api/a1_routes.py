@@ -16,19 +16,38 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config.paths import ASSETS_DIR
+from app.ai.config import load_provider_config
+from app.ai.provider import create_provider
 from app.domains.creation.a1.guide_engine import (
     A1Session,
     handle_message,
     progress,
+    sync_position,
+)
+from app.domains.creation.a1.interviewer import (
+    DegradingInterviewer,
+    RealLLMInterviewer,
 )
 from app.domains.creation.a1.innovation_capture import (
     Confirmation,
     confirm_proposal,
 )
 from app.domains.creation.a1.ip_poster import build_poster
-from app.domains.creation.a1.semantic_compiler import RealSemanticCompiler
+from app.domains.creation.a1.semantic_compiler import (
+    RealSemanticCompiler,
+    derive_dice_recommendation,
+)
 from app.domains.creation.graph.constraint_topology import apply_constraints
-from app.domains.creation.seed.a1_question_tree import SECTIONS, first_section
+from app.domains.creation.seed.a1_question_tree import (
+    MODULES,
+    first_module,
+    first_subfield,
+    get_subfield,
+    module_ids,
+    get_module,
+    is_module_done,
+    subs_for_module,
+)
 from app.domains.creation.seed.preset_loader import load_presets
 from app.domains.creation.shared.graph_code_issuer import GraphCodeIssuer
 from app.domains.creation.shared import stale_marker
@@ -51,7 +70,23 @@ _FILES: dict[str, dict[str, Any]] = {}
 _ISSUER_DB = Path(__file__).resolve().parents[2] / "data" / "a1_codes.db"
 _ISSUER_DB.parent.mkdir(parents=True, exist_ok=True)
 
-_COMPILER = RealSemanticCompiler(provider=None)
+_COMPILER = None  # deprecated: semantic compiler replaced by LLM interviewer
+
+# LLM-guided interviewer (lazy singleton): created on first use so that
+# main.py's load_dotenv() has run by then. Import-time creation would
+# see no ACTIVE_PROVIDER and permanently degrade to offline mode.
+_INTERVIEWER: DegradingInterviewer | None = None
+
+
+def _get_interviewer() -> DegradingInterviewer:
+    global _INTERVIEWER
+    if _INTERVIEWER is None:
+        try:
+            provider = create_provider(load_provider_config())
+        except Exception:  # noqa: BLE001 — no API key / bad config must not crash
+            provider = None
+        _INTERVIEWER = DegradingInterviewer(RealLLMInterviewer(provider))
+    return _INTERVIEWER
 
 # tag -> (dimension, output model class) for parsing answer writes into
 # the DimensionResultSet consumed by apply_constraints.
@@ -90,10 +125,27 @@ class ConfirmRequest(BaseModel):
 def _question_payload(session: A1Session) -> dict | None:
     if session.phase == "completed":
         return None
-    sec = next((s for s in SECTIONS if s["id"] == session.current_section), None)
-    if sec is None:
+    
+    # Get current module and subfield from session
+    current_module_id = session.current_module
+    current_subfield_id = session.current_subfield
+    
+    module = get_module(current_module_id)
+    if not module:
         return None
-    return {"section": sec["id"], "question": sec["question"], "hint": sec["hint"]}
+    
+    subfield = get_subfield(current_module_id, current_subfield_id)
+    if not subfield:
+        return None
+    
+    return {
+        "section": current_module_id,
+        "section_label": module["label"],
+        "sub_id": subfield["id"],
+        "sub_label": subfield["label"],
+        "question": subfield["question"],
+        "hint": subfield["hint"],
+    }
 
 
 def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
@@ -109,6 +161,8 @@ def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
                 continue
             tag, _, val = fragment.partition("=")
             tag, val = tag.strip(), val.strip()
+            if "." in tag:  # strip optional dim prefix (e.g. LAW.world_structure)
+                tag = tag.split(".", 1)[1]
             cls = _STRUCTURED_TAGS.get(tag)
             if cls is None or not val:
                 continue
@@ -128,14 +182,27 @@ def _build_graph(session: A1Session, file_rec: dict) -> KnowledgeGraph:
         bg_id: GraphNode(id=bg_id, serial_number="0", level=1,
                          description=f"[{session.ip_code}] 世界背景")
     }
-    for sec in SECTIONS:
-        value = session.answers.get(sec["id"], "")
-        if not value:
-            continue
-        nodes[sec["id"]] = GraphNode(
-            id=sec["id"], serial_number=str(len(nodes)), level=2,
-            description=f"{sec['label']}: {value}",
-        )
+    
+    # Build level=2 nodes for each module with non-empty content
+    for module in MODULES:
+        module_id = module["id"]
+        module_label = module["label"]
+        
+        # Collect all non-empty subfield answers for this module
+        subfield_summaries = []
+        for sf in module["fields"]:
+            answer_key = f"{module_id}.{sf['id']}"
+            value = session.answers.get(answer_key, "")
+            if value:
+                subfield_summaries.append(f"{sf['label']}: {value}")
+        
+        if subfield_summaries:
+            description = f"{module_label}: " + "; ".join(subfield_summaries)
+            nodes[module_id] = GraphNode(
+                id=module_id, serial_number=str(len(nodes)), level=2,
+                description=description,
+            )
+    
     graph = KnowledgeGraph(
         scene_id=session.session_id, background_node_id=bg_id,
         nodes=nodes, edges=[],
@@ -170,16 +237,20 @@ def start_session(req: StartRequest) -> dict:
         ip_code=f"IP{ip_no:04d}",
     )
 
-    # Prefill non-empty defaults from the chosen preset.
+    # Carry seed context (preset or custom idea) into the session so the
+    # LLM interviewer and the frontend both know where the user started.
     if req.seed_id is not None:
         preset = next((p for p in load_presets() if p.id == req.seed_id), None)
         if preset is None:
             raise HTTPException(status_code=404, detail="seed preset not found")
-        session.answers = {
-            k: v for k, v in preset.dimension_defaults.items() if v
-        }
+        session.seed_name = preset.name
+        session.seed_genre = preset.genre
+        session.seed_description = preset.description
+        session.answers = {}
     else:
-        session.answers["世界观"] = req.custom_idea[:200]
+        session.seed_description = req.custom_idea[:500]
+        session.answers = {}
+    sync_position(session)
 
     file_id = uuid.uuid4().hex
     _SESSIONS[session.session_id] = session
@@ -193,6 +264,11 @@ def start_session(req: StartRequest) -> dict:
         "ip_code": session.ip_code,
         "first_question": _question_payload(session),
         "file": {"status": "draft", "answers": session.answers},
+        "seed": {
+            "name": session.seed_name,
+            "genre": session.seed_genre,
+            "description": session.seed_description,
+        },
     }
 
 
@@ -201,7 +277,18 @@ def chat(req: ChatRequest) -> dict:
     session = _SESSIONS.get(req.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
-    out = handle_message(session, req.message, _COMPILER)
+    out = handle_message(session, req.message, _get_interviewer())
+    
+    # Add dice recommendation when on 骰子设定 module and first subfield
+    if session.current_module == "骰子设定":
+        # Get first subfield of 骰子设定 module
+        first_sf = first_subfield("骰子设定")
+        if first_sf and session.current_subfield == first_sf["id"]:
+            # Derive recommendation from current answers
+            dice_rec = derive_dice_recommendation(session.answers)
+            if dice_rec["recommendations"]:
+                out["dice_recommendation"] = dice_rec
+    
     # Any new write invalidates a previous finalization (file back to draft).
     for rec in _FILES.values():
         if rec["session_id"] == session.session_id and rec["status"] == "finalized" and out["file_diff"]:
@@ -216,7 +303,13 @@ def chat_confirm(req: ConfirmRequest) -> dict:
         raise HTTPException(status_code=404, detail="session not found")
     from app.domains.creation.shared.semantic_compiler import ClassificationProposal
     proposal = ClassificationProposal(**req.proposal)
-    return confirm_proposal(session, Confirmation(proposal=proposal, choice=req.choice))
+    out = confirm_proposal(session, Confirmation(proposal=proposal, choice=req.choice))
+    # Shape the response like /api/a1/chat so the frontend can render
+    # the reply and the next question uniformly.
+    if "reply" not in out:
+        out["reply"] = "已确认并记录。" if out.get("persisted") else "已放弃该内容，可重新输入。"
+    out["next_question"] = _question_payload(session)
+    return out
 
 
 def _get_file(file_id: str) -> dict:
@@ -230,11 +323,49 @@ def _get_file(file_id: str) -> dict:
 def get_file(file_id: str) -> dict:
     rec = _get_file(file_id)
     session = _SESSIONS[rec["session_id"]]
+    
+    # Build hierarchical sections structure
+    sections = []
+    for module in MODULES:
+        module_id = module["id"]
+        module_label = module["label"]
+        
+        # Collect all fields for this module
+        fields = []
+        for sf in module["fields"]:
+            answer_key = f"{module_id}.{sf['id']}"
+            value = session.answers.get(answer_key, "")
+            fields.append({
+                "id": sf["id"],
+                "label": sf["label"],
+                "content": value,
+                "done": answer_key in session.answers,
+            })
+        
+        # Module is done if all its fields are done
+        module_done = all(f["done"] for f in fields)
+        
+        # Include module content (concatenation of non-empty field values)
+        module_content = "; ".join([
+            f"{f['label']}: {f['content']}" for f in fields if f["content"]
+        ])
+        
+        sections.append({
+            "id": module_id,
+            "label": module_label,
+            "done": module_done,
+            "content": module_content,
+            "subs": fields,
+            "fields": fields,
+        })
+    
     return {
-        "file_id": file_id, "status": rec["status"],
+        "file_id": file_id, 
+        "status": rec["status"],
         "answers": session.answers,
         "graph_code": rec["graph_code"],
         "session_id": session.session_id,
+        "sections": sections,
     }
 
 
@@ -243,9 +374,10 @@ def finalize(file_id: str) -> dict:
     rec = _get_file(file_id)
     session = _SESSIONS[rec["session_id"]]
 
-    missing = [s["id"] for s in SECTIONS if s["id"] not in session.answers]
+    # Check if all modules are done using the new API
+    missing = [mid for mid in module_ids() if not is_module_done(mid, session.answers)]
     if missing:
-        raise HTTPException(status_code=409, detail={"missing_sections": missing})
+        raise HTTPException(status_code=409, detail={"missing_modules": missing})
 
     issuer = GraphCodeIssuer(_ISSUER_DB)
     new_code = issuer.next(session.user_id, ip=rec["ip"], stage="W")

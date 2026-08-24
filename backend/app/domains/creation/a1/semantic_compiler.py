@@ -28,6 +28,102 @@ from app.domains.creation.shared.semantic_compiler import (
 from app.models.tag_dictionary import get_enum_values
 
 
+def derive_dice_recommendation(answers: dict[str, str]) -> dict[str, any]:
+    """Pure rule-based dice recommendation from answered module fields.
+    
+    Mapping rules:
+    - 世界本体.reality_rule contains "意志" → LINEAR_D20 or D100
+    - 世界本体.reality_rule contains "物质" → BELL_CURVE_3D6
+    - 力量体系.source contains "本体" → fixed dice
+    - 力量体系.source contains "客体" → dice pool
+    - 力量体系.acquire contains "学习" or "觉醒" → roll-under
+    - 力量体系.acquire contains "科研" or "工具" → roll-over
+    - 玩法设计DNA.main_actions contains "战斗" → binary success/failure
+    - 玩法设计DNA.main_actions contains "研究" or "调查" → multi-level success
+    
+    Returns dict with keys:
+    - recommendations: list of {field, value, reason}
+    - summary: str
+    """
+    recommendations = []
+    
+    # Get relevant answer values
+    reality_rule = answers.get("世界本体.reality_rule", "")
+    power_source = answers.get("力量体系.source", "")
+    power_acquire = answers.get("力量体系.acquire", "")
+    main_actions = answers.get("玩法设计DNA.main_actions", "")
+    
+    # Probability distribution from reality rule
+    if "意志" in reality_rule:
+        # Will-dominant → linear distribution
+        dice_mode = "LINEAR_D20" if "d20" in reality_rule.lower() or "20" in reality_rule else "D100"
+        recommendations.append({
+            "field": "ACT.dice_mode",
+            "value": dice_mode,
+            "reason": "世界本体现实规则为意志主导，采用线性概率分布（d20或d100），现实可被意志扭曲"
+        })
+    elif "物质" in reality_rule:
+        # Matter-dominant → bell curve distribution
+        recommendations.append({
+            "field": "ACT.dice_mode",
+            "value": "BELL_CURVE_3D6",
+            "reason": "世界本体现实规则为物质主导，采用钟形分布（3d6），物质法则刚性不可变"
+        })
+    
+    # Dice count from power source
+    if "本体" in power_source:
+        recommendations.append({
+            "field": "ACT.dice_mode.note",
+            "value": "固定骰子（如1d20）",
+            "reason": "力量来源为本体（个体资质），使用固定骰子"
+        })
+    elif "客体" in power_source:
+        recommendations.append({
+            "field": "ACT.dice_mode.note",
+            "value": "骰池（如掷多颗取最高）",
+            "reason": "力量来源为客体（外界刺激），使用骰池机制"
+        })
+    
+    # Check direction from acquire method
+    if "学习" in power_acquire or "觉醒" in power_acquire:
+        recommendations.append({
+            "field": "ACT.check_direction",
+            "value": "ROLL_UNDER",
+            "reason": "力量获取方式为学习或觉醒（封闭获取），采用Roll-under判定（属性值越高越容易成功）"
+        })
+    elif "科研" in power_acquire or "工具" in power_acquire:
+        recommendations.append({
+            "field": "ACT.check_direction", 
+            "value": "ROLL_OVER",
+            "reason": "力量获取方式为科研或工具（开放获取），采用Roll-over判定（需掷出高于难度值的数字）"
+        })
+    
+    # Success model from main actions
+    if "战斗" in main_actions:
+        recommendations.append({
+            "field": "ACT.success_model",
+            "value": "BINARY",
+            "reason": "玩法主要行为包含战斗，采用二元判定（成功/失败）"
+        })
+    if "研究" in main_actions or "调查" in main_actions:
+        recommendations.append({
+            "field": "ACT.success_model",
+            "value": "MULTI_LEVEL",
+            "reason": "玩法主要行为包含研究或调查，采用多层次判定（大成功/成功/部分成功/失败/大失败）"
+        })
+    
+    # Build summary
+    if recommendations:
+        summary = "基于已答模块推导的骰子设定建议：" + "；".join([r["reason"] for r in recommendations])
+    else:
+        summary = "暂无法推导骰子设定建议，请先完成世界本体、力量体系、玩法设计DNA相关子项"
+    
+    return {
+        "recommendations": recommendations,
+        "summary": summary
+    }
+
+
 # Level2 规则表：关键词（小写）→ (维度, 标签, 枚举值)
 # 枚举值必须存在于 tag_dictionary.yaml，加载时逐一校验
 _RULE_TABLE: dict[str, tuple[str, str, str]] = {
@@ -223,3 +319,37 @@ class RealSemanticCompiler:
                 suggestions=[Suggestion(field=summary, category="其他")]
             )
         )
+
+
+# ---------- Dice deduction (module 9) ----------
+
+def deduce_dice_recommendation(answers: dict[str, str]) -> list[FieldWrite]:
+    """Deduce dice system recommendations from answered questions.
+
+    Reads:
+      - 世界本体::现实规则 (意志主导/物质主导)
+      - 力量体系::来源 (本体/客体)
+      - 力量体系::获取方式 (学习/觉醒/科研/工具)
+
+    Maps per doc module 9 topology table to ACT.dice_mode values.
+    Only uses values from tag_dictionary.yaml.
+    """
+    reality_rule = answers.get("世界本体::现实规则", "")
+    power_source = answers.get("力量体系::来源", "")
+    acquire_method = answers.get("力量体系::获取方式", "")
+
+    writes: list[FieldWrite] = []
+
+    # 1. Probability distribution: reality_rule → dice_mode
+    if "意志" in reality_rule:
+        writes.append(FieldWrite(field="ACT.dice_mode", value="LINEAR_D20"))
+    elif "物质" in reality_rule:
+        writes.append(FieldWrite(field="ACT.dice_mode", value="BELL_CURVE_3D6"))
+
+    # 2. Check direction: acquire_method
+    if any(kw in acquire_method for kw in ("学习", "觉醒", "仪式")):
+        writes.append(FieldWrite(field="ACT.check_direction", value="GM_CALLS"))
+    elif any(kw in acquire_method for kw in ("科研", "工具", "模型")):
+        writes.append(FieldWrite(field="ACT.check_direction", value="PLAYER_CALLS"))
+
+    return writes

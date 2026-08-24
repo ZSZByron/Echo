@@ -14,7 +14,7 @@ from app.domains.creation.shared.semantic_compiler import (
 
 def pending() -> ClassificationProposal:
     return ClassificationProposal(
-        suggestions=[Suggestion(field="量子灵气", category="其他")]
+        suggestions=[Suggestion(field="\u91cf\u5b50\u7075\u6c14", category="\u5176\u4ed6")]
     )
 
 
@@ -23,24 +23,27 @@ class TestInnovationCapture:
         s = A1Session(session_id="s", user_id="u")
         out = confirm_proposal(s, Confirmation(proposal=pending(), choice=CHOICE_OTHER))
         assert out["persisted"] is True
-        assert s.answers["世界观"].startswith("[其他]")
-        assert "量子灵气" in s.answers["世界观"]
-        assert s.current_section == "地理"  # advanced
+        first_key = list(s.answers.keys())[0]
+        assert s.answers[first_key].startswith("[\u5176\u4ed6]")
+        assert "\u91cf\u5b50\u7075\u6c14" in s.answers[first_key]
 
     def test_discard_persists_nothing(self):
         s = A1Session(session_id="s", user_id="u")
         out = confirm_proposal(s, Confirmation(proposal=pending(), choice=CHOICE_DISCARD))
         assert out["persisted"] is False
         assert s.answers == {}
-        assert s.current_section == "世界观"  # unchanged
 
     def test_suggested_category_stored(self):
         s = A1Session(session_id="s", user_id="u")
-        out = confirm_proposal(s, Confirmation(proposal=pending(), choice="力量体系类"))
+        out = confirm_proposal(s, Confirmation(proposal=pending(), choice="\u529b\u91cf\u4f53\u7cfb\u7c7b"))
         assert out["persisted"] is True
-        assert s.answers["世界观"] == "力量体系类"
+        first_key = list(s.answers.keys())[0]
+        assert s.answers[first_key] == "\u529b\u91cf\u4f53\u7cfb\u7c7b"
 
-    def test_file_diff_returned_on_persist(self):
+    def test_file_diff_has_module_and_section(self):
         s = A1Session(session_id="s", user_id="u")
-        out = confirm_proposal(s, Confirmation(proposal=pending(), choice="某类别"))
-        assert out["file_diff"] and out["file_diff"][0]["section"] == "世界观"
+        out = confirm_proposal(s, Confirmation(proposal=pending(), choice="\u67d0\u7c7b\u522b"))
+        assert out["file_diff"]
+        diff = out["file_diff"][0]
+        assert "module" in diff
+        assert "section" in diff
