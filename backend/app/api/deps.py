@@ -11,15 +11,11 @@ from typing import Protocol, runtime_checkable
 
 from app.ai.config import load_provider_config
 from app.ai.provider import LLMProvider, create_provider
+from app.domains.creation.constraint.dimension_generator import DimensionGenerator
 from app.engine.rules_engine import RulesEngine
 from app.engine.world_loader import WorldLoader
 from app.models.action import JudgmentResult, ParsedIntent
 from app.models.player import PlayerState
-
-# Forward declaration for type hint in get_dimension_generator
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from app.domains.creation.constraint.dimension_generator import DimensionGenerator
 
 
 # ---------------------------------------------------------------------------
