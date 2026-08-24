@@ -22,7 +22,9 @@
 
 | 文档 | 版本 | 状态 |
 |------|------|------|
-| [[SYSTEM_DESIGN_SPEC_v4\|系统设计规范 v4]] | v4.0（current） | ✅ 最新 |
+| [[SYSTEM_DESIGN_SPEC_v5.1\|系统设计规范 v5.1]] | v5.1（current） | ✅ 最新 |
+| [[SYSTEM_DESIGN_SPEC_v5\|系统设计规范 v5]] | v5.0 | 📦 归档 |
+| [[SYSTEM_DESIGN_SPEC_v4\|系统设计规范 v4]] | v4.0 | 📦 归档 |
 | [[SYSTEM_DESIGN_SPEC_v3\|系统设计规范 v3]] | v3.0 | 📦 归档 |
 | [[SYSTEM_DESIGN_SPEC_v2\|系统设计规范 v2]] | v2.0 | 📦 归档 |
 | [[SYSTEM_DESIGN_SPEC\|系统设计规范 v1]] | v1.0 | 📦 归档 |
