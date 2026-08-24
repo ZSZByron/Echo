@@ -1,54 +1,22 @@
 {
-  "active_plan": "H:\\UGC\\.sisyphus\\plans\\2026-08-04-directory-structure-refactor.md",
-  "started_at": "2026-08-04T13:53:38.394Z",
+  "active_plan": "H:\\UGC\\.sisyphus\\plans\\A1-v0.5-A模块公用模块与A模块设计.md",
+  "started_at": "2026-08-19T08:48:03.403Z",
   "session_ids": [
-    "ses_032f2dc2affeg19VIvYvKGw3Zc",
-    "ses_032d4e220ffe2jBax3mYZXZWlL",
-    "ses_032d4caf4ffe1N77LVPI0in9SI"
+    "ses_fe6cb3d36ffeZtRArbWZQoNUfW",
+    "ses_fe6bcfd93ffecpPFPRH9CmgXVM",
+    "ses_fe6bcdc83ffeSyEmEZTUYANtFO",
+    "ses_fdbbe9a79ffe2pzSgdk7txOoVT"
   ],
   "session_origins": {
-    "ses_032f2dc2affeg19VIvYvKGw3Zc": "direct",
-    "ses_032d4e220ffe2jBax3mYZXZWlL": "appended",
-    "ses_032d4caf4ffe1N77LVPI0in9SI": "appended"
+    "ses_fe6cb3d36ffeZtRArbWZQoNUfW": "direct",
+    "ses_fe6bcfd93ffecpPFPRH9CmgXVM": "appended",
+    "ses_fe6bcdc83ffeSyEmEZTUYANtFO": "appended",
+    "ses_fdbbe9a79ffe2pzSgdk7txOoVT": "appended"
   },
-  "plan_name": "2026-08-04-directory-structure-refactor",
+  "plan_name": "A1-v0.5-A模块公用模块与A模块设计",
   "agent": "atlas",
-  "task_sessions": {
-    "todo:1": {
-      "task_key": "todo:1",
-      "task_label": "1",
-      "task_title": "后端 services/ → domains/ 目录创建 + 文件迁移",
-      "session_id": "ses_032f23498ffev59KMSW4OAvBCQ",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-08-04T13:57:03.725Z"
-    },
-    "todo:2": {
-      "task_key": "todo:2",
-      "task_label": "2",
-      "task_title": "后端 import 路径全量更新",
-      "session_id": "ses_032ee43d7ffeVIxLClFfuyeRYx",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-08-04T14:07:24.847Z"
-    },
-    "todo:3": {
-      "task_key": "todo:3",
-      "task_label": "3",
-      "task_title": "weight_matrix.yaml 迁移到版本控制",
-      "session_id": "ses_032e54ca8ffeIe7MyGVvnql3y2",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-08-04T14:12:55.130Z"
-    },
-    "todo:6": {
-      "task_key": "todo:6",
-      "task_label": "6",
-      "task_title": "验证 + 文档更新",
-      "session_id": "ses_032dfbfa7ffeklcCZ92fKlBwOh",
-      "agent": "Sisyphus-Junior",
-      "category": "unspecified-high",
-      "updated_at": "2026-08-04T14:25:11.688Z"
-    }
-  }
+  "execution_mode": "batch1",
+  "user_instructions": "只执行批次1标记的任务，批次2/3任务跳过",
+  "optimization_check": "in_progress",
+  "task_sessions": {}
 }
