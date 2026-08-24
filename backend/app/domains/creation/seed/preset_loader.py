@@ -1,8 +1,8 @@
 """A1 preset loader — 8 presets from seed-presets-catalog.md authority.
 
 10 dimension sections (Chinese keys):
-    worldview/地理/力量体系/历史纪元/社会生态/
-    经济/红线规则/叙事基调/美术风格/核心冲突
+    IP定位/世界本体/力量体系/地理空间/文明与社会/
+    历史时间线/视觉设计/玩法设计DNA/骰子设定/AI生成边界
 """
 
 from __future__ import annotations
@@ -11,16 +11,16 @@ from dataclasses import dataclass, field
 
 
 _TEN_SECTIONS: list[str] = [
-    "世界观",
-    "地理",
+    "IP定位",
+    "世界本体",
     "力量体系",
-    "历史纪元",
-    "社会生态",
-    "经济",
-    "红线规则",
-    "叙事基调",
-    "美术风格",
-    "核心冲突",
+    "地理空间",
+    "文明与社会",
+    "历史时间线",
+    "视觉设计",
+    "玩法设计DNA",
+    "骰子设定",
+    "AI生成边界",
 ]
 
 _EMPTY_DEFAULTS: dict[str, str] = {s: "" for s in _TEN_SECTIONS}
