@@ -35,7 +35,7 @@ class ProviderConfig:
 _DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-5-sonnet-20241022",
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-v4-flash",
     "qwen": "qwen-plus",
     "kimi": "moonshot-v1-8k",
     "glm": "glm-4",

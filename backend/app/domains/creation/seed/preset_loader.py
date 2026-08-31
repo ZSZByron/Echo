@@ -2,7 +2,7 @@
 
 10 dimension sections (Chinese keys):
     IP定位/世界本体/力量体系/地理空间/文明与社会/
-    历史时间线/视觉设计/玩法设计DNA/骰子设定/AI生成边界
+    历史时间线/视觉设计/玩法设计DNA/骰子设定/设定边界
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ _TEN_SECTIONS: list[str] = [
     "视觉设计",
     "玩法设计DNA",
     "骰子设定",
-    "AI生成边界",
+    "设定边界",
 ]
 
 _EMPTY_DEFAULTS: dict[str, str] = {s: "" for s in _TEN_SECTIONS}

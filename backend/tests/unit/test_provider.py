@@ -285,3 +285,278 @@ def test_subclass_must_implement_chat_json() -> None:
 
     with pytest.raises(TypeError):
         Incomplete(_make_config())  # type: ignore[abstract]
+
+
+# ── OpenAICompatibleProvider chat_json robustness tests ───────────────────────
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_chat_json_parses_fenced_json(mock_openai_cls: MagicMock) -> None:
+    """Fenced JSON (```json {...}```) should be extracted and parsed."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    fenced_json = '```json\n{"result": "success", "value": 42}\n```'
+    mock_message = MagicMock()
+    mock_message.content = fenced_json
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    config = _make_config()
+    provider = OpenAICompatibleProvider(config)
+
+    result = await provider.chat_json([{"role": "user", "content": "Give JSON"}])
+    assert result == {"result": "success", "value": 42}
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_chat_json_parses_prose_wrapped_json(
+    mock_openai_cls: MagicMock,
+) -> None:
+    """JSON wrapped in prose should be extracted and parsed."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    prose_wrapped = "好的，以下是结果：{\"answer\": true, \"score\": 95} 希望有帮助"
+    mock_message = MagicMock()
+    mock_message.content = prose_wrapped
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    provider = OpenAICompatibleProvider(_make_config())
+    result = await provider.chat_json([{"role": "user", "content": "Give JSON"}])
+    assert result == {"answer": True, "score": 95}
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_chat_json_bad_request_falls_back_to_no_response_format(
+    mock_openai_cls: MagicMock,
+) -> None:
+    """BadRequestError on response_format should retry without it and succeed."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    # First call with response_format raises BadRequestError
+    from openai import BadRequestError
+    bad_request_error = BadRequestError(
+        message="400 Bad Request: response_format not supported",
+        response=MagicMock(status_code=400),
+        body={},
+    )
+    mock_client.chat.completions.create.side_effect = [
+        bad_request_error,  # First call fails
+        MagicMock(  # Second call succeeds
+            choices=[
+                MagicMock(
+                    message=MagicMock(content='{"fallback": "worked"}')
+                )
+            ]
+        ),
+    ]
+
+    provider = OpenAICompatibleProvider(_make_config())
+    result = await provider.chat_json([{"role": "user", "content": "Give JSON"}])
+    assert result == {"fallback": "worked"}
+
+    # Verify create was called twice: first with response_format, second without
+    assert mock_client.chat.completions.create.call_count == 2
+    first_call_kwargs = mock_client.chat.completions.create.call_args_list[0].kwargs
+    assert first_call_kwargs["response_format"] == {"type": "json_object"}
+    second_call_kwargs = mock_client.chat.completions.create.call_args_list[1].kwargs
+    assert "response_format" not in second_call_kwargs
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_chat_json_garbage_raises_runtime_error(
+    mock_openai_cls: MagicMock,
+) -> None:
+    """Non-JSON garbage after both attempts should raise RuntimeError."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    garbage_response = "This is definitely not JSON, just random text here."
+    mock_message = MagicMock()
+    mock_message.content = garbage_response
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    provider = OpenAICompatibleProvider(_make_config())
+    with pytest.raises(RuntimeError, match="chat_json: no parseable JSON"):
+        await provider.chat_json([{"role": "user", "content": "Give JSON"}])
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_chat_json_empty_content_returns_empty_dict(
+    mock_openai_cls: MagicMock,
+) -> None:
+    """Empty content should return empty dict (existing behavior)."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = None
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    provider = OpenAICompatibleProvider(_make_config())
+    result = await provider.chat_json([{"role": "user", "content": "Give JSON"}])
+    assert result == {}
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_thinking_disabled_deepseek(mock_openai_cls: MagicMock) -> None:
+    """DeepSeek provider should disable thinking in extra_body."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = '{"ok": 1}'
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    config = _make_config(provider_type="deepseek")
+    provider = OpenAICompatibleProvider(config)
+    await provider.chat([{"role": "user", "content": "Hi"}])
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert "extra_body" in call_kwargs
+    assert call_kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+    assert call_kwargs["extra_body"]["enable_thinking"] is False
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_thinking_disabled_qwen(mock_openai_cls: MagicMock) -> None:
+    """Qwen provider should disable enable_thinking in extra_body."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = '{"ok": 1}'
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    config = _make_config(provider_type="qwen")
+    provider = OpenAICompatibleProvider(config)
+    await provider.chat([{"role": "user", "content": "Hi"}])
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert "extra_body" in call_kwargs
+    assert call_kwargs["extra_body"]["enable_thinking"] is False
+
+
+@patch("openai.AsyncOpenAI", autospec=True)
+async def test_openai_thinking_disabled_glm(mock_openai_cls: MagicMock) -> None:
+    """GLM provider should disable both thinking and enable_thinking."""
+    mock_client = _make_openai_mock_client()
+    mock_openai_cls.return_value = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = '{"ok": 1}'
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    config = _make_config(provider_type="glm")
+    provider = OpenAICompatibleProvider(config)
+    await provider.chat([{"role": "user", "content": "Hi"}])
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert "extra_body" in call_kwargs
+    assert call_kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+    assert call_kwargs["extra_body"]["enable_thinking"] is False
+
+
+# ── AnthropicProvider chat_json robustness tests ───────────────────────────────
+
+
+@patch("anthropic.AsyncAnthropic", autospec=True)
+async def test_anthropic_chat_json_system_only_messages_nonempty(
+    mock_anthropic_cls: MagicMock,
+) -> None:
+    """System-only input should not result in empty messages list to API."""
+    mock_client = _make_anthropic_mock_client()
+    mock_anthropic_cls.return_value = mock_client
+
+    raw_tail = '"result": "ok"}'
+    mock_block = MagicMock()
+    mock_block.text = raw_tail
+    mock_response = MagicMock()
+    mock_response.content = [mock_block]
+    mock_client.messages.create.return_value = mock_response
+
+    provider = AnthropicProvider(_make_config(provider_type="anthropic"))
+    # System-only message (real use case: interviewer.py suggest_examples)
+    messages = [{"role": "system", "content": "Return JSON only."}]
+    result = await provider.chat_json(messages)
+    assert result == {"result": "ok"}
+
+    # Verify API received non-empty messages
+    call_kwargs = mock_client.messages.create.call_args
+    sent_messages = call_kwargs.kwargs["messages"]
+    assert len(sent_messages) > 0, "API should receive non-empty messages"
+
+
+@patch("anthropic.AsyncAnthropic", autospec=True)
+async def test_anthropic_chat_json_multi_block_concatenated(
+    mock_anthropic_cls: MagicMock,
+) -> None:
+    """Multiple text blocks should be concatenated before parsing."""
+    mock_client = _make_anthropic_mock_client()
+    mock_anthropic_cls.return_value = mock_client
+
+    # Two blocks: first part + second part
+    block1 = MagicMock()
+    block1.text = '"key":'
+    block2 = MagicMock()
+    block2.text = ' "value"}'
+    mock_response = MagicMock()
+    mock_response.content = [block1, block2]
+    mock_client.messages.create.return_value = mock_response
+
+    provider = AnthropicProvider(_make_config(provider_type="anthropic"))
+    messages = [{"role": "user", "content": "Give JSON"}]
+    result = await provider.chat_json(messages)
+    # After prepending "{" we get {"key": "value"}
+    assert result == {"key": "value"}
+
+
+@patch("anthropic.AsyncAnthropic", autospec=True)
+async def test_anthropic_chat_json_complete_object_despite_prefill(
+    mock_anthropic_cls: MagicMock,
+) -> None:
+    """Model may emit complete object despite prefill; should still parse."""
+    mock_client = _make_anthropic_mock_client()
+    mock_anthropic_cls.return_value = mock_client
+
+    # Model ignores prefill and returns complete JSON
+    complete_json = '{"answer": 42}'
+    mock_block = MagicMock()
+    mock_block.text = complete_json
+    mock_response = MagicMock()
+    mock_response.content = [mock_block]
+    mock_client.messages.create.return_value = mock_response
+
+    provider = AnthropicProvider(_make_config(provider_type="anthropic"))
+    messages = [{"role": "user", "content": "Give JSON"}]
+    result = await provider.chat_json(messages)
+    assert result == {"answer": 42}

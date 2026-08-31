@@ -104,7 +104,7 @@ OPENAI_API_KEY=sk-your-openai-key-here
 |----------|--------|---------|
 | `openai` | `OPENAI_API_KEY` | gpt-4o-mini |
 | `anthropic` | `ANTHROPIC_API_KEY` | claude-3-5-sonnet |
-| `deepseek` | `DEEPSEEK_API_KEY` | deepseek-chat |
+| `deepseek` | `DEEPSEEK_API_KEY` | deepseek-v4-flash |
 | `qwen` | `QWEN_API_KEY` | qwen-plus |
 | `kimi` | `KIMI_API_KEY` | moonshot-v1-8k |
 | `glm` | `GLM_API_KEY` | glm-4 |

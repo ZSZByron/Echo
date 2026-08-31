@@ -24,10 +24,11 @@ export interface Field {
 }
 
 export interface StructuredFile {
-  id: string;
-  name: string;
-  path: string;
-  type: string;
+  id?: string;
+  name?: string;
+  path?: string;
+  type?: string;
+  status?: "draft" | "finalized";
   sections?: Array<{
     id: string;
     label: string;
@@ -40,7 +41,6 @@ export interface StructuredFile {
       done: boolean;
     }>;
   }>;
-  status?: "draft" | "finalized";
   size?: string;
   modified?: string;
 }

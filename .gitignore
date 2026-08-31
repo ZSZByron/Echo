@@ -60,6 +60,14 @@ backend/.env
 # Sisyphus evidence (regenerated)
 .sisyphus/evidence/
 
+# Task 0 backup additions (2026-08-31)
+.coverage.*
+/*.png
+backend/experiments/results/
+data/assets/visual_bg/
+data/*.jsonl
+backend/data/*.txt
+
 # Session runtime state (regenerated)
 .sisyphus/run-continuation/
 

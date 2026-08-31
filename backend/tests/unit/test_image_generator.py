@@ -353,6 +353,43 @@ async def test_generate_random_seed_when_none(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_seed_capped_for_dashscope(tmp_path: Path) -> None:
+    """Regression: DashScope (qwen/wanxiang) rejects seed > 2^31-1
+    (2147483647, max signed int32) with HTTP 400 InvalidParameter,
+    which makes the whole batch come back empty ('no images generated').
+    generate() must cap every seed sent to the provider to <= 2^31-1.
+    """
+    env = {"IMAGE_PROVIDER": "qwen", "QWEN_API_KEY": "test-key"}
+    with patch.dict(os.environ, env, clear=True):
+        gen = ImageGenerator()
+
+    mock_resp = _mock_response(
+        json_data={
+            "output": {
+                "choices": [
+                    {"message": {"content": [{"image": "https://img.example.com/x.png"}]}}
+                ]
+            }
+        }
+    )
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.is_closed = False
+    gen._client = mock_client
+
+    with (
+        patch("app.ai.image_generator._META_DIR", tmp_path / "meta"),
+        patch.object(gen, "_download_image", side_effect=lambda img, *a, **kw: img),
+    ):
+        # Explicit oversized seed -> must be capped in the provider payload.
+        results = await gen.generate(prompt="x", seed=2**32, num_candidates=1)
+
+    assert len(results) == 1
+    sent_payload = mock_client.post.call_args.kwargs["json"]
+    assert sent_payload["parameters"]["seed"] <= 2147483647
+
+
+@pytest.mark.asyncio
 async def test_generate_no_meta_when_no_asset_id(tmp_path: Path) -> None:
     """No meta files written when asset_id is empty."""
     env = {"IMAGE_PROVIDER": "zhipu", "ZHIPU_API_KEY": "test-key"}

@@ -29,6 +29,6 @@ class TestIPPoster:
 
     def test_panel_uses_module_label(self):
         s = A1Session(session_id="s", user_id="u")
-        s.answers["AI生成边界.immutable_core"] = "不可修改IP定位"
+        s.answers["设定边界.immutable_core"] = "不可修改IP定位"
         out = build_poster(s)
-        assert out["panels"][0]["title"] == "AI生成边界"
+        assert out["panels"][0]["title"] == "设定边界"

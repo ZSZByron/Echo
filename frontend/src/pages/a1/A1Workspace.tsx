@@ -1,18 +1,22 @@
 /**
  * A1Workspace Page
  *
- * Three-state flow for A1 workbench:
+ * Three-state flow for 世界观工坊:
  * 1. SeedSelector - Choose from 8 seeds or custom input
  * 2. GuidedChat - Interactive chat with file panel and progress tracking
  * 3. PosterView - Display generated poster with link to poster page
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
 import { DimensionProgress } from '../../components/structured/DimensionProgress';
 import { PosterBoard } from '../../components/poster/PosterBoard';
+import { A1KnowledgeGraph } from '../../components/graph/A1KnowledgeGraph';
+import type { KnowledgeGraph } from '../../types/graph';
+import { UploadToolbar } from './UploadToolbar';
+import { CopyrightDialog, type CopyrightReport } from './CopyrightDialog';
 import '../../components/theme.css';
 
 // API Types
@@ -35,6 +39,7 @@ interface QuestionPayload {
   sub_label?: string;
   question: string;
   hint: string;
+  example?: string;
 }
 
 interface DiceRecommendation {
@@ -79,6 +84,8 @@ interface ChatResponse {
       }>;
     }>;
     done: number;
+    /** True when every module has >50% subfields answered (finalize gate). */
+    finalizable?: boolean;
   };
   phase: string;
   classification_proposal?: ClassificationProposalData;
@@ -91,10 +98,24 @@ interface FinalizeResponse {
   warnings?: string[];
 }
 
+interface VisualBgImage {
+  path: string;
+  filename: string;
+  url: string;
+  score: number;
+  comment: string;
+  reasoning: string;
+  closest: boolean;
+}
+
 interface PosterResponse {
   panels: Array<{ id: string; title: string; content: string }>;
   ai_image_prompt: string;
   ai_image_status: string;
+  visual_bg_status: string | null;
+  visual_bg_images: VisualBgImage[];
+  visual_bg_best: string | null;
+  visual_bg_prompt: string | null;
 }
 
 interface MissingSectionsError {
@@ -110,11 +131,94 @@ interface ClassificationProposalData {
   suggestions: ProposalSuggestion[];
 }
 
+// Upload API Types
+interface UploadRequest {
+  user_id: string;
+  filename: string;
+  content: string;
+}
+
+interface CopyrightHit {
+  term: string;
+  work: string;
+  evidence: string;
+}
+
+interface UploadResponseCopyrightHit {
+  status: 'copyright_hit';
+  upload_id: string;
+  report: {
+    risk_level: string;
+    matches: CopyrightHit[];
+  };
+}
+
+interface UploadResponseParsed {
+  status: 'parsed';
+  session_id: string;
+  file_id: string;
+  ip_code: string;
+  file: StructuredFile;
+  answers: Record<string, string>; // Key format: "module.field"
+  innovations: Array<{ field: string; suggestion: string }>;
+}
+
+type UploadResponse = UploadResponseCopyrightHit | UploadResponseParsed;
+
+interface ConvertRequest {
+  user_id: string;
+  upload_id: string;
+  decision: 'convert' | 'cancel';
+}
+
+interface ConvertResponse {
+  status: 'parsed';
+  session_id: string;
+  file_id: string;
+  ip_code: string;
+  file: StructuredFile;
+  answers: Record<string, string>;
+  innovations: Array<{ field: string; suggestion: string }>;
+}
+
 // Workspace States
-type WorkspaceState = 'seed_selector' | 'guided_chat' | 'poster_view';
+type WorkspaceState = 'seed_selector' | 'guided_chat' | 'graph_view';
+
+// Format a question payload for display, with example hint for the user.
+function formatQuestion(nq: QuestionPayload | null): string {
+  if (!nq) return '';
+  const header = nq.sub_label
+    ? `【${nq.section_label || nq.section} · ${nq.sub_label}】`
+    : `【${nq.section_label || nq.section}】`;
+  const example = nq.example ? `\n💡 示例：${nq.example}` : '';
+  return `${header}${nq.question}${example}`;
+}
+
+const A1_STORAGE_KEY = 'a1_workspace_v1';
 
 export function A1Workspace() {
-  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>('seed_selector');
+  // Persisted state: survive page reload / tab switch (auto-restores session)
+  const [persisted] = useState<Record<string, unknown>>(() => {
+    try { return JSON.parse(localStorage.getItem(A1_STORAGE_KEY) || '{}'); }
+    catch { return {}; }
+  });
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(() => {
+    // Read as plain string: legacy values ('poster_view') need migration.
+    const persistedState = persisted.workspaceState as string | undefined;
+
+    // Migration: poster_view -> graph_view
+    if (persistedState === 'poster_view') {
+      return 'graph_view';
+    }
+
+    // Check for return intent from poster page
+    const returnIntent = localStorage.getItem('a1_return_intent');
+    if (returnIntent === 'chat' && persisted.sessionId) {
+      return 'guided_chat';
+    }
+
+    return (persistedState as WorkspaceState) || 'seed_selector';
+  });
   const [userId] = useState<string>(() => localStorage.getItem('user_id') || '');
   
   // Seed Selector State
@@ -123,13 +227,23 @@ export function A1Workspace() {
   const [isLoadingSeeds, setIsLoadingSeeds] = useState(true);
   
   // Session State
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [fileId, setFileId] = useState<string | null>(null);
-  const [ipCode, setIpCode] = useState<string | null>(null);
-  const [seedInfo, setSeedInfo] = useState<SeedInfo | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(
+    (persisted.sessionId as string) || null
+  );
+  const [fileId, setFileId] = useState<string | null>(
+    (persisted.fileId as string) || null
+  );
+  const [ipCode, setIpCode] = useState<string | null>(
+    (persisted.ipCode as string) || null
+  );
+  const [seedInfo, setSeedInfo] = useState<SeedInfo | null>(
+    (persisted.seedInfo as SeedInfo) || null
+  );
   
   // Chat State
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(
+    (persisted.messages as Message[]) || []
+  );
   const [file, setFile] = useState<StructuredFile | null>(null);
   const [progressSections, setProgressSections] = useState<Array<{ 
     id: string; 
@@ -141,16 +255,36 @@ export function A1Workspace() {
       done: boolean;
     }>;
   }>>([]);
-  const [progressDone, setProgressDone] = useState(0);
+  const [finalizable, setFinalizable] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  
+  // Graph State
+  const [graphCode, setGraphCode] = useState<string | null>(null);
   
   // Classification Proposal State
   const [classificationProposal, setClassificationProposal] = useState<ClassificationProposalData | null>(null);
   const [showClassificationModal, setShowClassificationModal] = useState(false);
   
+  // Upload State
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [copyrightReport, setCopyrightReport] = useState<CopyrightReport | null>(null);
+  const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
+  const [uploadedInnovations, setUploadedInnovations] = useState<Array<{ field: string; suggestion: string }>>([]);
+  const [isConverting, setIsConverting] = useState(false);
+  
   // Error State
   const [error, setError] = useState<string | null>(null);
   const [missingSections, setMissingSections] = useState<string[] | null>(null);
+
+  // Persist key state to localStorage (survive reload / tab switch)
+  useEffect(() => {
+    try {
+      localStorage.setItem(A1_STORAGE_KEY, JSON.stringify({
+        workspaceState, sessionId, fileId, ipCode, seedInfo, messages,
+      }));
+    } catch { /* quota exceeded, ignore */ }
+  }, [workspaceState, sessionId, fileId, ipCode, seedInfo, messages]);
 
   // Load seeds on mount
   useEffect(() => {
@@ -165,6 +299,64 @@ export function A1Workspace() {
         setIsLoadingSeeds(false);
       });
   }, []);
+
+  // Hydration effect: restore file state on mount (runs once)
+  useEffect(() => {
+    // Clean up return intent flag
+    localStorage.removeItem('a1_return_intent');
+  }, []); // Run once on mount
+
+  // Hydrate file state when fileId changes
+  useEffect(() => {
+    // If we have a fileId, restore the complete file state
+    if (fileId) {
+      const hydrateFileState = async () => {
+        try {
+          const response = await fetchJson<{
+            file_id: string;
+            status: string;
+            answers: Record<string, string>;
+            graph_code?: string;
+            session_id: string;
+            sections: Array<{
+              id: string;
+              label: string;
+              done: boolean;
+              content?: string;
+              subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
+            }>;
+          }>(`/api/a1/file/${fileId}`);
+          
+          // Set file state
+          setFile({
+            status: response.status === 'finalized' ? 'finalized' : 'draft',
+            sections: response.sections,
+          });
+          
+          // Set progress sections
+          setProgressSections(response.sections);
+          
+          // Calculate finalizable: each module has non-empty subs and >50% done ratio
+          const allFinalizable = response.sections.every(section => {
+            if (!section.subs || section.subs.length === 0) return false;
+            const doneCount = section.subs.filter(sub => sub.done).length;
+            return doneCount / section.subs.length > 0.5;
+          });
+          setFinalizable(allFinalizable);
+          
+          // Set graph code if available
+          if (response.graph_code) {
+            setGraphCode(response.graph_code);
+          }
+        } catch (err) {
+          console.error('Failed to hydrate file state:', err);
+          // Don't show error to user - hydration is optional
+        }
+      };
+      
+      hydrateFileState();
+    }
+  }, [fileId]); // Run when fileId changes
 
   // Start session from seed or custom idea
   const startSession = async (seedId?: string, customIdeaText?: string) => {
@@ -197,11 +389,7 @@ export function A1Workspace() {
         : response.seed?.description
         ? `你的初始创意：${response.seed.description}。我将围绕它引导你展开世界观。\n\n`
         : '';
-      const questionText = fq
-        ? (fq.sub_label
-          ? `【${fq.section_label || fq.section} · ${fq.sub_label}】${fq.question}`
-          : `【${fq.section_label || fq.section}】${fq.question}`)
-        : '';
+      const questionText = formatQuestion(fq);
       
       setMessages([{
         id: Date.now().toString(),
@@ -215,6 +403,29 @@ export function A1Workspace() {
       setError('Failed to start session. Please try again.');
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  // Refresh the structured file panel from the server (single source of
+  // truth). Called after each chat turn so refinements show up immediately.
+  const refreshFile = async (id: string) => {
+    try {
+      const response = await fetchJson<{
+        status: string;
+        sections: Array<{
+          id: string;
+          label: string;
+          done: boolean;
+          content?: string;
+          subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
+        }>;
+      }>(`/api/a1/file/${id}`);
+      setFile({
+        status: response.status === 'finalized' ? 'finalized' : 'draft',
+        sections: response.sections,
+      });
+    } catch (err) {
+      console.error('Failed to refresh file:', err);
     }
   };
 
@@ -241,6 +452,7 @@ export function A1Workspace() {
           session_id: sessionId,
           message: text,
         }),
+        timeoutMs: 120000,
       });
       
       // Add assistant reply
@@ -254,38 +466,25 @@ export function A1Workspace() {
       
       // Add next question with two-level formatting
       if (response.next_question) {
-        const nq = response.next_question;
-        const questionText = nq.sub_label
-          ? `【${nq.section_label || nq.section} · ${nq.sub_label}】${nq.question}`
-          : `【${nq.section_label || nq.section}】${nq.question}`;
-        
+        const questionText = formatQuestion(response.next_question);
+
         setMessages(prev => [...prev, {
           id: (Date.now() + 2).toString(),
           type: 'assistant',
           text: questionText,
         }]);
       }
-      
-      // Update file and progress
-      if (response.file_diff && file) {
-        // Create updated file with diff applied
-        const updatedFile = { ...file };
-        response.file_diff.forEach((change: DiffChange) => {
-          const sectionIndex = updatedFile.sections?.findIndex((s: { id: string }) => s.id === change.field);
-          if (sectionIndex !== undefined && sectionIndex >= 0 && updatedFile.sections) {
-            updatedFile.sections[sectionIndex] = {
-              ...updatedFile.sections[sectionIndex],
-              content: change.new,
-              done: true,
-            };
-          }
-        });
-        setFile(updatedFile);
+
+      // Refresh the file panel from the server so every refinement
+      // (first write, overwrite, skip) is reflected immediately.
+      if (fileId && response.file_diff?.length) {
+        await refreshFile(fileId);
       }
-      
+
       setProgressSections(response.progress.sections);
-      setProgressDone(response.progress.done);
-      
+      setFinalizable(response.progress.finalizable ?? false);
+
+
       // Handle classification proposal
       if (response.classification_proposal) {
         setClassificationProposal(response.classification_proposal);
@@ -317,6 +516,7 @@ export function A1Workspace() {
           proposal: classificationProposal,
           choice,
         }),
+        timeoutMs: 120000,
       });
       
       // Add assistant reply
@@ -329,35 +529,21 @@ export function A1Workspace() {
       
       // Add next question with two-level formatting
       if (response.next_question) {
-        const nq = response.next_question;
-        const questionText = nq.sub_label
-          ? `【${nq.section_label || nq.section} · ${nq.sub_label}】${nq.question}`
-          : `【${nq.section_label || nq.section}】${nq.question}`;
-        
+        const questionText = formatQuestion(response.next_question);
+
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(),
           type: 'assistant',
           text: questionText,
         }]);
       }
-      
-      if (response.file_diff && file) {
-        const updatedFile = { ...file };
-        response.file_diff.forEach((change: DiffChange) => {
-          const sectionIndex = updatedFile.sections?.findIndex((s: { id: string }) => s.id === change.field);
-          if (sectionIndex !== undefined && sectionIndex >= 0 && updatedFile.sections) {
-            updatedFile.sections[sectionIndex] = {
-              ...updatedFile.sections[sectionIndex],
-              content: change.new,
-              done: true,
-            };
-          }
-        });
-        setFile(updatedFile);
+
+      if (fileId && response.file_diff?.length) {
+        await refreshFile(fileId);
       }
-      
+
       setProgressSections(response.progress.sections);
-      setProgressDone(response.progress.done);
+      setFinalizable(response.progress.finalizable ?? false);
     } catch (err) {
       console.error('Failed to confirm classification:', err);
       if (err instanceof Error) {
@@ -382,11 +568,52 @@ export function A1Workspace() {
       });
       
       console.log('File finalized:', response);
-      setWorkspaceState('poster_view');
+      
+      // Save graph code to state
+      setGraphCode(response.graph_code);
+      
+      // Transition to graph view
+      setWorkspaceState('graph_view');
+      
+      // Hydrate file state to finalized status
+      if (fileId) {
+        try {
+          const fileResponse = await fetchJson<{
+            status: string;
+            sections: Array<{
+              id: string;
+              label: string;
+              done: boolean;
+              content?: string;
+              subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
+            }>;
+          }>(`/api/a1/file/${fileId}`);
+          
+          setFile({
+            status: fileResponse.status === 'finalized' ? 'finalized' : 'draft',
+            sections: fileResponse.sections,
+          });
+          
+          setProgressSections(fileResponse.sections);
+          
+          const allFinalizable = fileResponse.sections.every(section => {
+            if (!section.subs || section.subs.length === 0) return false;
+            const doneCount = section.subs.filter(sub => sub.done).length;
+            return doneCount / section.subs.length > 0.5;
+          });
+          setFinalizable(allFinalizable);
+        } catch (err) {
+          console.error('Failed to hydrate after finalize:', err);
+        }
+      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as MissingSectionsError;
-        setMissingSections(body.missing_sections || []);
+        // FastAPI wraps errors as {detail: {...}}; support both shapes.
+        const detail = (err.body as { detail?: MissingSectionsError })?.detail;
+        const missing = detail?.missing_sections
+          ?? (err.body as MissingSectionsError)?.missing_sections
+          ?? [];
+        setMissingSections(missing);
         setError('File is incomplete. Please fill in all required sections.');
       } else if (err instanceof Error) {
         console.error('Failed to finalize file:', err);
@@ -397,12 +624,152 @@ export function A1Workspace() {
     }
   };
 
+  // Handle file upload
+  const handleFileUpload = async (filename: string, content: string) => {
+    setIsUploading(true);
+    setUploadError(null);
+
+    // Check for client-side validation errors
+    if (!content) {
+      setUploadError('文件选择失败或文件格式不正确');
+      setIsUploading(false);
+      return;
+    }
+    
+    try {
+      const response = await fetchJson<UploadResponse>('/api/a1/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          filename,
+          content,
+        } as UploadRequest),
+      });
+
+      if (response.status === 'copyright_hit') {
+        setPendingUploadId(response.upload_id);
+        setCopyrightReport({
+          risk_level: response.report.risk_level,
+          matches: response.report.matches,
+        });
+      } else if (response.status === 'parsed') {
+        // Successfully parsed, enter guided chat
+        handleUploadSuccess(response, filename);
+      }
+    } catch (err) {
+      console.error('Failed to upload file:', err);
+      if (err instanceof ApiError && err.status === 503) {
+        setUploadError('上传解析需要 LLM 服务');
+      } else if (err instanceof ApiError && err.status === 422) {
+        setUploadError('文件格式不正确，请确保文件至少包含 200 字符的有效文本内容');
+      } else {
+        setUploadError('上传失败，请重试');
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Handle successful upload response
+  const handleUploadSuccess = (response: UploadResponseParsed, filename?: string) => {
+    setSessionId(response.session_id);
+    setFileId(response.file_id);
+    setIpCode(response.ip_code);
+    setSeedInfo(filename ? { name: filename, genre: '上传', description: '来自世界观文档' } : null);
+    setFile(response.file);
+    setUploadedInnovations(response.innovations);
+
+    // Seed the progress panel from the prefilled sections so the
+    // DimensionProgress grid is visible before the first chat turn.
+    const sections = response.file.sections ?? [];
+    if (sections.length > 0) {
+      setProgressSections(sections.map(section => ({
+        id: section.id,
+        label: section.label,
+        done: Boolean(section.done),
+        subs: (section.subs ?? []).map(sub => ({
+          id: sub.id,
+          label: sub.label,
+          done: sub.done,
+        })),
+      })));
+      // Finalize gate: every module must have strictly >50% subs answered.
+      setFinalizable(sections.every(section => {
+        const subs = section.subs ?? [];
+        return subs.length > 0
+          && subs.filter(sub => sub.done).length / subs.length > 0.5;
+      }));
+    }
+
+    // Initialize chat with welcome message
+    setMessages([{
+      id: Date.now().toString(),
+      type: 'assistant',
+      text: '已成功解析您的世界观文档。我已预填了基础信息，您可以查看右侧面板并继续完善细节。',
+    }]);
+
+    setWorkspaceState('guided_chat');
+  };
+
+  // Handle copyright conversion
+  const handleCopyrightConvert = async () => {
+    if (!pendingUploadId) return;
+
+    setIsConverting(true);
+    
+    try {
+      const response = await fetchJson<ConvertResponse>('/api/a1/upload/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          upload_id: pendingUploadId,
+          decision: 'convert',
+        } as ConvertRequest),
+      });
+
+      // Clear copyright modal state
+      setCopyrightReport(null);
+      setPendingUploadId(null);
+      
+      // Enter guided chat with converted content
+      handleUploadSuccess(response);
+    } catch (err) {
+      console.error('Failed to convert content:', err);
+      setUploadError('转换失败，请重试');
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  // Handle copyright cancel
+  const handleCopyrightCancel = () => {
+    // Notify the backend to drop the pending upload (fire-and-forget).
+    if (pendingUploadId) {
+      fetchJson('/api/a1/upload/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          upload_id: pendingUploadId,
+          decision: 'cancel',
+        } as ConvertRequest),
+      }).catch((err: Error) => {
+        console.error('Failed to cancel upload:', err);
+      });
+    }
+    setCopyrightReport(null);
+    setPendingUploadId(null);
+    setUploadError(null);
+  };
+
   // Render Seed Selector
   const renderSeedSelector = () => (
     <div className="min-h-screen starry-gradient p-8">
       <div className="max-w-6xl mx-auto">
         <div className="glass-panel p-8 mb-8">
-          <h1 className="text-3xl font-bold text-stardust-300 mb-2 glow-starlight">A1 Workbench</h1>
+          <h1 className="text-3xl font-bold text-stardust-300 mb-2 glow-starlight">世界观工坊</h1>
           <p className="text-void-400">Choose a seed to start your creative journey</p>
         </div>
         
@@ -435,6 +802,13 @@ export function A1Workspace() {
               ))}
             </div>
             
+            {/* Upload Toolbar */}
+            <UploadToolbar
+              onUpload={handleFileUpload}
+              isUploading={isUploading}
+              uploadError={uploadError}
+            />
+            
             {/* Custom Input */}
             <div className="glass-panel p-8">
               <h2 className="text-stardust-300 text-xl font-medium mb-4">Or start with your own idea</h2>
@@ -457,6 +831,16 @@ export function A1Workspace() {
             </div>
           </>
         )}
+        
+        {/* Copyright Dialog */}
+        {copyrightReport && (
+          <CopyrightDialog
+            report={copyrightReport}
+            onConvert={handleCopyrightConvert}
+            onCancel={handleCopyrightCancel}
+            isProcessing={isConverting}
+          />
+        )}
       </div>
     </div>
   );
@@ -472,7 +856,7 @@ export function A1Workspace() {
               <div className="flex items-center gap-3">
                 <div className="text-stardust-400 text-xl">✦</div>
                 <div>
-                  <h1 className="text-stardust-300 text-lg font-medium">A1 Workbench</h1>
+                  <h1 className="text-stardust-300 text-lg font-medium">世界观工坊</h1>
                   <p className="text-void-500 text-sm">
                     IP Code: {ipCode || 'Loading...'}
                     {seedInfo?.name && (
@@ -487,10 +871,10 @@ export function A1Workspace() {
                 </div>
               </div>
             <button
-              onClick={() => window.location.href = '/a1'}
+              onClick={() => { localStorage.removeItem(A1_STORAGE_KEY); window.location.href = '/a1'; }}
               className="text-void-400 hover:text-stardust-300 transition-colors"
             >
-              ← Back to Seeds
+              ← 返回种子选择
             </button>
             </div>
           </div>
@@ -502,13 +886,11 @@ export function A1Workspace() {
           />
         </div>
         
-        {/* Right: File Panel + Progress */}
-        <div className="w-[400px] overflow-y-auto starry-scroll p-6 space-y-6">
+        {/* Right: File Panel + Progress (scrollable) + fixed Finalize footer */}
+        <div className="w-[400px] flex flex-col border-l border-white/5">
+          <div className="flex-1 overflow-y-auto starry-scroll p-6 space-y-6">
           {file && (
-            <StructuredFilePanel
-              file={file}
-              className="sticky top-6"
-            />
+            <StructuredFilePanel file={file} />
           )}
           
           {progressSections.length > 0 && (
@@ -518,14 +900,31 @@ export function A1Workspace() {
             />
           )}
           
-          {progressDone >= 10 && (
-            <button
-              onClick={finalizeFile}
-              disabled={isChatLoading}
-              className="w-full bg-stardust-400 text-space-950 px-6 py-4 rounded-lg font-medium hover:bg-stardust-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all glow-starlight"
-            >
-              {isChatLoading ? 'Processing...' : 'Finalize IP File'}
-            </button>
+          {/* Innovations Module Display */}
+          {uploadedInnovations.length > 0 && (
+            <div className="glass-panel p-6">
+              <h3 className="text-stardust-300 text-lg font-medium mb-4 flex items-center gap-2">
+                <span>✦</span>
+                创新模块
+              </h3>
+              <div className="space-y-3">
+                {uploadedInnovations.map((innovation, index) => (
+                  <div key={index} className="bg-space-800/40 border border-nebula-400/20 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="text-nebula-400 text-lg">💡</div>
+                      <div className="flex-1">
+                        <div className="text-stardust-300 text-sm font-medium mb-2">
+                          {innovation.field}
+                        </div>
+                        <div className="text-gray-300 text-sm leading-relaxed">
+                          {innovation.suggestion}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
           
           {error && (
@@ -545,6 +944,35 @@ export function A1Workspace() {
               )}
             </div>
           )}
+          </div>{/* end scrollable content */}
+
+          {/* Fixed footer: Finalize button always visible */}
+          <div className="p-6 border-t border-white/5 bg-space-900/70 backdrop-blur-sm space-y-2">
+            <button
+              onClick={finalizeFile}
+              disabled={!finalizable || isChatLoading}
+              title={finalizable
+                ? '定稿并生成知识图谱与展板'
+                : '每个板块需完成超过50%的字段后方可定稿'}
+              className={`w-full px-6 py-4 rounded-lg font-medium transition-all ${
+                finalizable
+                  ? 'bg-stardust-400 text-space-950 hover:bg-stardust-300 glow-starlight'
+                  : 'bg-space-800/60 text-gray-500 cursor-not-allowed border border-nebula-400/10'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isChatLoading ? 'Processing...' : 'Finalize IP File'}
+            </button>
+            {!finalizable && (
+              <p className="text-void-400 text-xs text-center">
+                每个板块完成超过 50% 的字段后可定稿；定稿前可继续沟通完善设定。
+              </p>
+            )}
+            {file?.status === 'finalized' && (
+              <p className="text-cosmos-success text-xs text-center">
+                已定稿 · 继续对话修改将打回草稿并需重新定稿
+              </p>
+            )}
+          </div>
         </div>
       </div>
       
@@ -584,49 +1012,215 @@ export function A1Workspace() {
     </div>
   );
 
-  // Render Poster View
-  const renderPosterView = () => {
+  // Render Graph View
+  const renderGraphView = () => {
     if (!fileId) return null;
+    
+    const returnToChat = () => {
+      setWorkspaceState('guided_chat');
+      // Re-hydrate file state when returning from graph/poster view
+      if (fileId) {
+        fetchJson<{
+          status: string;
+          sections: Array<{
+            id: string;
+            label: string;
+            done: boolean;
+            content?: string;
+            subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
+          }>;
+          graph_code?: string;
+        }>(`/api/a1/file/${fileId}`)
+          .then((response) => {
+            setFile({
+              status: response.status === 'finalized' ? 'finalized' : 'draft',
+              sections: response.sections,
+            });
+            setProgressSections(response.sections);
+            
+            const allFinalizable = response.sections.every(section => {
+              if (!section.subs || section.subs.length === 0) return false;
+              const doneCount = section.subs.filter(sub => sub.done).length;
+              return doneCount / section.subs.length > 0.5;
+            });
+            setFinalizable(allFinalizable);
+            
+            if (response.graph_code) {
+              setGraphCode(response.graph_code);
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to re-hydrate file state:', err);
+          });
+      }
+    };
     
     return (
       <div className="min-h-screen starry-gradient">
+        {/* Top Bar */}
         <div className="glass-panel p-4 border-b border-white/5">
           <div className="flex items-center justify-between max-w-7xl mx-auto">
             <div className="flex items-center gap-3">
               <div className="text-stardust-400 text-xl">✦</div>
               <div>
-                <h1 className="text-stardust-300 text-lg font-medium">A1 Workbench</h1>
-                <p className="text-void-500 text-sm">IP Code: {ipCode || 'Loading...'}</p>
+                <h1 className="text-stardust-300 text-lg font-medium">世界观工坊</h1>
+                <p className="text-void-500 text-sm">
+                  IP Code: {ipCode || 'Loading...'} · Graph: {graphCode || '待定稿'}
+                </p>
               </div>
             </div>
-            <button
-              onClick={() => window.location.href = '/a1'}
-              className="text-void-400 hover:text-stardust-300 transition-colors"
-            >
-              ← Back to Editor
-            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={returnToChat}
+                className="text-void-400 hover:text-stardust-300 transition-colors"
+              >
+                ← 返回继续深化设定
+              </button>
+              <button
+                onClick={() => window.location.href = `/a1/poster?fileId=${fileId}`}
+                className="text-stardust-300 hover:text-stardust-200 transition-colors"
+              >
+                查看完整展示板 →
+              </button>
+            </div>
           </div>
         </div>
         
-        <PosterPreview fileId={fileId} />
-        
-        <div className="max-w-7xl mx-auto p-8">
-          <button
-            onClick={() => window.location.href = `/a1/poster?fileId=${fileId}`}
-            className="w-full bg-stardust-400 text-space-950 px-8 py-4 rounded-lg font-medium hover:bg-stardust-300 transition-all glow-starlight"
-          >
-            View Full Poster Page
-          </button>
-        </div>
+        <GraphViewContent fileId={fileId} returnToChat={returnToChat} />
       </div>
     );
   };
+
+  // Graph View Content Component with Tabs
+  function GraphViewContent({ fileId, returnToChat }: { fileId: string; returnToChat: () => void }) {
+    const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
+    
+    return (
+      <div className="max-w-7xl mx-auto">
+        {/* Tab Navigation */}
+        <div className="flex gap-4 border-b border-white/5 bg-space-900/30 backdrop-blur-sm">
+          <button
+            onClick={() => setActiveTab('graph')}
+            className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === 'graph'
+                ? 'border-stardust-400 text-stardust-300'
+                : 'border-transparent text-void-400 hover:text-stardust-300'
+            }`}
+          >
+            知识图谱
+          </button>
+          <button
+            onClick={() => setActiveTab('poster')}
+            className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === 'poster'
+                ? 'border-stardust-400 text-stardust-300'
+                : 'border-transparent text-void-400 hover:text-stardust-300'
+            }`}
+          >
+            展板预览
+          </button>
+        </div>
+        
+        {/* Tab Content */}
+        <div className="p-8">
+          {activeTab === 'graph' && <A1GraphSection fileId={fileId} returnToChat={returnToChat} />}
+          {activeTab === 'poster' && <PosterPreview fileId={fileId} />}
+        </div>
+      </div>
+    );
+  }
+
+  // A1 Graph Section Component
+  function A1GraphSection({ fileId, returnToChat }: { fileId: string; returnToChat: () => void }) {
+    const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadGraph = useCallback(async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await fetchJson<KnowledgeGraph>(`/api/a1/file/${fileId}/graph`);
+        setGraph(data);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          setError('pending_finalize');
+        } else {
+          console.error('Failed to load graph:', err);
+          setError('Failed to load graph');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    }, [fileId]);
+
+    useEffect(() => {
+      loadGraph();
+    }, [loadGraph]);
+    
+    if (isLoading) {
+      return (
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-stardust-300">构建知识图谱中...</p>
+          </div>
+        </div>
+      );
+    }
+    
+    if (error === 'pending_finalize') {
+      return (
+        <div className="glass-panel p-8 bg-cosmos-warning/10 border-cosmos-warning/30 text-center">
+          <p className="text-cosmos-warning mb-4">设定已修改回草稿，请重新定稿后查看图谱</p>
+          <button
+            onClick={returnToChat}
+            className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
+          >
+            ← 返回继续深化设定
+          </button>
+        </div>
+      );
+    }
+    
+    if (error || !graph) {
+      return (
+        <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
+          <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
+          <button
+            onClick={loadGraph}
+            className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
+          >
+            重试
+          </button>
+        </div>
+      );
+    }
+    
+    return (
+      <div>
+        <div className="h-[70vh]">
+          <A1KnowledgeGraph graph={graph} isLoading={false} error={null} />
+        </div>
+        
+        {/* Graph Legend */}
+        <div className="mt-6 glass-panel p-4">
+          <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
+            <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
+            <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       {workspaceState === 'seed_selector' && renderSeedSelector()}
       {workspaceState === 'guided_chat' && renderGuidedChat()}
-      {workspaceState === 'poster_view' && renderPosterView()}
+      {workspaceState === 'graph_view' && renderGraphView()}
     </div>
   );
 }
@@ -636,6 +1230,7 @@ function PosterPreview({ fileId }: { fileId: string }) {
   const [posterData, setPosterData] = useState<PosterResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [visualBgIndex, setVisualBgIndex] = useState(0);
   
   useEffect(() => {
     fetchJson<PosterResponse>(`/api/a1/file/${fileId}/poster`)
@@ -645,17 +1240,26 @@ function PosterPreview({ fileId }: { fileId: string }) {
       })
       .catch((err: Error) => {
         console.error('Failed to load poster:', err);
-        setError('Failed to load poster');
+        setError('加载展示板失败');
         setIsLoading(false);
       });
   }, [fileId]);
+
+  // Carousel effect
+  useEffect(() => {
+    if (!posterData || posterData.visual_bg_status !== 'completed' || posterData.visual_bg_images.length === 0) return;
+    const interval = setInterval(() => {
+      setVisualBgIndex((prev) => (prev + 1) % posterData.visual_bg_images.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [posterData]);
   
   if (isLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-stardust-300">Loading poster preview...</p>
+          <p className="text-stardust-300">加载展示板中...</p>
         </div>
       </div>
     );
@@ -665,16 +1269,49 @@ function PosterPreview({ fileId }: { fileId: string }) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30">
-          <p className="text-cosmos-error">{error || 'Failed to load poster'}</p>
+          <p className="text-cosmos-error">{error || '加载失败'}</p>
         </div>
       </div>
     );
   }
   
   return (
-    <PosterBoard
-      panels={posterData.panels}
-      className="min-h-[60vh]"
-    />
+    <div className="relative">
+      {/* 背景图轮播层 */}
+      {posterData.visual_bg_status === 'completed' && posterData.visual_bg_images.length > 0 && (
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          {posterData.visual_bg_images.map((image, index) => (
+            <div
+              key={image.filename}
+              className={`absolute inset-0 transition-opacity duration-1000 ${
+                index === visualBgIndex ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <img
+                src={image.url}
+                alt={`背景图 ${index + 1}`}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-space-950/40 via-space-900/20 to-space-950/40" />
+            </div>
+          ))}
+          {/* 轮播指示器 */}
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-2">
+            {posterData.visual_bg_images.map((image, index) => (
+              <div
+                key={image.filename}
+                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                  index === visualBgIndex ? 'bg-stardust-300 w-4' : 'bg-void-600'
+                } ${image.closest && posterData.visual_bg_best === image.filename ? 'ring-2 ring-stardust-400' : ''}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      {/* 前景：内容面板（glass-panel 已在 theme.css 降到 0.3 透明度让背景图透出） */}
+      <div className="relative z-10">
+        <PosterBoard panels={posterData.panels} className="min-h-[60vh]" transparent />
+      </div>
+    </div>
   );
 }

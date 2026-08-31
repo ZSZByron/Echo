@@ -61,19 +61,23 @@ class ImageGenerator:
 
     Supported providers:
         - "zhipu": CogView-3-Plus via Zhipu API
-        - "wanxiang": DashScope image synthesis API (支持万相2.7)
-        - "qwen": DashScope multimodal-generation API (qwen-image-2.0-pro)
+        - "wanxiang": DashScope text2image/image-synthesis API (异步, 万相2.5及以下)
+        - "wanxiang27": DashScope multimodal-generation API (同步, 万相2.7 image-pro/image)
+        - "qwen": DashScope multimodal-generation API (qwen-image-2.0-pro / 3.0-pro)
         - "local": Local fallback generator with cyberpunk placeholders
 
     Reads configuration from environment variables:
         - IMAGE_PROVIDER: provider name (default "zhipu")
         - ZHIPU_API_KEY: API key for Zhipu
-        - WANXIANG_API_KEY: API key for Wanxiang (DashScope)
-        - WANXIANG_MODEL: Model name for Wanxiang (default "flux-dev", supports "flux-dev", "wanx-v1" etc)
+        - WANXIANG_API_KEY: API key for Wanxiang (DashScope, 异步路径)
+        - WANXIANG_MODEL: Model name for Wanxiang (异步路径, 默认 "flux-dev")
+        - WANXIANG27_API_KEY: API key for Wanxiang 2.7 (DashScope, 同步路径)
+        - WANXIANG27_MODEL: Model name for Wanxiang 2.7
+          (默认 "wan2.7-image-pro", 可选 "wan2.7-image")
         - QWEN_API_KEY: API key for Qwen/DashScope (same key as WANXIANG_API_KEY)
     """
 
-    _VALID_PROVIDERS = frozenset({"zhipu", "wanxiang", "qwen", "local"})
+    _VALID_PROVIDERS = frozenset({"zhipu", "wanxiang", "wanxiang27", "qwen", "local"})
 
     def __init__(self) -> None:
         self._provider = os.environ.get("IMAGE_PROVIDER", "zhipu").strip().lower()
@@ -100,6 +104,20 @@ class ImageGenerator:
                 raise ImageGenerationError(
                     "WANXIANG_API_KEY environment variable is not set."
                 )
+        elif self._provider == "wanxiang27":
+            # 万相2.7 image (wan2.7-image-pro / wan2.7-image) 走 DashScope
+            # multimodal-generation API 同步调用路径
+            # 复用 WANXIANG27_API_KEY 或 WANXIANG_API_KEY（同一 DashScope key）
+            self._api_key = os.environ.get("WANXIANG27_API_KEY", "").strip()
+            if not self._api_key:
+                self._api_key = os.environ.get("WANXIANG_API_KEY", "").strip()
+            if not self._api_key:
+                raise ImageGenerationError(
+                    "WANXIANG27_API_KEY (or WANXIANG_API_KEY) environment variable is not set."
+                )
+            self._model = os.environ.get(
+                "WANXIANG27_MODEL", "wan2.7-image-pro"
+            ).strip()
         elif self._provider == "qwen":
             # qwen-image-2.0-pro 通过 DashScope multimodal-generation API 调用
             # 复用 QWEN_API_KEY 或 WANXIANG_API_KEY（同一个 DashScope key）
@@ -171,14 +189,24 @@ class ImageGenerator:
         results: list[GeneratedImage] = []
 
         for i in range(num_candidates):
+            # DashScope (qwen/wanxiang) rejects seed > 2^31-1 (2147483647,
+            # max signed int32) with HTTP 400 InvalidParameter, which makes
+            # the whole batch come back empty ("no images generated").
+            # 2^31-1 is accepted by every supported provider, so cap here.
             candidate_seed = (
-                (seed + i) if seed is not None else random.randint(0, 2**32 - 1)
+                (seed + i) if seed is not None else random.randint(0, 2**31 - 1)
             )
+            if candidate_seed > 2147483647:
+                candidate_seed = candidate_seed & 0x7FFFFFFF
             try:
                 if self._provider == "zhipu":
                     img = await self._call_zhipu(prompt, size, candidate_seed)
                 elif self._provider == "wanxiang":
                     img = await self._call_wanxiang(
+                        prompt, negative_prompt, size, candidate_seed
+                    )
+                elif self._provider == "wanxiang27":
+                    img = await self._call_wanxiang27(
                         prompt, negative_prompt, size, candidate_seed
                     )
                 elif self._provider == "qwen":
@@ -336,6 +364,87 @@ class ImageGenerator:
         except httpx.HTTPStatusError as exc:
             raise ImageGenerationError(
                 f"Wanxiang API error {exc.response.status_code}: {exc.response.text}"
+            ) from exc
+
+    async def _call_wanxiang27(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        size: str,
+        seed: int,
+    ) -> GeneratedImage:
+        """Call Wanxiang 2.7 image generation via DashScope multimodal-generation API.
+
+        Uses the synchronous messages-based multimodal endpoint (NOT the async
+        text2image endpoint). Models: wan2.7-image-pro / wan2.7-image.
+
+        Spec: https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference
+        - Endpoint: POST /api/v1/services/aigc/multimodal-generation/generation
+        - No X-DashScope-Async header (synchronous)
+        - Request body: {model, input.messages[{role:user,
+          content:[{text:prompt}]}], parameters:{size, n, watermark,
+          thinking_mode}}
+        - size accepts "1K"/"2K"/"4K" shorthands or pixel values like "1024*1024"
+        - Response: output.choices[0].message.content[0].image contains image URL
+
+        POST https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+        """
+        client = await self._get_client()
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        # 万相2.7 size 格式: 宽*高 (e.g. "1024*1024") 或档位简写 ("1K"/"2K"/"4K")
+        # 当前传入的 size 是 "WxH" 格式, 转为 "W*H" 以符合 multimodal-generation 规范
+        wan27_size = size.lower().replace("x", "*")
+
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "input": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": prompt}],
+                    }
+                ]
+            },
+            "parameters": {
+                "size": wan27_size,
+                "seed": seed,
+                "n": 1,
+                "watermark": False,
+                "thinking_mode": True,
+            },
+        }
+        if negative_prompt:
+            payload["parameters"]["negative_prompt"] = negative_prompt
+
+        try:
+            resp = await client.post(
+                "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Response shape: output.choices[0].message.content[0].image
+            choices = data.get("output", {}).get("choices", [])
+            if not choices:
+                raise ImageGenerationError("Wanxiang 2.7 API returned no choices.")
+
+            content = choices[0].get("message", {}).get("content", [])
+            if not content:
+                raise ImageGenerationError("Wanxiang 2.7 API returned no content.")
+
+            image_url = content[0].get("image", "")
+            if not image_url:
+                raise ImageGenerationError("Wanxiang 2.7 API returned no image URL.")
+
+            return GeneratedImage(seed=seed, url=image_url)
+        except httpx.HTTPStatusError as exc:
+            raise ImageGenerationError(
+                f"Wanxiang 2.7 API error {exc.response.status_code}: {exc.response.text}"
             ) from exc
 
     async def _call_qwen(

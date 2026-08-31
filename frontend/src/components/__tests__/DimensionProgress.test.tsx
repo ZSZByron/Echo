@@ -21,7 +21,7 @@ describe("DimensionProgress", () => {
     { id: "7", label: "视觉设计", done: false, done_fields: 0, total_fields: 4 },
     { id: "8", label: "玩法设计DNA", done: false, done_fields: 0, total_fields: 5 },
     { id: "9", label: "骰子设定", done: false, done_fields: 0, total_fields: 3 },
-    { id: "10", label: "AI生成边界", done: false, done_fields: 0, total_fields: 2 },
+    { id: "10", label: "设定边界", done: false, done_fields: 0, total_fields: 2 },
   ];
 
   it("renders 10 grid cells regardless of section count", () => {
@@ -83,7 +83,7 @@ describe("DimensionProgress", () => {
     expect(sectionLabels?.textContent).toContain("世界本体");
     expect(sectionLabels?.textContent).toContain("力量体系");
     expect(sectionLabels?.textContent).toContain("骰子设定");
-    expect(sectionLabels?.textContent).toContain("AI生成边界");
+    expect(sectionLabels?.textContent).toContain("设定边界");
   });
 
   it("handles empty sections array", () => {

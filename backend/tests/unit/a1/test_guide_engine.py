@@ -1,8 +1,8 @@
 """Tests for the A1 guide engine (LLM-interviewer state machine)."""
 from app.domains.creation.a1.guide_engine import (
-    A1Session,
     PHASE_ASKING,
     PHASE_COMPLETED,
+    A1Session,
     handle_message,
     progress,
 )
@@ -11,7 +11,6 @@ from app.domains.creation.a1.interviewer import (
     InterviewFill,
 )
 from app.domains.creation.seed.a1_question_tree import (
-    total_subfield_count,
     all_subfield_keys,
 )
 
@@ -79,8 +78,9 @@ class TestGuideEngine:
         assert out["reply"] == "你好！我们继续——"
         assert out["next_question"] is not None
 
-    def test_llm_failure_degrades_to_direct_store(self):
-        """A name is just a name — LLM down must never block intake."""
+    def test_llm_failure_never_records_without_judgment(self):
+        """LLM down must ask the user to retry — never blind-store text
+        (blind-recording fix, 2026-08-26)."""
         s = make_session()
         from app.domains.creation.a1.interviewer import DegradingInterviewer
 
@@ -89,8 +89,10 @@ class TestGuideEngine:
             "星陨大陆",
             DegradingInterviewer(FakeInterviewer(raise_error=True)),
         )
-        assert s.answers["IP定位.name"] == "星陨大陆"
-        assert s.current_subfield == "concept"
+        assert s.answers == {}
+        assert s.current_subfield == "name"  # position unchanged
+        assert out["file_diff"] == []
+        assert "不可用" in out["reply"]
         assert "classification_proposal" not in out
 
     def test_skip_advances_without_value(self):
@@ -144,3 +146,235 @@ class TestGuideEngine:
         assert "module" in diff
         assert "section" in diff
         assert diff["module"] == "IP定位"
+
+    # ---- finalize gate (>50% per module) ----
+
+    def test_progress_finalizable_false_initially(self):
+        s = make_session()
+        assert progress(s)["finalizable"] is False
+
+    def test_progress_finalizable_true_when_all_modules_over_half(self):
+        from app.domains.creation.seed.a1_question_tree import MODULES
+        s = make_session()
+        for m in MODULES:
+            need = len(m["fields"]) // 2 + 1
+            for f in m["fields"][:need]:
+                s.answers[f"{m['id']}.{f['id']}"] = "x"
+        assert progress(s)["finalizable"] is True
+
+    # ---- completed phase stays open for refinement ----
+
+    def test_completed_phase_allows_refinement(self):
+        s = make_session()
+        for key in all_subfield_keys():
+            module_id, sub_id = key.split(".", 1)
+            handle_message(
+                s,
+                "正常设定",
+                FakeInterviewer(
+                    fills=[InterviewFill(module=module_id, subfield=sub_id, value="正常设定")]
+                ),
+            )
+        assert s.phase == PHASE_COMPLETED
+        # Old behavior: canned "请定稿" reply blocked any further input.
+        # New behavior: the interviewer still processes refinement fills.
+        out = handle_message(
+            s,
+            "名字改成星穹大陆",
+            FakeInterviewer(
+                fills=[InterviewFill(module="IP定位", subfield="name", value="星穹大陆")],
+                guidance_reply="已更新名字。",
+            ),
+        )
+        assert out["reply"] == "已更新名字。"
+        assert s.answers["IP定位.name"] == "星穹大陆"
+        # Overwrite must surface a diff so a finalized file reverts to draft.
+        assert out["file_diff"] and out["file_diff"][0]["old"] == "正常设定"
+        assert out["file_diff"][0]["new"] == "星穹大陆"
+        assert s.phase == PHASE_COMPLETED
+
+    def test_same_value_refill_emits_no_diff(self):
+        s = make_session()
+        handle_message(s, "星陨大陆", name_filler())
+        out = handle_message(s, "星陨大陆", name_filler())
+        assert out["file_diff"] == []
+        assert s.answers["IP定位.name"] == "星陨大陆"
+
+    def test_duplicate_fill_same_turn_first_wins(self):
+        s = make_session()
+        out = handle_message(
+            s,
+            "星陨大陆",
+            FakeInterviewer(
+                fills=[
+                    InterviewFill(module="IP定位", subfield="name", value="第一"),
+                    InterviewFill(module="IP定位", subfield="name", value="第二"),
+                ],
+            ),
+        )
+        assert s.answers["IP定位.name"] == "第一"
+        assert len(out["file_diff"]) == 1
+
+    # ---- anti-stall guard ----
+
+    def test_stall_suggests_examples_then_number_pick(self):
+        """Stall 2 -> seed-referenced suggestions; number reply picks one."""
+        s = make_session()
+        # Advance past name to concept
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+        assert s.current_module == "IP定位"
+
+        misroute = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="core_experience", value="决斗体验")],
+            guidance_reply="已记录核心体验。",
+        )
+        user_text = "刹那生死，剑客决斗，先手必赢！"
+
+        # Turn 1: misroute -> concept NOT filled, stall_count=1
+        handle_message(s, user_text, misroute)
+        assert "IP定位.concept" not in s.answers
+        assert s.current_subfield == "concept"  # still on concept
+        assert s.stall_count == 1
+        assert s.pending_suggestions == []
+
+        # Turn 2: same misroute -> suggestion mode (LLM-understanding first)
+        out2 = handle_message(s, user_text, misroute)
+        assert "IP定位.concept" not in s.answers  # NOT raw-filled yet
+        assert s.current_subfield == "concept"  # position unchanged
+        assert "示例" in out2["reply"]
+        assert "序号" in out2["reply"]
+        assert len(s.pending_suggestions) == 3
+        assert s.stall_count == 2  # stays at 2 so next stall escalates
+
+        # Turn 3: user replies "2" -> pick second example, advance
+        out3 = handle_message(s, "2", misroute)
+        assert s.answers["IP定位.concept"] == "示例二"  # second canned example
+        assert "已按示例记录" in out3["reply"]
+        assert s.current_subfield != "concept"  # advanced past concept
+        assert s.pending_suggestions == []
+        assert s.stall_count == 0
+        diff_fields = [d["field"] for d in out3["file_diff"]]
+        assert "核心概念" in diff_fields
+
+    def test_stall_third_turn_never_raw_fills(self):
+        """Stall 3 goes through LLM forced_allocate — never raw-text fill
+        (blind-recording fix, 2026-08-26)."""
+        s = make_session()
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+
+        misroute = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="core_experience", value="决斗")],
+            guidance_reply="已记录。",
+        )
+        user_text = "先手必赢的世界"
+
+        handle_message(s, user_text, misroute)  # stall 1
+        handle_message(s, user_text, misroute)  # stall 2 -> suggestions
+        assert "IP定位.concept" not in s.answers
+
+        out3 = handle_message(s, user_text, misroute)  # stall 3 -> forced_allocate
+        assert "IP定位.concept" not in s.answers  # LLM judged: no valid fill
+        assert "已按原文直接记录" not in out3["reply"]
+        assert "跳过" in out3["reply"] or "换" in out3["reply"]
+        assert s.stall_count <= 3  # capped, not reset (field still unfilled)
+
+    def test_stall_suggest_unavailable_asks_rephrase(self):
+        """When suggest_examples returns [] (LLM offline), stall 2 asks the
+        user to rephrase / 跳过 — never raw-fills."""
+        s = make_session()
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+
+        misroute = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="core_experience", value="决斗")],
+            guidance_reply="已记录。",
+            examples=[],
+        )
+        user_text = "高魔科技世界"
+
+        handle_message(s, user_text, misroute)  # stall 1
+        out2 = handle_message(s, user_text, misroute)  # suggestions empty -> ask rephrase
+        assert "IP定位.concept" not in s.answers
+        assert "已按原文直接记录" not in out2["reply"]
+        assert "跳过" in out2["reply"] or "换" in out2["reply"]
+        assert s.current_subfield == "concept"  # position unchanged
+
+    def test_number_without_pending_suggestions_passthrough(self):
+        """A bare number with no pending suggestions goes to the interviewer."""
+        s = make_session()
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+        assert s.pending_suggestions == []
+
+        filler = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="concept", value="正常回答")],
+            guidance_reply="已记录。",
+        )
+        out = handle_message(s, "1", filler)  # no pending -> normal interview
+        assert s.answers["IP定位.concept"] == "正常回答"
+        assert "已按示例记录" not in out["reply"]
+
+    def test_question_marks_do_not_stall(self):
+        """Texts ending with ？ must not increment stall counter."""
+        s = make_session()
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+
+        chatty = FakeInterviewer(
+            fills=[],
+            guidance_reply="请继续。",
+        )
+
+        handle_message(s, "核心概念是什么意思？", chatty)
+        handle_message(s, "能举个例子吗？", chatty)
+
+        assert "IP定位.concept" not in s.answers
+        assert s.stall_count == 0
+
+    def test_stall_resets_on_success(self):
+        """A successful fill resets stall tracking; next misroute starts fresh."""
+        s = make_session()
+        s.answers["IP定位.name"] = "x"
+        s.current_subfield = "concept"
+
+        misroute = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="core_experience", value="决斗")],
+            guidance_reply="已记录。",
+        )
+        correct = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="concept", value="因果轮回")],
+            guidance_reply="已记录。",
+        )
+
+        # Turn 1: misroute -> stall_count=1
+        handle_message(s, "核心是轮回", misroute)
+        assert s.stall_count == 1
+
+        # Turn 2: correct fill -> resets stall tracking
+        handle_message(s, "因果轮回，剑道不息", correct)
+        assert s.answers["IP定位.concept"] == "因果轮回"  # LLM value, not raw text
+        assert s.stall_count == 0
+        assert s.stall_subfield == ""
+
+        # Turn 3: misroute on NEXT field (world_type) starts fresh count
+        misroute2 = FakeInterviewer(
+            fills=[InterviewFill(module="IP定位", subfield="core_experience", value="体验")],
+            guidance_reply="已记录。",
+        )
+        handle_message(s, "高魔奇幻世界", misroute2)
+        assert "IP定位.world_type" not in s.answers
+        assert s.stall_count == 1  # fresh count, NOT 2 -> no force fill
+
+    def test_prompt_contains_current_field_rule(self):
+        """RealLLMInterviewer prompt must include the current-field-priority rule."""
+        from app.domains.creation.a1.interviewer import RealLLMInterviewer
+
+        interviewer = RealLLMInterviewer(provider=None)
+        prompt = interviewer._build_prompt(
+            module={"label": "IP定位"},
+            subfield={"label": "核心概念", "question": "核心概念是什么？", "example": ""},
+            session=make_session(),
+        )
+        assert "当前字段优先" in prompt

@@ -19,6 +19,7 @@ export interface PosterBoardProps {
   backgroundImage?: string;
   className?: string;
   onPanelClick?: (panelId: string) => void;
+  transparent?: boolean;
 }
 
 export function PosterBoard({
@@ -26,10 +27,11 @@ export function PosterBoard({
   backgroundImage,
   className = "",
   onPanelClick,
+  transparent = false,
 }: PosterBoardProps) {
   return (
     <div
-      className={`relative min-h-screen starry-gradient overflow-hidden ${className}`}
+      className={`relative min-h-screen overflow-hidden ${transparent ? "" : "starry-gradient"} ${className}`}
       style={
         backgroundImage
           ? {
@@ -40,8 +42,10 @@ export function PosterBoard({
           : {}
       }
     >
-      {/* Gradient Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-b from-space-950/80 via-space-900/60 to-space-950/90 backdrop-blur-[2px]" />
+      {/* Gradient Overlay — 仅非透明模式时显示 */}
+      {!transparent && (
+        <div className="absolute inset-0 bg-gradient-to-b from-space-950/80 via-space-900/60 to-space-950/90 backdrop-blur-[2px]" />
+      )}
 
       {/* Ambient Stars */}
       <div className="absolute inset-0 opacity-30">

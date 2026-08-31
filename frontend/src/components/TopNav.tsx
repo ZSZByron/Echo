@@ -17,9 +17,9 @@ export interface TopNavProps {
 
 const NAV_ITEMS = [
   { id: "lobby" as const, label: "Lobby", icon: "◈" },
-  { id: "a1" as const, label: "A1 Workbench", icon: "✦" },
-  { id: "a2" as const, label: "A2 Studio", icon: "◉" },
-  { id: "a3" as const, label: "A3 Nexus", icon: "✶" },
+  { id: "a1" as const, label: "世界观工坊", icon: "✦" },
+  { id: "a2" as const, label: "分区工坊", icon: "◉" },
+  { id: "a3" as const, label: "场景工坊", icon: "✶" },
 ] as const;
 
 export function TopNav({
