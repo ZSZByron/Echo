@@ -58,6 +58,8 @@ from app.models.dimension import (
     SocOutput,
     WstOutput,
 )
+from app.domains.creation.a1.concept_edge_extractor import ExtractResult, extract_concept_edges
+from app.domains.creation.a1.concept_edge_vocab import EDGE_VOCAB
 from app.models.knowledge_graph import EdgeType, GraphEdge, GraphNode, KnowledgeGraph
 
 router = APIRouter()
@@ -248,7 +250,8 @@ def _build_graph(session: A1Session, file_rec: dict) -> KnowledgeGraph:
         scene_id=session.session_id, background_node_id=bg_id,
         nodes=nodes, edges=edges,
     )
-    return apply_constraints(graph, _build_dimension_result_set(session), stage="A1")
+    graph = apply_constraints(graph, _build_dimension_result_set(session), stage="A1")
+    return graph, set(nodes.keys())
 
 
 @router.get("/api/a1/seeds")
@@ -298,6 +301,11 @@ def start_session(req: StartRequest) -> dict:
     _FILES[file_id] = {
         "session_id": session.session_id, "status": "draft",
         "ip": ip_no, "graph_code": None, "graph_json": None,
+        "confirmed_edges": {}, "rejected_edges": {},
+        "open_questions": [], "edge_stats": {
+            "semantic_total": 0, "semantic_confirmed": 0,
+            "rule_total": 0, "structure_total": 0, "pending_review": 0,
+        },
     }
     log_event(
         session.session_id,
@@ -556,7 +564,105 @@ def get_file(file_id: str) -> dict:
         "sections": _build_sections(session),
         "open_questions": open_questions,
         "edge_stats": edge_stats,
+        "confirmed_edges": rec.get("confirmed_edges", {}),
+        "rejected_edges": rec.get("rejected_edges", {}),
     }
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Concept edge integration helpers
+# ---------------------------------------------------------------------------
+
+
+# Map confidence string to EdgeType
+_CONFIDENCE_TO_EDGETYPE: dict[str, EdgeType] = {
+    "semantic": EdgeType.SEMANTIC,
+    "rule": EdgeType.RULE,
+    "structure": EdgeType.STRUCTURE,
+}
+
+
+def _make_edge_key(from_id: str, to_id: str, relation: str) -> str:
+    """Build stable edge key from (from, to, relation) triple (Metis A5/E6)."""
+    return f"{from_id}/{to_id}/{relation}"
+
+
+def _compute_edge_stats(edges: list[GraphEdge]) -> dict[str, int]:
+    """Compute edge_stats dict (Metis S6 locked shape)."""
+    stats = {
+        "semantic_total": 0, "semantic_confirmed": 0,
+        "rule_total": 0, "structure_total": 0, "pending_review": 0,
+    }
+    for e in edges:
+        if e.confidence == "semantic":
+            stats["semantic_total"] += 1
+            if e.confirmed:
+                stats["semantic_confirmed"] += 1
+            else:
+                stats["pending_review"] += 1
+        elif e.confidence == "rule":
+            stats["rule_total"] += 1
+        elif e.confidence == "structure":
+            stats["structure_total"] += 1
+    return stats
+
+
+def _add_concept_edges_to_graph(
+    graph: KnowledgeGraph,
+    extracted_edges: list[Any],
+    valid_node_ids: set[str],
+    confirmed_edges: dict[str, dict],
+    rejected_edges: dict[str, dict],
+) -> list[GraphEdge]:
+    """Add concept edges to graph, with node validation and state restoration.
+
+    Returns list of GraphEdge objects that were actually added.
+    """
+    added: list[GraphEdge] = []
+    prior_confirmed = dict(confirmed_edges)  # snapshot BEFORE loop (fix intra-pass pollution)
+    for ee in extracted_edges:
+        from_id = ee.from_slot  # slot path = module.subfield = node ID in graph
+        to_id = ee.to_slot
+
+        # Node reference validation: skip edges referencing nonexistent nodes
+        if from_id not in valid_node_ids or to_id not in valid_node_ids:
+            continue
+
+        # Skip rejected edges
+        edge_key = _make_edge_key(from_id, to_id, ee.relation)
+        if edge_key in rejected_edges:
+            continue
+
+        # Restore confirmed state from PRE-LOOP snapshot only
+        confirmed = ee.confirmed
+        if edge_key in prior_confirmed:
+            confirmed = prior_confirmed[edge_key].get("confirmed", confirmed)
+
+        # Map confidence to EdgeType
+        edge_type = _CONFIDENCE_TO_EDGETYPE.get(ee.confidence, EdgeType.SEMANTIC)
+
+        ge = GraphEdge(
+            from_node_id=from_id,
+            to_node_id=to_id,
+            edge_type=edge_type,
+            visual_description=ee.relation,
+            relation=ee.relation,
+            confidence=ee.confidence,
+            confirmed=confirmed,
+        )
+        graph.edges.append(ge)
+        added.append(ge)
+
+        # Record in confirmed_edges for persistence (snapshot of edge state)
+        confirmed_edges[edge_key] = {
+            "from_node_id": from_id,
+            "to_node_id": to_id,
+            "relation": ee.relation,
+            "confidence": ee.confidence,
+            "confirmed": confirmed,
+        }
+
+    return added
 
 
 @router.post("/api/a1/file/{file_id}/finalize")
@@ -588,7 +694,41 @@ async def finalize(file_id: str) -> dict:
             {"diff_summary": f"{rec['graph_code']} -> {new_code}"},
         )
 
-    graph = _build_graph(session, rec)
+    graph, valid_node_ids = _build_graph(session, rec)
+    warnings: list[str] = []
+
+    # Task 7: Extract concept edges and integrate into graph
+    try:
+        try:
+            provider = create_provider(load_provider_config())
+        except Exception:  # noqa: BLE001
+            provider = None
+        extract_result = extract_concept_edges(session, EDGE_VOCAB, provider=provider)
+    except Exception as exc:  # noqa: BLE001 — degrade on any extraction error
+        extract_result = ExtractResult(
+            success=False,
+            warning=f"concept_edge extraction failed: {str(exc)[:200]}",
+        )
+
+    if extract_result.success:
+        # Ensure confirmed_edges/rejected_edges dicts exist (backward compat)
+        confirmed = rec.get("confirmed_edges", {})
+        rejected = rec.get("rejected_edges", {})
+
+        _add_concept_edges_to_graph(
+            graph, extract_result.edges, valid_node_ids, confirmed, rejected,
+        )
+
+        # Write open_questions to _FILES
+        rec["open_questions"] = extract_result.open_questions
+    else:
+        # Degradation: pure TREE graph, warnings contain "concept_edge"
+        warnings.append(extract_result.warning or "concept_edge extraction failed")
+        rec["open_questions"] = rec.get("open_questions", [])
+
+    # Compute edge_stats from all edges in the graph
+    rec["edge_stats"] = _compute_edge_stats(graph.edges)
+
     graph_id = stale_marker.register_graph(
         registry_db, session.user_id, new_code, "W",
         instance_no, version, scene_id=session.session_id,
@@ -612,7 +752,7 @@ async def finalize(file_id: str) -> dict:
         task = asyncio.create_task(_pregenerate_visual_bg(file_id))
         _visual_bg_tasks[file_id] = task
 
-    return {"graph_id": graph_id, "graph_code": new_code, "warnings": []}
+    return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings, "status": "finalized"}
 
 
 @router.get("/api/a1/file/{file_id}/graph")
@@ -885,6 +1025,11 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
     _FILES[file_id] = {
         "session_id": session.session_id, "status": "draft",
         "ip": ip_no, "graph_code": None, "graph_json": None,
+        "confirmed_edges": {}, "rejected_edges": {},
+        "open_questions": [], "edge_stats": {
+            "semantic_total": 0, "semantic_confirmed": 0,
+            "rule_total": 0, "structure_total": 0, "pending_review": 0,
+        },
     }
     log_event(
         session.session_id,
@@ -1025,3 +1170,108 @@ async def upload_convert(req: UploadConvertRequest) -> dict:
     # A 触发点：上传填满视觉设计时启动后台预生成
     await _trigger_visual_bg_if_filled(body["session_id"])
     return body
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Edge confirm/reject API endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/a1/file/{file_id}/edge/{key:path}/confirm")
+def confirm_edge(file_id: str, key: str) -> dict:
+    """Confirm a concept edge — move from unconfirmed to confirmed state.
+
+    If the edge was previously rejected, restore it (remove from rejected_edges).
+    """
+    rec = _get_file(file_id)
+    confirmed = rec.get("confirmed_edges", {})
+    rejected = rec.get("rejected_edges", {})
+
+    # If edge was rejected, restore it (move rejected → confirmed)
+    if key in rejected and key not in confirmed:
+        edge_snapshot = rejected.pop(key)
+        edge_snapshot["confirmed"] = True
+        confirmed[key] = edge_snapshot
+
+        # Re-add edge to graph_json if finalized
+        if rec["status"] == "finalized" and rec.get("graph_json"):
+            new_edge = {
+                "from_node_id": edge_snapshot["from_node_id"],
+                "to_node_id": edge_snapshot["to_node_id"],
+                "edge_type": _CONFIDENCE_TO_EDGETYPE.get(
+                    edge_snapshot.get("confidence", "semantic"), EdgeType.SEMANTIC
+                ).value,
+                "visual_description": edge_snapshot["relation"],
+                "relation": edge_snapshot["relation"],
+                "confidence": edge_snapshot["confidence"],
+                "confirmed": True,
+            }
+            rec["graph_json"]["edges"].append(new_edge)
+
+            # Recompute edge_stats
+            from app.models.knowledge_graph import KnowledgeGraph as _KG
+            g = _KG.model_validate(rec["graph_json"])
+            rec["edge_stats"] = _compute_edge_stats(g.edges)
+
+        return {"confirmed": True, "key": key}
+
+    if key not in confirmed:
+        raise HTTPException(status_code=404, detail="edge not found")
+
+    # Update confirmed state
+    confirmed[key]["confirmed"] = True
+
+    # Restore from rejected if present (belt-and-suspenders)
+    rejected.pop(key, None)
+
+    # Update graph_json if finalized
+    if rec["status"] == "finalized" and rec.get("graph_json"):
+        for edge in rec["graph_json"]["edges"]:
+            edge_key = _make_edge_key(
+                edge.get("from_node_id", ""),
+                edge.get("to_node_id", ""),
+                edge.get("relation", ""),
+            )
+            if edge_key == key:
+                edge["confirmed"] = True
+                break
+
+    return {"confirmed": True, "key": key}
+
+
+@router.post("/api/a1/file/{file_id}/edge/{key:path}/reject")
+def reject_edge(file_id: str, key: str) -> dict:
+    """Reject a concept edge — remove from graph and record in rejected_edges.
+
+    Re-extraction will skip rejected edges.
+    """
+    rec = _get_file(file_id)
+    confirmed = rec.get("confirmed_edges", {})
+    rejected = rec.get("rejected_edges", {})
+
+    if key not in confirmed:
+        raise HTTPException(status_code=404, detail="edge not found in confirmed_edges")
+
+    # Move from confirmed to rejected
+    edge_snapshot = confirmed.pop(key)
+    rejected[key] = edge_snapshot
+
+    # Remove from graph_json if finalized
+    if rec["status"] == "finalized" and rec.get("graph_json"):
+        edges = rec["graph_json"]["edges"]
+        rec["graph_json"]["edges"] = [
+            e for e in edges
+            if _make_edge_key(
+                e.get("from_node_id", ""),
+                e.get("to_node_id", ""),
+                e.get("relation", ""),
+            ) != key
+        ]
+
+    # Recompute edge_stats
+    if rec.get("graph_json"):
+        from app.models.knowledge_graph import KnowledgeGraph as KG
+        g = KG.model_validate(rec["graph_json"])
+        rec["edge_stats"] = _compute_edge_stats(g.edges)
+
+    return {"rejected": True, "key": key}

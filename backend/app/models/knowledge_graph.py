@@ -26,6 +26,9 @@ class EdgeType(str, Enum):
 
     TREE = "tree"  # parent-child in hierarchy
     CROSS = "cross"  # cross-reference / visual dependency
+    SEMANTIC = "semantic"  # LLM-inferred concept edge (needs user confirmation)
+    RULE = "rule"  # machine-executable rule edge (confirmed by axis assignment)
+    STRUCTURE = "structure"  # answer value parsing/expansion edge
 
 
 class GraphNode(BaseModel):
@@ -52,14 +55,20 @@ class GraphEdge(BaseModel):
     Attributes:
         from_node_id: Source node ID.
         to_node_id: Target node ID.
-        edge_type: Tree (hierarchy) or cross (visual dependency).
+        edge_type: Tree (hierarchy) or cross (visual dependency) or concept edge types.
         visual_description: User-written visual relationship description.
+        relation: Concept edge relation name (from vocabulary, empty for TREE/CROSS).
+        confidence: Confidence level ("rule"/"semantic"/"structure"/"" for legacy).
+        confirmed: Whether edge is confirmed (True for TREE/CROSS, variable for concept edges).
     """
 
     from_node_id: str
     to_node_id: str
     edge_type: EdgeType = EdgeType.TREE
     visual_description: str = ""
+    relation: str = ""
+    confidence: str = ""
+    confirmed: bool = True
 
 
 class KnowledgeGraph(BaseModel):
@@ -170,6 +179,9 @@ class KnowledgeGraph(BaseModel):
                     "to_node_id": e.to_node_id,
                     "edge_type": e.edge_type.value,
                     "visual_description": e.visual_description,
+                    "relation": e.relation,
+                    "confidence": e.confidence,
+                    "confirmed": e.confirmed,
                 }
                 for e in self.edges
             ],
@@ -199,6 +211,9 @@ class KnowledgeGraph(BaseModel):
                 to_node_id=edata["to_node_id"],
                 edge_type=EdgeType(edata.get("edge_type", "tree")),
                 visual_description=edata.get("visual_description", ""),
+                relation=edata.get("relation", ""),
+                confidence=edata.get("confidence", ""),
+                confirmed=edata.get("confirmed", True),
             )
             graph.edges.append(edge)
 

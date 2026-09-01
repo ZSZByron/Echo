@@ -513,9 +513,13 @@ async def test_save_load_data_integrity(test_client: AsyncClient, sample_graph_d
         assert saved["level"] == original["level"]
     
     # Verify all edges preserved
+    # GraphEdge 扩展了 relation/confidence/confirmed 默认值字段（A1 Task 7），
+    # 往返数据完整性改用子集匹配（输入字段必须完整保留，允许新增默认字段）
+    def _edge_subset_match(exp: dict, actual: dict) -> bool:
+        return all(actual.get(k) == v for k, v in exp.items())
     assert len(loaded["edges"]) == len(sample_graph_data["edges"])
     for edge in sample_graph_data["edges"]:
-        assert edge in loaded["edges"]
+        assert any(_edge_subset_match(edge, le) for le in loaded["edges"])
     
     # Verify background node ID
     assert loaded["background_node_id"] == sample_graph_data["background_node_id"]
