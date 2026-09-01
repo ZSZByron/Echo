@@ -51,6 +51,12 @@ export interface GraphEdge {
   edge_type: EdgeType;
   /** User-written visual relationship description */
   visual_description: string;
+  /** Optional: Natural language relationship label ("belongs_to", "contains", "inspires") */
+  relation?: string;
+  /** Optional: Edge confidence source ("rule" | "semantic" | "semantic" | "") */
+  confidence?: 'rule' | 'semantic' | 'structure' | '';
+  /** Optional: User confirmation flag for AI-suggested edges */
+  confirmed?: boolean;
 }
 
 /**
