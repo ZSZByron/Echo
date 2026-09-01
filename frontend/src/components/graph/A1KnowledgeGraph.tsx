@@ -3,9 +3,11 @@
  *
  * Read-only knowledge graph visualization using React Flow.
  * Displays A1 worldview nodes with hierarchical topology and constraint relationships.
+ * 
+ * Extended with concept network view showing semantic edges with review workflow.
  */
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -14,6 +16,7 @@ import ReactFlow, {
 } from 'reactflow';
 import type { Node, Edge } from 'reactflow';
 import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
+import { confirmEdge, rejectEdge } from '../../api/a1';
 import 'reactflow/dist/style.css';
 
 export interface A1KnowledgeGraphProps {
@@ -21,6 +24,16 @@ export interface A1KnowledgeGraphProps {
   isLoading: boolean;
   error: string | null;
   onRetry?: () => void;
+  fileId?: string;
+  edgeStats?: {
+    semantic_total: number;
+    semantic_confirmed: number;
+    rule_total: number;
+    structure_total: number;
+    pending_review: number;
+  };
+  openQuestions?: string[];
+  onRefresh?: () => void;
 }
 
 /**
@@ -88,7 +101,60 @@ const calculateNodePosition = (
   return { x, y };
 };
 
-export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1KnowledgeGraphProps) {
+export function A1KnowledgeGraph({ 
+  graph, 
+  isLoading, 
+  error, 
+  onRetry, 
+  fileId, 
+  edgeStats, 
+  openQuestions = [],
+  onRefresh 
+}: A1KnowledgeGraphProps) {
+  // View mode state: 'tree' | 'concept'
+  const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
+  
+  // Filter state
+  const [filters, setFilters] = useState({
+    confidence: [] as ('rule' | 'semantic' | 'structure')[],
+    status: [] as ('confirmed' | 'pending' | 'rejected')[]
+  });
+  
+  // Edge hover state for highlighting
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+  
+  // Review card state
+  const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+  
+  // Stats from props or derived from graph
+  const stats = useMemo(() => {
+    if (edgeStats) {
+      return edgeStats;
+    }
+    if (!graph) {
+      return {
+        semantic_total: 0,
+        semantic_confirmed: 0,
+        rule_total: 0,
+        structure_total: 0,
+        pending_review: 0
+      };
+    }
+    // Derive from graph edges
+    const semanticEdges = graph.edges.filter(e => e.confidence === 'semantic');
+    const ruleEdges = graph.edges.filter(e => e.confidence === 'rule');
+    const structureEdges = graph.edges.filter(e => e.confidence === 'structure');
+    const pendingEdges = graph.edges.filter(e => e.confidence === 'semantic' && e.confirmed === false);
+    
+    return {
+      semantic_total: semanticEdges.length,
+      semantic_confirmed: semanticEdges.filter(e => e.confirmed).length,
+      rule_total: ruleEdges.length,
+      structure_total: structureEdges.length,
+      pending_review: pendingEdges.length
+    };
+  }, [graph, edgeStats]);
   /**
    * Transform GraphNode to ReactFlow Node with styling based on level
    */
@@ -182,30 +248,129 @@ export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1Knowled
   }, []);
 
   /**
-   * Transform GraphEdge to ReactFlow Edge
+   * Transform GraphEdge to ReactFlow Edge with concept network styling
    */
   const toReactFlowEdge = useCallback((edge: GraphEdge): Edge => {
     const isTree = edge.edge_type === 'tree';
+    const isSemantic = edge.confidence === 'semantic';
+    const isRule = edge.confidence === 'rule';
+    const isStructure = edge.confidence === 'structure';
+    const isConfirmed = edge.confirmed === true;
+    const isPending = edge.confidence === 'semantic' && edge.confirmed === false;
+
+    let edgeStyle: React.CSSProperties = {};
+    let animated = false;
+    let label: string | undefined = undefined;
+    let labelStyle: React.CSSProperties = {};
+    let className = '';
+
+    if (isTree) {
+      // TREE: purple solid line (unchanged)
+      edgeStyle = {
+        stroke: '#a78bfa',
+        strokeWidth: 2,
+        strokeDasharray: undefined
+      };
+      className = 'edge-tree';
+    } else if (isPending) {
+      // ◆ semantic pending: amber dashed + breathing animation + ? badge
+      edgeStyle = {
+        stroke: '#f59e0b',
+        strokeWidth: 1.5,
+        strokeDasharray: '6,4',
+        animation: 'breathing 2s ease-in-out infinite'
+      };
+      animated = true;
+      label = `? ${edge.relation || edge.visual_description}`;
+      labelStyle = {
+        fontSize: '11px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#f59e0b',
+        fontWeight: 'bold'
+      };
+      className = 'edge-semantic-pending';
+    } else if (isSemantic && isConfirmed) {
+      // ◆ semantic confirmed: amber solid
+      edgeStyle = {
+        stroke: '#f59e0b',
+        strokeWidth: 2,
+        strokeDasharray: undefined
+      };
+      label = edge.relation || edge.visual_description;
+      labelStyle = {
+        fontSize: '11px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#f59e0b'
+      };
+      className = 'edge-semantic-confirmed';
+    } else if (isRule) {
+      // ★ rule: green dotted + relation label
+      edgeStyle = {
+        stroke: '#10b981',
+        strokeWidth: 1.5,
+        strokeDasharray: '2,2'
+      };
+      label = `★ ${edge.relation || edge.visual_description}`;
+      labelStyle = {
+        fontSize: '11px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#10b981',
+        fontWeight: 'bold'
+      };
+      className = 'edge-rule';
+    } else if (isStructure) {
+      // ◇ structure: blue-gray line
+      edgeStyle = {
+        stroke: '#6b7280',
+        strokeWidth: 1.5,
+        strokeDasharray: undefined
+      };
+      label = `◇ ${edge.relation || edge.visual_description}`;
+      labelStyle = {
+        fontSize: '10px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#6b7280'
+      };
+      className = 'edge-structure';
+    } else {
+      // CROSS (legacy): amber dashed
+      edgeStyle = {
+        stroke: '#f59e0b',
+        strokeWidth: 1.5,
+        strokeDasharray: '6,4'
+      };
+      label = edge.visual_description;
+      labelStyle = {
+        fontSize: '10px',
+        fontFamily: 'ui-monospace, Consolas, monospace',
+        fill: '#888'
+      };
+      className = 'edge-cross';
+    }
+
+    // Apply hover dimming effect
+    const isDimmed = hoveredEdge && hoveredEdge !== `${edge.from_node_id}-${edge.to_node_id}`;
+    if (isDimmed && hoveredEdge) {
+      edgeStyle.opacity = '0.2';
+      edgeStyle.stroke = '#444';
+    }
 
     return {
       id: `${edge.from_node_id}-${edge.to_node_id}`,
       source: edge.from_node_id,
       target: edge.to_node_id,
       type: 'smoothstep',
-      animated: !isTree,
-      style: {
-        stroke: isTree ? '#a78bfa' : '#f59e0b',
-        strokeWidth: isTree ? 2 : 1.5,
-        strokeDasharray: isTree ? undefined : '6,4'
-      },
-      label: isTree ? undefined : edge.visual_description,
-      labelStyle: {
-        fontSize: '10px',
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fill: '#888'
+      animated,
+      style: edgeStyle,
+      label,
+      labelStyle,
+      className,
+      data: {
+        ...edge,
+        onEdgeClick: () => handleEdgeClick(edge)
       }
     };
-  }, []);
+  }, [hoveredEdge]);
 
   /**
    * Calculate layout positions for all nodes
@@ -297,6 +462,81 @@ export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1Knowled
   }, [toReactFlowNode]);
 
   /**
+   * Handle edge click - show review card for pending edges
+   */
+  const handleEdgeClick = useCallback((edge: GraphEdge) => {
+    setSelectedEdge(edge);
+  }, []);
+
+  /**
+   * Handle edge confirm
+   */
+  const handleConfirmEdge = useCallback(async () => {
+    if (!selectedEdge || !fileId) return;
+    
+    const edgeKey = `${selectedEdge.from_node_id},${selectedEdge.to_node_id},${selectedEdge.relation || selectedEdge.visual_description}`;
+    try {
+      await confirmEdge(fileId, edgeKey);
+      setSelectedEdge(null);
+      onRefresh?.();
+    } catch (error) {
+      console.error('Failed to confirm edge:', error);
+    }
+  }, [selectedEdge, fileId, onRefresh]);
+
+  /**
+   * Handle edge reject (with confirmation)
+   */
+  const handleRejectEdge = useCallback(async () => {
+    if (!selectedEdge || !fileId) return;
+    
+    if (!showRejectConfirm) {
+      setShowRejectConfirm(true);
+      return;
+    }
+    
+    const edgeKey = `${selectedEdge.from_node_id},${selectedEdge.to_node_id},${selectedEdge.relation || selectedEdge.visual_description}`;
+    try {
+      await rejectEdge(fileId, edgeKey);
+      setSelectedEdge(null);
+      setShowRejectConfirm(false);
+      onRefresh?.();
+    } catch (error) {
+      console.error('Failed to reject edge:', error);
+    }
+  }, [selectedEdge, fileId, showRejectConfirm, onRefresh]);
+
+  /**
+   * Apply filters to edges
+   */
+  const filteredEdges = useMemo(() => {
+    if (!graph) return [];
+    
+    return graph.edges.filter(edge => {
+      // Default filter: show confirmed + pending, hide rejected
+      const showByDefault = edge.confirmed !== false || edge.confidence === 'semantic';
+      
+      // Confidence filter
+      if (filters.confidence.length > 0 && !filters.confidence.includes(edge.confidence as any)) {
+        return false;
+      }
+      
+      // Status filter
+      if (filters.status.length > 0) {
+        const isConfirmed = edge.confirmed === true;
+        const isPending = edge.confidence === 'semantic' && edge.confirmed === false;
+        const isRejected = false; // We'll need to track rejected edges separately
+        
+        if (filters.status.includes('confirmed') && !isConfirmed) return false;
+        if (filters.status.includes('pending') && !isPending) return false;
+        if (filters.status.includes('rejected') && !isRejected) return false;
+      }
+      
+      return showByDefault;
+    });
+  }, [graph, filters]);
+
+  /**
    * Memoize flow nodes and edges from graph data
    */
   const { flowNodes, flowEdges } = useMemo(() => {
@@ -305,11 +545,12 @@ export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1Knowled
     }
 
     const graphNodes = Object.values(graph.nodes);
-    const flowEdges = graph.edges.map(toReactFlowEdge);
-    const flowNodes = layoutNodes(graphNodes, graph.edges);
+    const edgesToUse = viewMode === 'concept' ? filteredEdges : graph.edges;
+    const flowEdges = edgesToUse.map(toReactFlowEdge);
+    const flowNodes = layoutNodes(graphNodes, edgesToUse);
 
     return { flowNodes, flowEdges };
-  }, [graph, toReactFlowEdge, layoutNodes]);
+  }, [graph, toReactFlowEdge, layoutNodes, viewMode, filteredEdges]);
 
   /**
    * Loading state
@@ -360,24 +601,250 @@ export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1Knowled
    */
   return (
     <div className="relative h-full w-full">
+      {/* Top control bar */}
+      <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between gap-4">
+        {/* View toggle tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode('tree')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'tree'
+                ? 'bg-nebula-500 text-white'
+                : 'bg-void-800 text-void-400 hover:bg-void-700'
+            }`}
+          >
+            行政树
+          </button>
+          <button
+            onClick={() => setViewMode('concept')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'concept'
+                ? 'bg-nebula-500 text-white'
+                : 'bg-void-800 text-void-400 hover:bg-void-700'
+            }`}
+          >
+            概念网
+          </button>
+        </div>
+
+        {/* Statistics bar */}
+        <div className="flex items-center gap-4 text-sm">
+          {stats.pending_review > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-amber-900/30 border border-amber-500/30 rounded-md">
+              <span className="text-amber-400">待确认边</span>
+              <span className="text-amber-300 font-bold">{stats.pending_review}</span>
+            </div>
+          )}
+          {openQuestions.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-blue-900/30 border border-blue-500/30 rounded-md">
+              <span className="text-blue-400">待问</span>
+              <span className="text-blue-300 font-bold">{openQuestions.length}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-green-400">★</span>
+            <span className="text-void-400">铁律推断</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-amber-400">◆</span>
+            <span className="text-void-400">联想</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400">◇</span>
+            <span className="text-void-400">结构拆解</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter controls (concept mode only) */}
+      {viewMode === 'concept' && (
+        <div className="absolute top-16 left-4 z-10 flex flex-col gap-2 p-3 bg-void-900/90 border border-void-700 rounded-md backdrop-blur-sm">
+          <div className="text-xs text-void-400 font-medium mb-1">可信级</div>
+          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.confidence.includes('rule')}
+              onChange={(e) => {
+                setFilters(prev => ({
+                  ...prev,
+                  confidence: e.target.checked 
+                    ? [...prev.confidence, 'rule']
+                    : prev.confidence.filter(c => c !== 'rule')
+                }));
+              }}
+              className="w-3 h-3 rounded border-void-600 bg-void-800"
+            />
+            ★ 规则
+          </label>
+          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.confidence.includes('semantic')}
+              onChange={(e) => {
+                setFilters(prev => ({
+                  ...prev,
+                  confidence: e.target.checked 
+                    ? [...prev.confidence, 'semantic']
+                    : prev.confidence.filter(c => c !== 'semantic')
+                }));
+              }}
+              className="w-3 h-3 rounded border-void-600 bg-void-800"
+            />
+            ◆ 语义
+          </label>
+          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.confidence.includes('structure')}
+              onChange={(e) => {
+                setFilters(prev => ({
+                  ...prev,
+                  confidence: e.target.checked 
+                    ? [...prev.confidence, 'structure']
+                    : prev.confidence.filter(c => c !== 'structure')
+                }));
+              }}
+              className="w-3 h-3 rounded border-void-600 bg-void-800"
+            />
+            ◇ 结构
+          </label>
+          
+          <div className="text-xs text-void-400 font-medium mb-1 mt-2">状态</div>
+          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.status.includes('confirmed')}
+              onChange={(e) => {
+                setFilters(prev => ({
+                  ...prev,
+                  status: e.target.checked 
+                    ? [...prev.status, 'confirmed']
+                    : prev.status.filter(s => s !== 'confirmed')
+                }));
+              }}
+              className="w-3 h-3 rounded border-void-600 bg-void-800"
+            />
+            已确认
+          </label>
+          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.status.includes('pending')}
+              onChange={(e) => {
+                setFilters(prev => ({
+                  ...prev,
+                  status: e.target.checked 
+                    ? [...prev.status, 'pending']
+                    : prev.status.filter(s => s !== 'pending')
+                }));
+              }}
+              className="w-3 h-3 rounded border-void-600 bg-void-800"
+            />
+            待确认
+          </label>
+        </div>
+      )}
+
+      {/* Edge review card */}
+      {selectedEdge && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 w-96">
+          <div className="glass-panel p-4 rounded-lg border border-amber-500/30 shadow-xl">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-amber-400 mb-1">
+                  ◆ 语义边待确认
+                </div>
+                <div className="text-xs text-void-400 mb-2">
+                  {selectedEdge.relation || selectedEdge.visual_description}
+                </div>
+                <div className="text-xs text-void-300 leading-relaxed">
+                  推理依据：{selectedEdge.visual_description}
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedEdge(null)}
+                className="text-void-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {!showRejectConfirm ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleConfirmEdge}
+                  className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-500 text-white text-sm rounded-md transition-colors"
+                >
+                  ✓ 确认
+                </button>
+                <button
+                  onClick={handleRejectEdge}
+                  className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-md transition-colors"
+                >
+                  ✗ 删除
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="text-xs text-red-400 font-medium">
+                  ⚠ 二次确认：确定要删除这条边吗？
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleRejectEdge}
+                    className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-md transition-colors"
+                  >
+                    确认删除
+                  </button>
+                  <button
+                    onClick={() => setShowRejectConfirm(false)}
+                    className="flex-1 px-3 py-2 bg-void-700 hover:bg-void-600 text-white text-sm rounded-md transition-colors"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
         fitView
         nodesDraggable={false}
         nodesConnectable={false}
-        elementsSelectable={false}
-        edgesFocusable={false}
+        elementsSelectable={true}
+        edgesFocusable={true}
         panOnScroll
         zoomOnScroll
         minZoom={0.2}
         maxZoom={1.5}
+        onEdgeMouseEnter={(_, edge) => {
+          setHoveredEdge(edge.id);
+        }}
+        onEdgeMouseLeave={() => {
+          setHoveredEdge(null);
+        }}
+        onEdgeClick={(_edgeEvent, edge) => {
+          const graphEdge = graph?.edges.find(ge => 
+            `${ge.from_node_id}-${ge.to_node_id}` === edge.id
+          );
+          if (graphEdge) {
+            handleEdgeClick(graphEdge);
+          }
+        }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="rgba(255,255,255,0.1)" />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
-            const nodeData = graph.nodes[node.id];
+            const nodeData = graph?.nodes[node.id];
             if (!nodeData) return '#a78bfa';
 
             if (nodeData.level === 1) return 'var(--color-stardust-400)';
@@ -388,6 +855,24 @@ export function A1KnowledgeGraph({ graph, isLoading, error, onRetry }: A1Knowled
           maskColor="rgba(19, 19, 42, 0.8)"
         />
       </ReactFlow>
+
+      {/* CSS animations */}
+      <style>{`
+        @keyframes breathing {
+          0%, 100% {
+            stroke-opacity: 1;
+            stroke-width: 1.5;
+          }
+          50% {
+            stroke-opacity: 0.6;
+            stroke-width: 1.0;
+          }
+        }
+        
+        .edge-semantic-pending {
+          animation: breathing 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }
