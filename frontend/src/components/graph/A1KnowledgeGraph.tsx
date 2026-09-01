@@ -664,88 +664,93 @@ export function A1KnowledgeGraph({
       {viewMode === 'concept' && (
         <div className="absolute top-16 left-4 z-10 flex flex-col gap-2 p-3 bg-void-900/90 border border-void-700 rounded-md backdrop-blur-sm">
           <div className="text-xs text-void-400 font-medium mb-1">可信级</div>
-          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.confidence.includes('rule')}
-              onChange={(e) => {
-                setFilters(prev => ({
-                  ...prev,
-                  confidence: e.target.checked 
-                    ? [...prev.confidence, 'rule']
-                    : prev.confidence.filter(c => c !== 'rule')
-                }));
-              }}
-              className="w-3 h-3 rounded border-void-600 bg-void-800"
-            />
+          <button
+            type="button"
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              confidence: prev.confidence.includes('rule')
+                ? prev.confidence.filter(c => c !== 'rule')
+                : [...prev.confidence, 'rule'],
+            }))}
+            className={`px-2 py-1 rounded text-xs border transition-colors ${
+              filters.confidence.includes('rule')
+                ? 'bg-emerald-900/60 border-emerald-500 text-emerald-300'
+                : 'bg-void-800 border-void-600 text-void-300 hover:border-void-400'
+            }`}
+            aria-pressed={filters.confidence.includes('rule')}
+          >
             ★ 规则
-          </label>
-          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.confidence.includes('semantic')}
-              onChange={(e) => {
-                setFilters(prev => ({
-                  ...prev,
-                  confidence: e.target.checked 
-                    ? [...prev.confidence, 'semantic']
-                    : prev.confidence.filter(c => c !== 'semantic')
-                }));
-              }}
-              className="w-3 h-3 rounded border-void-600 bg-void-800"
-            />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              confidence: prev.confidence.includes('semantic')
+                ? prev.confidence.filter(c => c !== 'semantic')
+                : [...prev.confidence, 'semantic'],
+            }))}
+            className={`px-2 py-1 rounded text-xs border transition-colors ${
+              filters.confidence.includes('semantic')
+                ? 'bg-amber-900/60 border-amber-500 text-amber-300'
+                : 'bg-void-800 border-void-600 text-void-300 hover:border-void-400'
+            }`}
+            aria-pressed={filters.confidence.includes('semantic')}
+          >
             ◆ 语义
-          </label>
-          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.confidence.includes('structure')}
-              onChange={(e) => {
-                setFilters(prev => ({
-                  ...prev,
-                  confidence: e.target.checked 
-                    ? [...prev.confidence, 'structure']
-                    : prev.confidence.filter(c => c !== 'structure')
-                }));
-              }}
-              className="w-3 h-3 rounded border-void-600 bg-void-800"
-            />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              confidence: prev.confidence.includes('structure')
+                ? prev.confidence.filter(c => c !== 'structure')
+                : [...prev.confidence, 'structure'],
+            }))}
+            className={`px-2 py-1 rounded text-xs border transition-colors ${
+              filters.confidence.includes('structure')
+                ? 'bg-gray-700/60 border-gray-500 text-gray-300'
+                : 'bg-void-800 border-void-600 text-void-300 hover:border-void-400'
+            }`}
+            aria-pressed={filters.confidence.includes('structure')}
+          >
             ◇ 结构
-          </label>
+          </button>
           
           <div className="text-xs text-void-400 font-medium mb-1 mt-2">状态</div>
-          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.status.includes('confirmed')}
-              onChange={(e) => {
-                setFilters(prev => ({
-                  ...prev,
-                  status: e.target.checked 
-                    ? [...prev.status, 'confirmed']
-                    : prev.status.filter(s => s !== 'confirmed')
-                }));
-              }}
-              className="w-3 h-3 rounded border-void-600 bg-void-800"
-            />
+          <button
+            type="button"
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              status: prev.status.includes('confirmed')
+                ? prev.status.filter(s => s !== 'confirmed')
+                : [...prev.status, 'confirmed'],
+            }))}
+            className={`px-2 py-1 rounded text-xs border transition-colors ${
+              filters.status.includes('confirmed')
+                ? 'bg-blue-900/60 border-blue-500 text-blue-300'
+                : 'bg-void-800 border-void-600 text-void-300 hover:border-void-400'
+            }`}
+            aria-pressed={filters.status.includes('confirmed')}
+          >
             已确认
-          </label>
-          <label className="flex items-center gap-2 text-xs text-void-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={filters.status.includes('pending')}
-              onChange={(e) => {
-                setFilters(prev => ({
-                  ...prev,
-                  status: e.target.checked 
-                    ? [...prev.status, 'pending']
-                    : prev.status.filter(s => s !== 'pending')
-                }));
-              }}
-              className="w-3 h-3 rounded border-void-600 bg-void-800"
-            />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              status: prev.status.includes('pending')
+                ? prev.status.filter(s => s !== 'pending')
+                : [...prev.status, 'pending'],
+            }))}
+            className={`px-2 py-1 rounded text-xs border transition-colors ${
+              filters.status.includes('pending')
+                ? 'bg-amber-900/60 border-amber-500 text-amber-300'
+                : 'bg-void-800 border-void-600 text-void-300 hover:border-void-400'
+            }`}
+            aria-pressed={filters.status.includes('pending')}
+          >
             待确认
-          </label>
+          </button>
         </div>
       )}
 
