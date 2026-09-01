@@ -7,14 +7,13 @@
  * 3. PosterView - Display generated poster with link to poster page
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
 import { DimensionProgress } from '../../components/structured/DimensionProgress';
 import { PosterBoard } from '../../components/poster/PosterBoard';
-import { A1KnowledgeGraph } from '../../components/graph/A1KnowledgeGraph';
-import type { KnowledgeGraph } from '../../types/graph';
+import { A1GraphSection } from '../../components/graph/A1GraphSection';
 import { UploadToolbar } from './UploadToolbar';
 import { CopyrightDialog, type CopyrightReport } from './CopyrightDialog';
 import type { A1Proposal } from '../../types/a1';
@@ -94,6 +93,31 @@ interface ChatResponse {
   proposals?: A1Proposal[];
   divergent_question?: string;
   needs_clarification?: boolean;
+}
+
+interface FileData {
+  file_id: string;
+  status: 'draft' | 'finalized';
+  answers: Record<string, string>;
+  graph_code: string | null;
+  session_id: string;
+  sections: Array<{
+    id: string;
+    label: string;
+    done: boolean;
+    content?: string;
+    subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
+  }>;
+  open_questions: string[];
+  edge_stats: {
+    semantic_total: number;
+    semantic_confirmed: number;
+    rule_total: number;
+    structure_total: number;
+    pending_review: number;
+  };
+  confirmed_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
+  rejected_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
 }
 
 interface FinalizeResponse {
@@ -266,6 +290,9 @@ export function A1Workspace() {
   // Graph State
   const [graphCode, setGraphCode] = useState<string | null>(null);
   
+  // File metadata state for graph section
+  const [fileData, setFileData] = useState<FileData | null>(null);
+  
   // Classification Proposal State
   const [classificationProposal, setClassificationProposal] = useState<ClassificationProposalData | null>(null);
   const [showClassificationModal, setShowClassificationModal] = useState(false);
@@ -424,10 +451,36 @@ export function A1Workspace() {
           content?: string;
           subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
         }>;
+        open_questions: string[];
+        edge_stats: {
+          semantic_total: number;
+          semantic_confirmed: number;
+          rule_total: number;
+          structure_total: number;
+          pending_review: number;
+        };
+        confirmed_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
+        rejected_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
       }>(`/api/a1/file/${id}`);
+      
+      // Update file state for panel
       setFile({
         status: response.status === 'finalized' ? 'finalized' : 'draft',
         sections: response.sections,
+      });
+      
+      // Update file data for graph section
+      setFileData({
+        file_id: id,
+        status: response.status === 'finalized' ? 'finalized' : 'draft',
+        answers: {}, // Will be populated if needed
+        graph_code: null,
+        session_id: sessionId || '',
+        sections: response.sections,
+        open_questions: response.open_questions,
+        edge_stats: response.edge_stats,
+        confirmed_edges: response.confirmed_edges,
+        rejected_edges: response.rejected_edges,
       });
     } catch (err) {
       console.error('Failed to refresh file:', err);
@@ -1118,6 +1171,19 @@ export function A1Workspace() {
   function GraphViewContent({ fileId, returnToChat }: { fileId: string; returnToChat: () => void }) {
     const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
     
+    // Load file data when component mounts
+    useEffect(() => {
+      if (fileId) {
+        fetchJson<FileData>(`/api/a1/file/${fileId}`)
+          .then((data) => {
+            setFileData(data);
+          })
+          .catch((err) => {
+            console.error('Failed to load file data:', err);
+          });
+      }
+    }, [fileId]);
+    
     return (
       <div className="max-w-7xl mx-auto">
         {/* Tab Navigation */}
@@ -1146,94 +1212,17 @@ export function A1Workspace() {
         
         {/* Tab Content */}
         <div className="p-8">
-          {activeTab === 'graph' && <A1GraphSection fileId={fileId} returnToChat={returnToChat} />}
+          {activeTab === 'graph' && (
+            <A1GraphSection
+              fileId={fileId}
+              returnToChat={returnToChat}
+              version={graphCode ? parseInt(graphCode.split('_')[1]?.replace('v', '') || '1', 10) : 1}
+              isStale={file?.status === 'draft' && graphCode !== null}
+              openQuestions={fileData?.open_questions || []}
+              rejectedEdges={fileData?.rejected_edges || {}}
+            />
+          )}
           {activeTab === 'poster' && <PosterPreview fileId={fileId} />}
-        </div>
-      </div>
-    );
-  }
-
-  // A1 Graph Section Component
-  function A1GraphSection({ fileId, returnToChat }: { fileId: string; returnToChat: () => void }) {
-    const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const loadGraph = useCallback(async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const data = await fetchJson<KnowledgeGraph>(`/api/a1/file/${fileId}/graph`);
-        setGraph(data);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 409) {
-          setError('pending_finalize');
-        } else {
-          console.error('Failed to load graph:', err);
-          setError('Failed to load graph');
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    }, [fileId]);
-
-    useEffect(() => {
-      loadGraph();
-    }, [loadGraph]);
-    
-    if (isLoading) {
-      return (
-        <div className="min-h-[70vh] flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-stardust-300">构建知识图谱中...</p>
-          </div>
-        </div>
-      );
-    }
-    
-    if (error === 'pending_finalize') {
-      return (
-        <div className="glass-panel p-8 bg-cosmos-warning/10 border-cosmos-warning/30 text-center">
-          <p className="text-cosmos-warning mb-4">设定已修改回草稿，请重新定稿后查看图谱</p>
-          <button
-            onClick={returnToChat}
-            className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
-          >
-            ← 返回继续深化设定
-          </button>
-        </div>
-      );
-    }
-    
-    if (error || !graph) {
-      return (
-        <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
-          <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
-          <button
-            onClick={loadGraph}
-            className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
-          >
-            重试
-          </button>
-        </div>
-      );
-    }
-    
-    return (
-      <div>
-        <div className="h-[70vh]">
-          <A1KnowledgeGraph graph={graph} isLoading={false} error={null} />
-        </div>
-        
-        {/* Graph Legend */}
-        <div className="mt-6 glass-panel p-4">
-          <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
-            <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
-            <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
-          </div>
         </div>
       </div>
     );
