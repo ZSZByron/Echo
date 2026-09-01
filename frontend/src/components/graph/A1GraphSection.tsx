@@ -29,6 +29,7 @@ export function A1GraphSection({
   rejectedEdges = {},
 }: A1GraphSectionProps) {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+  const [lastGraph, setLastGraph] = useState<KnowledgeGraph | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefinalizing, setIsRefinalizing] = useState(false);
@@ -41,6 +42,7 @@ export function A1GraphSection({
     try {
       const data = await fetchJson<KnowledgeGraph>(`/api/a1/file/${fileId}/graph`);
       setGraph(data);
+      setLastGraph(data);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setError('pending_finalize');
@@ -104,14 +106,32 @@ export function A1GraphSection({
 
   if (error === 'pending_finalize') {
     return (
-      <div className="glass-panel p-8 bg-cosmos-warning/10 border-cosmos-warning/30 text-center">
-        <p className="text-cosmos-warning mb-4">设定已修改回草稿，请重新定稿后查看图谱</p>
-        <button
-          onClick={returnToChat}
-          className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
-        >
-          ← 返回继续深化设定
-        </button>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={handleRefinalize}
+            disabled={isRefinalizing}
+            className="glass-panel px-4 py-2 bg-cosmos-warning/10 border-cosmos-warning/30 rounded-lg hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span className="text-cosmos-warning font-medium">
+              ⚠ 设定已更新——点此重新定稿查看新图
+            </span>
+          </button>
+        </div>
+
+        {lastGraph && (
+          <div className="h-[70vh]">
+            <A1KnowledgeGraph graph={lastGraph} isLoading={false} error={null} />
+          </div>
+        )}
+
+        <div className="glass-panel p-4">
+          <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
+            <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
+            <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+          </div>
+        </div>
       </div>
     );
   }

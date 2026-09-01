@@ -128,8 +128,8 @@ describe('A1GraphSection - Status Badge (Mechanism 1)', () => {
     render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={true} />);
 
     await waitFor(() => {
-      // Old graph should still be visible
-      expect(screen.getByText('Test Node')).toBeInTheDocument();
+      // Old graph should still be visible (nodes are prefixed with ✦)
+      expect(screen.getByText('✦ Test Node')).toBeInTheDocument();
       // Stale badge should be shown
       expect(screen.getByText(/设定已更新/)).toBeInTheDocument();
     });
@@ -159,11 +159,11 @@ describe('A1GraphSection - One-Click Refinalize', () => {
     render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={true} />);
 
     await waitFor(() => {
-      const staleBadge = screen.getByText('⚠ 设定已更新');
+      const staleBadge = screen.getByText(/设定已更新/);
       expect(staleBadge).toBeInTheDocument();
     });
 
-    const refinalizeButton = screen.getByText('点此重新定稿查看新图');
+    const refinalizeButton = screen.getByRole('button', { name: /点此重新定稿/ });
     fireEvent.click(refinalizeButton);
 
     await waitFor(() => {
@@ -210,15 +210,15 @@ describe('A1GraphSection - One-Click Refinalize', () => {
     render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={true} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Old Node')).toBeInTheDocument();
+      expect(screen.getByText('✦ Old Node')).toBeInTheDocument();
     });
 
-    const refinalizeButton = screen.getByText(/点此重新定稿/);
+    const refinalizeButton = screen.getByRole('button', { name: /点此重新定稿/ });
     fireEvent.click(refinalizeButton);
 
     await waitFor(() => {
       // Graph should reload with updated data
-      expect(screen.getByText('Updated Node')).toBeInTheDocument();
+      expect(screen.getByText('✦ Updated Node')).toBeInTheDocument();
     });
   });
 });
@@ -287,7 +287,7 @@ describe('A1GraphSection - Rejected List (Mechanism 4)', () => {
     });
 
     // Expand the list
-    const expandButton = screen.getByText('已拒绝清单');
+    const expandButton = screen.getByRole('button', { name: /已拒绝清单/ });
     fireEvent.click(expandButton);
 
     await waitFor(() => {
