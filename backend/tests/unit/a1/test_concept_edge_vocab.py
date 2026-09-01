@@ -36,7 +36,7 @@ class TestEdgeVocabFaithfulTranscription:
         # Write distribution evidence
         from pathlib import Path
 
-        evidence_dir = Path(".sisyphus/evidence")
+        evidence_dir = Path(__file__).resolve().parents[4] / ".sisyphus" / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         with open(evidence_dir / "task-2-vocab-distribution.txt", "w", encoding="utf-8") as f:
             f.write("Edge Vocabulary Distribution (from v0.4 §3):\n")
@@ -64,7 +64,7 @@ class TestEdgeVocabFaithfulTranscription:
         # Write uniqueness evidence
         from pathlib import Path
 
-        evidence_dir = Path(".sisyphus/evidence")
+        evidence_dir = Path(__file__).resolve().parents[4] / ".sisyphus" / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         with open(evidence_dir / "task-2-name-uniqueness.txt", "w", encoding="utf-8") as f:
             f.write(f"Total relation names: {len(names)}\n")

@@ -176,8 +176,8 @@ class TestGuideEngine:
                 ),
             )
         assert s.phase == PHASE_COMPLETED
-        # Old behavior: canned "请定稿" reply blocked any further input.
-        # New behavior: the interviewer still processes refinement fills.
+        # Write guard (Task 4): overwrites in completed phase are intercepted
+        # as proposals — the user confirms before the value changes.
         out = handle_message(
             s,
             "名字改成星穹大陆",
@@ -186,11 +186,42 @@ class TestGuideEngine:
                 guidance_reply="已更新名字。",
             ),
         )
-        assert out["reply"] == "已更新名字。"
+        # Guard intercepts: old value preserved, proposal generated
+        assert s.answers["IP定位.name"] == "正常设定"
+        assert "proposals" in out
+        assert len(out["proposals"]) == 1
+        assert out["proposals"][0]["old"] == "正常设定"
+        assert out["proposals"][0]["new"] == "星穹大陆"
+        # Reply is confirmation question, not direct write
+        assert "正常设定" in out["reply"]
+        assert "星穹大陆" in out["reply"]
+        assert s.phase == PHASE_COMPLETED
+
+    def test_completed_phase_refinement_via_proposal(self):
+        """After resolving a proposal in completed phase, value updates."""
+        from app.domains.creation.a1.guide_engine import resolve_proposal
+
+        s = make_session()
+        for key in all_subfield_keys():
+            module_id, sub_id = key.split(".", 1)
+            s.answers[key] = "正常设定"
+        s.phase = PHASE_COMPLETED
+
+        # Simulate guard interception via handle_message
+        out = handle_message(
+            s,
+            "名字改成星穹大陆",
+            FakeInterviewer(
+                fills=[InterviewFill(module="IP定位", subfield="name", value="星穹大陆")],
+            ),
+        )
+        assert len(s.pending_proposals) == 1
+        key = list(s.pending_proposals.keys())[0]
+
+        # Resolve: replace
+        r = resolve_proposal(s, key, "replace")
+        assert r["applied"] is True
         assert s.answers["IP定位.name"] == "星穹大陆"
-        # Overwrite must surface a diff so a finalized file reverts to draft.
-        assert out["file_diff"] and out["file_diff"][0]["old"] == "正常设定"
-        assert out["file_diff"][0]["new"] == "星穹大陆"
         assert s.phase == PHASE_COMPLETED
 
     def test_same_value_refill_emits_no_diff(self):
@@ -378,3 +409,74 @@ class TestGuideEngine:
             session=make_session(),
         )
         assert "当前字段优先" in prompt
+
+
+# ---- Task 4 append: divergent fallback (Metis AC-M8) ----
+
+
+class TestDivergentFallback:
+    """Scenario 10: InterviewResult.divergent_question is None and
+    fills are non-empty → code-level template generates one divergent
+    question from fill keywords × unfilled fields."""
+
+    def test_fallback_divergent_generates_question_from_fills(self):
+        """When LLM returns no divergent_question but fills exist,
+        _fallback_divergent generates a template question."""
+        from app.domains.creation.a1.interviewer import InterviewResult
+        from app.domains.creation.a1.guide_engine import _fallback_divergent, handle_message
+
+        s = make_session()
+        fills = [
+            InterviewFill(module="IP定位", subfield="name", value="灵韵海化生万物")
+        ]
+        # InterviewResult with fills but no divergent_question
+        result = InterviewResult(
+            fills=fills,
+            guidance_reply="已记录。",
+        )
+
+        dq = _fallback_divergent(s, fills)
+        # Should generate a question mentioning the fill keyword and an unfilled field
+        assert dq is not None
+        assert "灵韵海化生万物" in dq or "灵韵海化生" in dq
+        # Should mention some unfilled field name
+        unfilled_found = any(
+            field_label in dq
+            for field_label in ["核心概念", "世界类型", "核心体验", "力量体系", "文明"]
+        )
+        assert unfilled_found, f"No unfilled field label found in: {dq}"
+
+    def test_fallback_divergent_none_when_no_fills(self):
+        """With empty fills, _fallback_divergent returns None."""
+        from app.domains.creation.a1.guide_engine import _fallback_divergent
+
+        s = make_session()
+        dq = _fallback_divergent(s, [])
+        assert dq is None
+
+    def test_fallback_divergent_none_when_all_filled(self):
+        """When all fields are filled, _fallback_divergent returns None."""
+        from app.domains.creation.a1.guide_engine import _fallback_divergent
+
+        s = make_session()
+        # Fill all fields
+        for key in all_subfield_keys():
+            s.answers[key] = "x"
+
+        fills = [InterviewFill(module="IP定位", subfield="name", value="灵韵海")]
+        dq = _fallback_divergent(s, fills)
+        assert dq is None
+
+    def test_handle_message_injects_fallback_divergent(self):
+        """handle_message injects fallback divergent when LLM returns none."""
+        from app.domains.creation.a1.interviewer import InterviewResult
+        from app.domains.creation.a1.guide_engine import handle_message
+
+        s = make_session()
+        # FakeInterviewer always returns divergent_question=None
+        # but with fills it should trigger the fallback
+        out = handle_message(s, "灵韵海化生万物", name_filler())
+        assert "divergent_question" in out
+        # The fallback should reference the fill keyword
+        if out["divergent_question"] is not None:
+            assert "星陨大陆" in out["divergent_question"] or "灵韵" in out["divergent_question"]

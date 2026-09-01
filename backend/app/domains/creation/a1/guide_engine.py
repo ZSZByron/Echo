@@ -16,11 +16,16 @@ module has been answered or skipped.
 """
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domains.creation.a1.interviewer import Interviewer, InterviewFill
+from app.domains.creation.a1.interviewer import (
+    Interviewer,
+    InterviewFill,
+    Proposal,
+)
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
     all_subfield_keys,
@@ -68,6 +73,13 @@ class A1Session(BaseModel):
     # Seed-referenced examples offered by the anti-stall guard; the user
     # may reply with a bare number 1/2/3 to accept one directly.
     pending_suggestions: list[str] = Field(default_factory=list)
+    # Write-guard proposals (Task 4): key=proposal_key, value=dict with
+    # 'proposal' (Proposal model), 'options' (list[str]).
+    # Semantically independent from pending_suggestions (Metis Q5).
+    pending_proposals: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # Merge count per field key (module.subfield). After 3 merges,
+    # the 'merge' option is removed from future proposals.
+    merge_counts: dict[str, int] = Field(default_factory=dict)
 
 
 def first_question() -> dict[str, Any]:
@@ -115,13 +127,104 @@ def sync_position(session: A1Session) -> None:
     session.phase = PHASE_COMPLETED
 
 
-def _apply_fills(session: A1Session, fills: list[InterviewFill]) -> list[dict[str, Any]]:
-    """Persist fills into session.answers (first write wins per turn).
+def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any]:
+    """Resolve a pending write-guard proposal.
 
-    First writes AND meaningful overwrites produce a diff entry (an
-    overwrite after finalization must revert the file to draft).
+    Choices: 'replace' | 'merge' | 'drop'.
+    Returns dict with 'applied' (bool), 'choice', and optional 'already_resolved'.
+    Idempotent: repeating the same key returns latest state without
+    double-write (Metis E3).
+    """
+    entry = session.pending_proposals.get(key)
+    if entry is None:
+        return {"applied": False, "choice": choice, "error": "not_found"}
+
+    proposal: Proposal = entry["proposal"]
+    field_key = f"{proposal.module}.{proposal.subfield}"
+
+    if choice == "replace":
+        session.answers[field_key] = proposal.new
+        applied = True
+    elif choice == "merge":
+        old_val = session.answers.get(field_key, proposal.old)
+        session.answers[field_key] = f"{old_val}；{proposal.new}"
+        session.merge_counts[field_key] = session.merge_counts.get(field_key, 0) + 1
+        applied = True
+    elif choice == "drop":
+        applied = False
+    else:
+        return {"applied": False, "choice": choice, "error": "invalid_choice"}
+
+    session.pending_proposals.pop(key, None)
+    return {"applied": applied, "choice": choice}
+
+
+def _fallback_divergent(session: A1Session, fills: list[InterviewFill]) -> str | None:
+    """Code-level fallback for divergent_question (Metis AC-M8).
+
+    When InterviewResult.divergent_question is None and fills are
+    non-empty, generate a template question from fill value keywords
+    × unfilled field labels.
+    Template: "你提到【{keyword}】，这和＿＿（{unfilled_label}）有关系吗？"
+    """
+    if not fills:
+        return None
+
+    # Determine keys being filled this turn (to exclude them from targets)
+    filling_keys = {f"{f.module}.{f.subfield}" for f in fills}
+
+    # Collect unfilled field labels (up to 10, excluding the ones being filled)
+    unfilled_labels: list[str] = []
+    for key in all_subfield_keys():
+        if key not in session.answers and key not in filling_keys:
+            module_id, sub_id = key.split(".", 1)
+            sf = get_subfield(module_id, sub_id)
+            if sf:
+                unfilled_labels.append(sf["label"])
+        if len(unfilled_labels) >= 10:
+            break
+
+    if not unfilled_labels:
+        return None
+
+    # Use first fill's value (up to 8 chars or first punctuation segment)
+    val = fills[0].value
+    keyword = val[:8]
+    # If there's punctuation within 8 chars, truncate there
+    for i, ch in enumerate(val[:8]):
+        if ch in ("，", "。", "、", "；", "！", "？", ",", "."):
+            keyword = val[:i].strip()
+            break
+
+    if not keyword:
+        return None
+
+    target = unfilled_labels[0]
+    return f"你提到【{keyword}】，这和＿＿（{target}）有关系吗？"
+
+
+def _proposal_key(module: str, subfield: str, new: str) -> str:
+    """Deterministic proposal key: module.subfield:md5[:8]."""
+    h = hashlib.md5(new.encode()).hexdigest()[:8]
+    return f"{module}.{subfield}:{h}"
+
+
+def _apply_fills(
+    session: A1Session, fills: list[InterviewFill]
+) -> tuple[list[dict[str, Any]], list[Proposal]]:
+    """Persist fills into session.answers with write-guard.
+
+    Three-branch guard (Metis Q1/E2):
+      1. Empty field (old=='') → direct write + file_diff(old='').
+      2. Non-empty, new == old → skip (no proposal, no write).
+      3. Non-empty, new != old → intercept: generate Proposal, do NOT
+         write to answers.  The proposal is stored in
+         session.pending_proposals.
+
+    Returns (file_diff, intercepted_proposals).
     """
     file_diff: list[dict[str, Any]] = []
+    intercepted: list[Proposal] = []
     seen_keys: set[str] = set()
     for fill in fills:
         key = f"{fill.module}.{fill.subfield}"
@@ -130,16 +233,44 @@ def _apply_fills(session: A1Session, fills: list[InterviewFill]) -> list[dict[st
         seen_keys.add(key)
         sf = get_subfield(fill.module, fill.subfield)
         old = session.answers.get(key, "")
-        if old != fill.value:
-            file_diff.append({
-                "field": sf["label"] if sf else fill.subfield,
-                "module": fill.module,
-                "section": sf["label"] if sf else fill.subfield,
-                "old": old,
-                "new": fill.value,
-            })
+
+        # Branch 2: skip — same value
+        if old and old == fill.value:
+            continue
+
+        # Branch 3: intercept — non-empty and different
+        if old and old != fill.value:
+            proposal = Proposal(
+                module=fill.module,
+                subfield=fill.subfield,
+                old=old,
+                new=fill.value,
+                conflict_note=fill.conflict_note,
+            )
+            intercepted.append(proposal)
+            pk = _proposal_key(fill.module, fill.subfield, fill.value)
+            # Determine available options (merge cap check)
+            merge_count = session.merge_counts.get(key, 0)
+            options = ["replace", "drop"]
+            if merge_count < 3:
+                options.insert(1, "merge")  # replace, merge, drop
+            session.pending_proposals[pk] = {
+                "proposal": proposal,
+                "options": options,
+            }
+            continue
+
+        # Branch 1: empty → direct write
+        file_diff.append({
+            "field": sf["label"] if sf else fill.subfield,
+            "module": fill.module,
+            "section": sf["label"] if sf else fill.subfield,
+            "old": old,
+            "new": fill.value,
+        })
         session.answers[key] = fill.value
-    return file_diff
+
+    return file_diff, intercepted
 
 
 def _apply_stall_guard(
@@ -227,7 +358,25 @@ def _apply_stall_guard(
         except Exception:  # noqa: BLE001 — degrade, never crash
             alloc = None
         if alloc is not None and alloc.fills:
-            file_diff = _apply_fills(session, alloc.fills)
+            file_diff, intercepted = _apply_fills(session, alloc.fills)
+            if intercepted:
+                # Write guard intercepted — generate confirmation reply
+                prop = intercepted[0]
+                sf = get_subfield(prop.module, prop.subfield)
+                label = sf["label"] if sf else prop.subfield
+                conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
+                result["reply"] = (
+                    f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
+                    f"这次的『{prop.new}』——是要**替换**它，"
+                    f"还是两者**合并**（同一条里都保留），"
+                    f"还是先**放弃**这条修改？"
+                )
+                result["next_question"] = None
+                result["file_diff"] = []
+                result["proposals"] = [p.model_dump() for p in intercepted]
+                result["progress"] = progress(session)
+                result["phase"] = session.phase
+                return result
             sync_position(session)
             if cur_key in session.answers:
                 session.stall_subfield = ""
@@ -380,17 +529,50 @@ def handle_message(
 
     # ---- fills (possibly many) -> persist + jump to first unanswered ----
     if result.fills:
-        file_diff = _apply_fills(session, result.fills)
-        sync_position(session)
-        out_fills = {
+        file_diff, intercepted = _apply_fills(session, result.fills)
+
+        # Divergent fallback (Metis AC-M8)
+        dq = result.divergent_question
+        if dq is None:
+            dq = _fallback_divergent(session, result.fills)
+
+        # Build base result
+        out_fills: dict[str, Any] = {
             "reply": result.guidance_reply or "已记录。",
             "next_question": _question_payload(session),
             "file_diff": file_diff,
             "progress": progress(session),
             "phase": session.phase,
         }
+        if dq is not None:
+            out_fills["divergent_question"] = dq
+
+        # Write guard intercepted — override reply, suspend next_question
+        if intercepted:
+            prop = intercepted[0]
+            sf = get_subfield(prop.module, prop.subfield)
+            label = sf["label"] if sf else prop.subfield
+            conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
+            out_fills["reply"] = (
+                f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
+                f"这次的『{prop.new}』——是要**替换**它，"
+                f"还是两者**合并**（同一条里都保留），"
+                f"还是先**放弃**这条修改？"
+            )
+            out_fills["next_question"] = None  # iron law
+            out_fills["file_diff"] = []
+            out_fills["proposals"] = [p.model_dump() for p in intercepted]
+
+        # Let stall guard run (preserves stall tracking even when intercepted)
         guard = _apply_stall_guard(session, text, cur_key, out_fills, interviewer)
-        return guard if guard is not None else out_fills
+        if guard is not None:
+            return guard
+
+        # Only sync position when no interception (intercepted = don't advance)
+        if not intercepted:
+            sync_position(session)
+
+        return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
     out_chat = {

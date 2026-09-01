@@ -285,16 +285,20 @@ class TestApplyFillsExtraction:
         assert len(out["file_diff"]) == 1
 
     def test_handle_message_overwrite_emits_diff(self):
-        """Overwriting an existing answer emits a diff with old value."""
+        """G1 写入守卫：覆盖已填字段被拦截转提案，不再直接写入。"""
         s = make_session()
         s.answers["IP定位.name"] = "旧名字"
         interviewer = FakeInterviewer(
             fills=[InterviewFill(module="IP定位", subfield="name", value="新名字")],
         )
         out = handle_message(s, "改成新名字", interviewer)
-        assert s.answers["IP定位.name"] == "新名字"
-        assert out["file_diff"][0]["old"] == "旧名字"
-        assert out["file_diff"][0]["new"] == "新名字"
+        # 守卫拦截：旧值保留，不产生 diff，生成提案
+        assert s.answers["IP定位.name"] == "旧名字"
+        assert out["file_diff"] == []
+        assert out.get("proposals") and len(out["proposals"]) == 1
+        assert out["proposals"][0]["old"] == "旧名字"
+        assert out["proposals"][0]["new"] == "新名字"
+        assert out["next_question"] is None  # 单问句铁律
 
     def test_handle_message_same_value_no_diff(self):
         """Refilling same value emits no diff."""
