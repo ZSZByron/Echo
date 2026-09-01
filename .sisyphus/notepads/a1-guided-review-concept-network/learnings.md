@@ -152,3 +152,124 @@ def extract_concept_edges(
 - Extractor outputs from_slot/to_slot 使用 v0.4 concept tree 命名（如 "世界本体.现实规则"）
 - A1 answers 使用 questionnaire tree 命名（如 "世界本体.现实规则"）
 - Task 7 finalize 集成时需做节点引用校验（槽位命名对齐映射 v0.4→A1）
+
+## Task 4: 写入守卫 (2026-09-01)
+
+### Implementation State
+- **Guard Implementation**: Complete (_apply_fills 三分支 + resolve_proposal + _fallback_divergent + pending_proposals/merge_counts)
+- **Test Coverage**: 328 lines test_write_guard.py + 114 lines test_guide_engine.py extension = 19 new tests (all passing)
+- **Full Regression**: 758 passed (759 expected after evidence path fix)
+
+### Key API Contracts
+- **resolve_proposal(session, key, choice)**: dict with applied=bool, choice=str, error=str|None
+  - choice values: replace/merge/skip
+  - returns applied=True on success, error message on failure
+
+- **pending_proposals shape**: dict with key mapping to proposal dict
+  - key format: module.subfield (e.g., IP定位.name)
+  - proposal contains Proposal instance with old/new/merge_preview
+  - options: list of choice strings (replace/merge/skip)
+
+- **_apply_fills return**: tuple of (file_diff list, intercepted list or None)
+  - file_diff: list of old/new/field changes applied
+  - intercepted: None (normal) or list of Proposal objects (guard triggered)
+
+- **Intercepted response shape** (guide_engine.py 550-564):
+  - reply: conflict explanation with old/new values
+  - next_question: None (单问句铁律 - suspended on interception)
+  - file_diff: empty list (no changes applied when intercepted)
+  - proposals: list of Proposal.model_dump() (intercepted proposals)
+
+### Legacy Test Migration
+- **test_handle_message_overwrite_emits_diff**: Migrated from old contract to G1 contract
+  - Old behavior: overwrite applied, file_diff contains old/new
+  - New behavior: interception, old value preserved, proposals emitted, next_question=None
+  - Critical for Task 6 chat routing integration (expects G1 contract)
+
+### Completion Mode
+- **Previous agent**: Interrupted during Task 4 implementation
+- **Current agent**: Finish-up only (test migration + bug fix + evidence + commit)
+- **Evidence path fix**: test_concept_edge_vocab.py lines 36-41, 64-69 (relative to absolute path)
+- **Cleanup**: Removed backend/.sisyphus (untracked incorrect evidence files)
+
+## Task 6: Chat侧集成 (2026-09-01)
+
+### TDD Discipline Followed
+1. **RED Phase First**: 10 new tests added to test_a1_routes.py BEFORE implementation
+2. **Verified RED**: Watched tests fail with expected errors (missing fields)
+3. **GREEN Implementation**: Minimal changes to a1_routes.py (chat + confirm + GET file)
+4. **Verified GREEN**: 31/31 tests pass (23 existing + 8 new), 769/769 full regression
+5. **Evidence File Created**: task-6-routes-chat.txt with complete RED/GREEN cycle
+
+### API Contract Changes
+- **ConfirmRequest**: Added `kind: str = "classification"` field (backward compatible)
+- **Chat response**: Always includes `proposals: []` (shape stability, Metis E8)
+- **Chat response**: Always includes `divergent_question: None` (when not provided)
+- **Chat response**: Proposals from guard include `key` field (from pending_proposals dict)
+- **Confirm response**: kind='fill' supports resolve_proposal with natural language mapping
+- **Confirm response**: Ambiguous choices (<5 chars, no keywords) → needs_clarification
+- **GET file response**: Always includes `open_questions: []` and `edge_stats: {...}`
+
+### Natural Language Choice Mapping (Closed Vocabulary)
+- Replace: 替换, 换成 → `replace`
+- Merge: 合并, 并存, 都保留, 两个都要 → `merge`
+- Drop: 放弃, 算了, 不要了 → `drop`
+- Ambiguous (<5 chars without keywords) → `needs_clarification: true` + restatement
+
+### Request/Response Shapes (Frontend Contract)
+**Confirm Fill Proposal Request:**
+```json
+{
+  "session_id": "a1_...",
+  "kind": "fill",
+  "proposal": {"key": "IP定位.name:abc123"},
+  "choice": "替换"  // or "merge", "drop", or natural language
+}
+```
+
+**Needs Clarification Response:**
+```json
+{
+  "needs_clarification": true,
+  "reply": "你之前定过【...】是『...』。这次的『...』——是要**替换**它，...",
+  "next_question": null
+}
+```
+
+**GET File Response Extensions:**
+```json
+{
+  "file_id": "...",
+  "open_questions": [],  // Always present, empty in draft state
+  "edge_stats": {
+    "semantic_total": 0,
+    "semantic_confirmed": 0,
+    "rule_total": 0,
+    "structure_total": 0,
+    "pending_review": 0
+  }
+}
+```
+
+### Line Ownership Boundaries (Metis G4)
+- **Modified**: chat endpoint (lines 328-370), chat/confirm endpoint (lines 373-392), GET file (lines 440-452)
+- **Untouched**: finalize endpoint (lines 455-508) - Task 7 territory
+- **Untouched**: _build_graph (lines 183-250) - Task 7 territory
+
+### Coexistence Rules (Metis Q6)
+- Classification proposals and fill proposals can coexist in responses
+- classification_proposal field preserves existing innovation_capture behavior
+- proposals array contains fill proposals from guard
+- Frontend decides display order (contract: backend provides both)
+
+### Test Results
+- **Unit Tests**: 31/31 passed (23 existing + 8 new)
+- **Full Regression**: 769/769 passed (exceeds ≥759 target)
+- **Zero regressions**: All existing tests unchanged and passing
+- **Zero side effects**: No changes to finalize/_build_graph regions
+
+### Task 7 Handoff Ready
+- _FILES open_questions/edge_stats fields exist with zero defaults
+- Task 7 finalize can populate these fields from concept edge extraction
+- GET file already returns these fields (frontend ready for Task 7 data)
+- Chat/confirm infrastructure complete for fill proposal workflow

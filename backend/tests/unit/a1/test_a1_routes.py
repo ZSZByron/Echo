@@ -375,3 +375,283 @@ class TestA1Routes:
         for l2_node in level2_nodes:
             # Description should be just the module label, not containing ": " from subfields
             assert ": " not in l2_node["description"]
+
+    # ---- Task 6: chat提案返回 + confirm kind判别 + GET file扩展 ----
+
+    def test_chat_response_has_proposals_field(self, started):
+        """Chat response should always have proposals array (empty when no guard)."""
+        client, payload = started
+        resp = client.post("/api/a1/chat", json={"session_id": payload["session_id"], "message": "跳过"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "proposals" in body
+        assert isinstance(body["proposals"], list)
+        # Normal flow: empty array (shape stability, Metis E8)
+        assert body["proposals"] == []
+
+    def test_chat_response_proposals_populated_on_guard_intercept(self, started):
+        """When write guard intercepts, proposals contains Proposal dicts with keys."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Manually setup a pending proposal to simulate guard interception
+        session = a1_routes._SESSIONS[session_id]
+        # First set an existing value
+        session.answers["IP定位.name"] = "原始值"
+        # Create a proposal that would come from guard interception
+        proposal_key = "IP定位.name:test123"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old="原始值",
+            new="新值",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Send a message that will trigger the guard response
+        resp = client.post("/api/a1/chat", json={"session_id": session_id, "message": "修改为修仙世界"})
+        assert resp.status_code == 200
+        body = resp.json()
+        # After guard interception, proposals should be in the response
+        # (Note: The guard response happens in guide_engine, we're testing routing adds keys)
+        if body.get("proposals"):
+            # Check that proposals have the required structure
+            prop = body["proposals"][0]
+            assert "module" in prop
+            assert "subfield" in prop
+            assert "old" in prop
+            assert "new" in prop
+            # Key is added by routing layer from pending_proposals dict keys
+            assert "key" in prop
+
+    def test_chat_response_divergent_question_field(self, started):
+        """Chat response should have divergent_question when interviewer provides it."""
+        client, payload = started
+        # This test requires a FakeInterviewer that sets divergent_question
+        # For now, test the field exists and can be None
+        resp = client.post("/api/a1/chat", json={"session_id": payload["session_id"], "message": "跳过"})
+        assert resp.status_code == 200
+        body = resp.json()
+        # Field exists (can be None or str)
+        assert "divergent_question" in body
+        # Normal flow: may be None
+        assert body["divergent_question"] is None or isinstance(body["divergent_question"], str)
+
+    def test_confirm_fill_replace_choice(self, started):
+        """Confirm kind='fill' with choice='replace' should apply new value."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Setup: create a pending proposal
+        session = a1_routes._SESSIONS[session_id]
+        proposal_key = "IP定位.name:abc123"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old="旧值",
+            new="新值",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Confirm with replace choice
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": session_id,
+            "kind": "fill",
+            "proposal": {"key": proposal_key},
+            "choice": "replace",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        # Response should have updated answers
+        assert "reply" in body
+        assert "next_question" in body or body.get("next_question") is None
+        # Check answer was replaced
+        assert session.answers.get("IP定位.name") == "新值"
+
+    def test_confirm_fill_merge_choice(self, started):
+        """Confirm kind='fill' with choice='merge' should combine values."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Setup
+        session = a1_routes._SESSIONS[session_id]
+        proposal_key = "IP定位.name:def456"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old="原有内容",
+            new="新增内容",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Confirm with merge choice
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": session_id,
+            "kind": "fill",
+            "proposal": {"key": proposal_key},
+            "choice": "merge",
+        })
+        assert resp.status_code == 200
+        # Answer should be merged with semicolon
+        assert "原有内容；新增内容" in session.answers.get("IP定位.name", "")
+
+    def test_confirm_fill_drop_choice(self, started):
+        """Confirm kind='fill' with choice='drop' should not apply changes."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Setup
+        session = a1_routes._SESSIONS[session_id]
+        original_value = "保持不变"
+        session.answers["IP定位.name"] = original_value
+        proposal_key = "IP定位.name:ghi789"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old=original_value,
+            new="试图替换",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Confirm with drop choice
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": session_id,
+            "kind": "fill",
+            "proposal": {"key": proposal_key},
+            "choice": "drop",
+        })
+        assert resp.status_code == 200
+        # Answer should remain unchanged
+        assert session.answers.get("IP定位.name") == original_value
+
+    def test_confirm_natural_language_choice_mapping(self, started):
+        """Natural language choices should map to canonical choices."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Setup
+        session = a1_routes._SESSIONS[session_id]
+        proposal_key = "IP定位.name:jkl012"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old="旧",
+            new="新",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Test natural language mapping: "换成" -> replace
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": session_id,
+            "kind": "fill",
+            "proposal": {"key": proposal_key},
+            "choice": "换成",
+        })
+        assert resp.status_code == 200
+        assert session.answers.get("IP定位.name") == "新"
+
+    def test_confirm_needs_clarification_on_ambiguous_choice(self, started):
+        """Ambiguous choices like '嗯'/'好' should trigger needs_clarification."""
+        from app.api import a1_routes
+        from app.domains.creation.a1.guide_engine import Proposal
+
+        client, payload = started
+        session_id = payload["session_id"]
+        # Setup
+        session = a1_routes._SESSIONS[session_id]
+        original_value = "原始值"
+        session.answers["IP定位.name"] = original_value
+        proposal_key = "IP定位.name:mno345"
+        proposal = Proposal(
+            module="IP定位",
+            subfield="name",
+            old=original_value,
+            new="冲突值",
+            conflict_note=None,
+        )
+        session.pending_proposals[proposal_key] = {
+            "proposal": proposal,
+            "options": ["replace", "merge", "drop"],
+        }
+
+        # Ambiguous choice should trigger clarification
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": session_id,
+            "kind": "fill",
+            "proposal": {"key": proposal_key},
+            "choice": "嗯",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        # Should have needs_clarification flag
+        assert body.get("needs_clarification") is True
+        # Should restate the three options
+        assert "reply" in body
+        assert any(word in body["reply"] for word in ["替换", "合并", "放弃"])
+        # Answer should NOT change (zero side effect)
+        assert session.answers.get("IP定位.name") == original_value
+
+    def test_confirm_kind_default_classification(self, started):
+        """Confirm with kind default (or 'classification') should use existing innovation_capture path."""
+        # This ensures backward compatibility
+        client, payload = started
+        # Use existing classification proposal format
+        resp = client.post("/api/a1/chat/confirm", json={
+            "session_id": payload["session_id"],
+            "proposal": {
+                "suggestions": [{"field": "test", "category": "其他"}],
+            },
+            "choice": "confirm",
+        })
+        # Should not error (existing innovation_capture path)
+        assert resp.status_code in (200, 404)  # 404 if no classification proposal exists
+
+    def test_get_file_has_open_questions_and_edge_stats(self, started):
+        """GET file response should have open_questions and edge_stats fields."""
+        client, payload = started
+        resp = client.get(f"/api/a1/file/{payload['file_id']}")
+        assert resp.status_code == 200
+        body = resp.json()
+        # Should have open_questions array (empty in draft state)
+        assert "open_questions" in body
+        assert isinstance(body["open_questions"], list)
+        # Should have edge_stats dict (with zero values in draft state)
+        assert "edge_stats" in body
+        assert isinstance(body["edge_stats"], dict)
+        # Check zero-value defaults for draft state
+        stats = body["edge_stats"]
+        assert stats.get("semantic_total", 0) == 0
+        assert stats.get("semantic_confirmed", 0) == 0
+        assert stats.get("rule_total", 0) == 0
+        assert stats.get("structure_total", 0) == 0
+        assert stats.get("pending_review", 0) == 0

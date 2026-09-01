@@ -123,6 +123,7 @@ class ConfirmRequest(BaseModel):
     session_id: str
     proposal: dict
     choice: str
+    kind: str = "classification"  # "classification" | "fill"
 
 
 def _question_payload(session: A1Session) -> dict | None:
@@ -349,6 +350,34 @@ async def chat(req: ChatRequest) -> dict:
         diffs=len(out.get("file_diff") or []),
     )
 
+    # Ensure proposals field is always present (Task 6: shape stability)
+    if "proposals" not in out:
+        out["proposals"] = []
+
+    # Add keys to proposals from pending_proposals (Task 6: frontend needs key for confirm)
+    if out.get("proposals"):
+        proposals_with_keys = []
+        for proposal_dict in out["proposals"]:
+            # Find the corresponding key in pending_proposals
+            for key, entry in session.pending_proposals.items():
+                proposal = entry["proposal"]
+                # Match by module, subfield, and new value
+                if (proposal.module == proposal_dict.get("module") and
+                    proposal.subfield == proposal_dict.get("subfield") and
+                    proposal.new == proposal_dict.get("new")):
+                    # Add key to proposal dict
+                    proposal_with_key = {**proposal_dict, "key": key}
+                    proposals_with_keys.append(proposal_with_key)
+                    break
+            else:
+                # No matching key found, keep as-is (shouldn't happen)
+                proposals_with_keys.append(proposal_dict)
+        out["proposals"] = proposals_with_keys
+
+    # Ensure divergent_question is present (Task 6: field always present, None when not provided)
+    if "divergent_question" not in out:
+        out["divergent_question"] = None
+
     # Add dice recommendation when on 骰子设定 module and first subfield
     if session.current_module == "骰子设定":
         # Get first subfield of 骰子设定 module
@@ -375,6 +404,72 @@ def chat_confirm(req: ConfirmRequest) -> dict:
     session = _SESSIONS.get(req.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
+
+    # Kind routing (Task 6): classification vs fill proposal confirmation
+    if req.kind == "fill":
+        # Natural language choice mapping (closed vocabulary)
+        choice_lower = req.choice.strip().lower()
+        choice_mapping = {
+            "替换": "replace",
+            "换成": "replace",
+            "合并": "merge",
+            "并存": "merge",
+            "都保留": "merge",
+            "两个都要": "merge",
+            "放弃": "drop",
+            "算了": "drop",
+            "不要了": "drop",
+        }
+
+        # Check if choice needs clarification (ambiguous short responses)
+        is_ambiguous = (
+            len(req.choice.strip()) < 5 and
+            not any(keyword in req.choice for keyword in
+                    ["替换", "换成", "合并", "并存", "都保留", "两个都要", "放弃", "算了", "不要了"])
+        )
+
+        if is_ambiguous:
+            # Return needs_clarification response without side effects
+            proposal_key = req.proposal.get("key", "")
+            proposal_entry = session.pending_proposals.get(proposal_key)
+            if proposal_entry:
+                proposal = proposal_entry["proposal"]
+                return {
+                    "needs_clarification": True,
+                    "reply": (
+                        f"你之前定过【{proposal.subfield}】是『{proposal.old}』。"
+                        f"这次的『{proposal.new}』——是要**替换**它，"
+                        f"还是两者**合并**（同一条里都保留），"
+                        f"还是先**放弃**这条修改？"
+                    ),
+                    "next_question": None,
+                }
+
+        # Map natural language to canonical choice
+        canonical_choice = choice_mapping.get(req.choice.strip(), req.choice)
+
+        # Extract proposal key from request
+        proposal_key = req.proposal.get("key", "")
+
+        # Call resolve_proposal from guide_engine
+        from app.domains.creation.a1.guide_engine import resolve_proposal
+        result = resolve_proposal(session, proposal_key, canonical_choice)
+
+        # Build response
+        reply = "已确认并记录。"
+        if result.get("applied"):
+            choice_desc = {"replace": "替换", "merge": "合并", "drop": "放弃"}.get(canonical_choice, "")
+            reply = f"已{choice_desc}该内容。"
+        else:
+            reply = "已放弃该内容，可重新输入。"
+
+        return {
+            "reply": reply,
+            "next_question": _question_payload(session),
+            "applied": result.get("applied", False),
+        }
+
+    # Default: classification proposal (existing innovation_capture path)
     from app.domains.creation.shared.semantic_compiler import ClassificationProposal
     proposal = ClassificationProposal(**req.proposal)
     log_event(
@@ -442,6 +537,16 @@ def get_file(file_id: str) -> dict:
     rec = _get_file(file_id)
     session = _SESSIONS[rec["session_id"]]
 
+    # Task 6: Add open_questions and edge_stats (always present, draft state = empty/zero)
+    open_questions = rec.get("open_questions", [])
+    edge_stats = rec.get("edge_stats", {
+        "semantic_total": 0,
+        "semantic_confirmed": 0,
+        "rule_total": 0,
+        "structure_total": 0,
+        "pending_review": 0,
+    })
+
     return {
         "file_id": file_id,
         "status": rec["status"],
@@ -449,6 +554,8 @@ def get_file(file_id: str) -> dict:
         "graph_code": rec["graph_code"],
         "session_id": session.session_id,
         "sections": _build_sections(session),
+        "open_questions": open_questions,
+        "edge_stats": edge_stats,
     }
 
 
