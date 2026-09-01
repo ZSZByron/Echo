@@ -39,6 +39,23 @@ class InterviewFill(BaseModel):
     module: str
     subfield: str
     value: str
+    conflict_note: str | None = None
+
+
+class Proposal(BaseModel):
+    """A proposed change to an already-filled field."""
+
+    module: str
+    subfield: str
+    old: str
+    new: str
+    conflict_note: str | None = None
+    merge_preview: str = ""
+
+    def __init__(self, **data: Any) -> None:
+        if "merge_preview" not in data:
+            data["merge_preview"] = f"{data.get('old', '')}；{data.get('new', '')}"
+        super().__init__(**data)
 
 
 class InterviewResult(BaseModel):
@@ -49,6 +66,7 @@ class InterviewResult(BaseModel):
     is_innovative: bool = False
     innovative_category: str | None = None
     divergent_question: str | None = None
+    proposals: list[Proposal] = Field(default_factory=list)
 
 
 class Interviewer(Protocol):
@@ -78,6 +96,7 @@ class FakeInterviewer:
         raise_error: bool = False,
         examples: list[str] | None = None,
         forced_allocate_result: InterviewResult | None = None,
+        proposals: list[Proposal] | None = None,
     ) -> None:
         self.fills = fills or []
         self.guidance_reply = guidance_reply
@@ -86,6 +105,7 @@ class FakeInterviewer:
         self.raise_error = raise_error
         self._examples = examples
         self._forced_allocate_result = forced_allocate_result
+        self._proposals = proposals or []
         self.calls = 0
         self.suggest_calls = 0
         self.forced_calls = 0
@@ -99,6 +119,7 @@ class FakeInterviewer:
             guidance_reply=self.guidance_reply,
             is_innovative=self.is_innovative,
             innovative_category=self.innovative_category,
+            proposals=list(self._proposals),
         )
 
     def suggest_examples(
@@ -125,6 +146,14 @@ class FakeInterviewer:
 # ---------------------------------------------------------------------------
 # Real LLM implementation
 # ---------------------------------------------------------------------------
+
+
+def _immutable_block(answers: dict[str, str]) -> str:
+    """Build the 【不可动清单】 content from answers."""
+    raw = answers.get("设定边界.immutable_core", "")
+    if raw and raw.strip():
+        return raw.strip()
+    return "（暂无不可动设定）"
 
 
 def _field_catalog() -> str:
@@ -274,6 +303,20 @@ class RealLLMInterviewer:
                 "（即使表述不标准、不像示例、过于简短或口语化），判断后把提取内容填入"
                 "当前 module.subfield（可以同时填其他字段）。绝不允许只填其他字段而漏掉"
                 "当前字段的回答；但如果输入真正属于其他字段或与世界观无关，则不强制填当前字段。",
+                "",
+                "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
+                "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
+                "重叠（用实例冒充类型）的情况。若存在冲突，该 fill 必须标记 "
+                "conflict_note 字段（用世界观语言描述冲突原因），value 仍按用户原意提取。",
+                "",
+                "【不可动清单】（设定边界.不可变集中的锚点，绝对不可覆盖）",
+                _immutable_block(answers),
+                "",
+                "3.6 红线记忆：与【不可动清单】中任何一条冲突的内容，拒绝提取到 fills，"
+                "guidance_reply 中必须说明与哪条不可动设定冲突。",
+                "3.7 术语转译：面向用户的一切输出（guidance_reply、divergent_question 等）"
+                "严禁使用以下术语——拓扑/槽位/派生/枚举/轴向/上游/下游——必须转译为"
+                "用户可理解的设定式表述。内部 JSON 字段名不受此限制。",
                 "4. 只能填入【可填字段清单】中存在的 module.subfield（module 和 subfield 必须"
                 "逐字使用清单中的 id）。",
                 "5. 创新判定（从严）：仅当输入是世界观设定、且不属于清单中任何字段能容纳的内容"
@@ -465,7 +508,15 @@ class RealLLMInterviewer:
                 continue
             if f"{module}.{sub}" not in valid_keys:
                 continue  # 铁律：不允许清单外字段
-            fills.append(InterviewFill(module=module, subfield=sub, value=value.strip()))
+            conflict = item.get("conflict_note")
+            fills.append(
+                InterviewFill(
+                    module=module,
+                    subfield=sub,
+                    value=value.strip(),
+                    conflict_note=conflict.strip() if isinstance(conflict, str) and conflict.strip() else None,
+                )
+            )
 
         reply = raw.get("guidance_reply")
         innovative = bool(raw.get("is_innovative"))
