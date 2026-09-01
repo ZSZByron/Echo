@@ -17,6 +17,7 @@ import { A1KnowledgeGraph } from '../../components/graph/A1KnowledgeGraph';
 import type { KnowledgeGraph } from '../../types/graph';
 import { UploadToolbar } from './UploadToolbar';
 import { CopyrightDialog, type CopyrightReport } from './CopyrightDialog';
+import type { A1Proposal } from '../../types/a1';
 import '../../components/theme.css';
 
 // API Types
@@ -90,6 +91,9 @@ interface ChatResponse {
   phase: string;
   classification_proposal?: ClassificationProposalData;
   dice_recommendation?: DiceRecommendationResponse;
+  proposals?: A1Proposal[];
+  divergent_question?: string;
+  needs_clarification?: boolean;
 }
 
 interface FinalizeResponse {
@@ -257,6 +261,7 @@ export function A1Workspace() {
   }>>([]);
   const [finalizable, setFinalizable] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [pendingProposals, setPendingProposals] = useState<A1Proposal[]>([]);
   
   // Graph State
   const [graphCode, setGraphCode] = useState<string | null>(null);
@@ -464,8 +469,8 @@ export function A1Workspace() {
       };
       setMessages(prev => [...prev, assistantMessage]);
       
-      // Add next question with two-level formatting
-      if (response.next_question) {
+      // Add next question with two-level formatting (only if no proposals - 单问句铁律)
+      if (response.next_question && (!response.proposals || response.proposals.length === 0)) {
         const questionText = formatQuestion(response.next_question);
 
         setMessages(prev => [...prev, {
@@ -473,6 +478,11 @@ export function A1Workspace() {
           type: 'assistant',
           text: questionText,
         }]);
+      }
+
+      // Handle proposals from guard
+      if (response.proposals && response.proposals.length > 0) {
+        setPendingProposals(response.proposals);
       }
 
       // Refresh the file panel from the server so every refinement
@@ -551,6 +561,16 @@ export function A1Workspace() {
       }
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  // Handle proposal resolution
+  const handleProposalResolved = async (key: string) => {
+    setPendingProposals(prev => prev.filter(p => p.key !== key));
+    
+    // Refresh file after proposal is resolved to show updated answers
+    if (fileId) {
+      await refreshFile(fileId);
     }
   };
 
@@ -883,6 +903,9 @@ export function A1Workspace() {
             messages={messages}
             onSend={sendMessage}
             disabled={isChatLoading}
+            proposals={pendingProposals}
+            sessionId={sessionId || ''}
+            onProposalResolved={handleProposalResolved}
           />
         </div>
         

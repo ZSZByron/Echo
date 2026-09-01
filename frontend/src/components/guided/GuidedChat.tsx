@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import '../theme.css';
+import type { A1Proposal } from '../../types/a1';
+import { ProposalCard } from './ProposalCard';
+import { ProposalTray } from './ProposalTray';
 
 export interface DiceRecommendation {
   field: string;
@@ -24,6 +27,12 @@ export interface GuidedChatProps {
   messages: Message[];
   onSend: (text: string) => void;
   disabled?: boolean;
+  /** Pending proposals from backend response */
+  proposals?: A1Proposal[];
+  /** Session ID for proposal API calls */
+  sessionId?: string;
+  /** Callback when proposal is resolved */
+  onProposalResolved?: (key: string) => void;
 }
 
 function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
@@ -56,19 +65,75 @@ function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecomm
   );
 }
 
-export function GuidedChat({ messages, onSend, disabled = false }: GuidedChatProps) {
+export function GuidedChat({ 
+  messages, 
+  onSend, 
+  disabled = false, 
+  proposals = [], 
+  sessionId = '', 
+  onProposalResolved 
+}: GuidedChatProps) {
   const [input, setInput] = useState('');
+  const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
+  const [displayProposals, setDisplayProposals] = useState<A1Proposal[]>([]);
+
+  // Split proposals: first 3 go to display, rest to tray
+  useState(() => {
+    if (proposals.length > 0) {
+      const toDisplay = proposals.slice(0, 3);
+      const toTray = proposals.slice(3);
+      setDisplayProposals(toDisplay);
+      setTrayProposals(toTray);
+    }
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim() && !disabled) {
+      // User ignores proposals and sends message - move display proposals to tray
+      if (displayProposals.length > 0) {
+        setTrayProposals(prev => [...prev, ...displayProposals]);
+        setDisplayProposals([]);
+      }
       onSend(input.trim());
       setInput('');
     }
   };
 
+  const handleProposalResolved = (key: string) => {
+    // Remove from display proposals
+    setDisplayProposals(prev => prev.filter(p => p.key !== key));
+    // Trigger parent callback
+    if (onProposalResolved) {
+      onProposalResolved(key);
+    }
+  };
+
+  const handleTrayProposalResolved = (key: string) => {
+    // Remove from tray proposals
+    setTrayProposals(prev => prev.filter(p => p.key !== key));
+    // Trigger parent callback
+    if (onProposalResolved) {
+      onProposalResolved(key);
+    }
+  };
+
+  const handleRestoreFromTray = (key: string) => {
+    // Move from tray to display if less than 3 in display
+    if (displayProposals.length < 3) {
+      const proposal = trayProposals.find(p => p.key === key);
+      if (proposal) {
+        setTrayProposals(prev => prev.filter(p => p.key !== key));
+        setDisplayProposals(prev => [...prev, proposal]);
+      }
+    }
+  };
+
+  // Suspend next_question when proposals are present
+  const showSuspendedMessage = displayProposals.length > 0;
+
   return (
-    <div className="flex flex-col h-full bg-slate-950">
+    <div className="flex flex-col h-full bg-slate-950 relative">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((message) => (
@@ -94,6 +159,26 @@ export function GuidedChat({ messages, onSend, disabled = false }: GuidedChatPro
             </div>
           </div>
         ))}
+        
+        {/* Display proposal cards (inline with messages) */}
+        {displayProposals.map(proposal => (
+          <div key={proposal.key} className="flex justify-start">
+            <ProposalCard
+              proposal={proposal}
+              sessionId={sessionId}
+              onResolved={handleProposalResolved}
+              fieldLabel={`${proposal.module}.${proposal.subfield}`}
+            />
+          </div>
+        ))}
+
+        {/* Suspended message placeholder */}
+        {showSuspendedMessage && (
+          <div className="text-center text-stardust-300 text-sm py-3 glass-panel px-4 border border-nebula-400/20">
+            处理完修改提案后继续
+          </div>
+        )}
+
         {disabled && (
           <div className="text-center text-slate-500 text-sm py-2">
             Processing...
@@ -121,6 +206,16 @@ export function GuidedChat({ messages, onSend, disabled = false }: GuidedChatPro
           </button>
         </div>
       </form>
+
+      {/* Proposal tray */}
+      {sessionId && (
+        <ProposalTray
+          proposals={trayProposals}
+          sessionId={sessionId}
+          onResolved={handleTrayProposalResolved}
+          onRestore={handleRestoreFromTray}
+        />
+      )}
     </div>
   );
 }

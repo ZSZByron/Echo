@@ -27,6 +27,8 @@ export interface A1Proposal {
   conflict_note: string | null;
   /** Human-readable preview of merged result */
   merge_preview: string;
+  /** Available choices for this proposal (e.g., ["replace", "merge", "drop"]) */
+  options?: string[];
 }
 
 /**
