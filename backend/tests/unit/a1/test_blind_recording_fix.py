@@ -243,8 +243,11 @@ class TestPromptJudgmentAllocation:
         )
         # The old unqualified version should be gone
         assert "用户已给出相似回答，直接记录并推进" not in prompt
-        # The new qualified version should exist
-        assert "确实回答了当前问题" in prompt
+        # Rule 8 rewritten for single-source questions (问句单源铁律, 2026-09-02 fix):
+        # reply must not introduce new questions; next question comes from
+        # the structured question card only.
+        assert "问句单源铁律" in prompt
+        assert "严禁出现任何新的疑问句" in prompt
 
 
 # =====================================================================

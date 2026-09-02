@@ -148,6 +148,17 @@ class FakeInterviewer:
 # ---------------------------------------------------------------------------
 
 
+def _progress_summary(answers: dict[str, str]) -> str:
+    """Compact one-line-per-module progress: module: filled/total."""
+    lines = []
+    for m in MODULES:
+        mid = m["id"]
+        total = len(m["fields"])
+        done = sum(1 for f in m["fields"] if f"{mid}.{f['id']}" in answers)
+        lines.append(f"{mid}: {done}/{total}")
+    return "  ".join(lines)
+
+
 def _immutable_block(answers: dict[str, str]) -> str:
     """Build the 【不可动清单】 content from answers."""
     raw = answers.get("设定边界.immutable_core", "")
@@ -289,6 +300,8 @@ class RealLLMInterviewer:
                 f"模块「{module.get('label', '')}」/ 子字段「{subfield.get('label', '')}」",
                 f"参考问题：{subfield.get('question', '')}",
                 f"示例：{subfield.get('example', '')}",
+                "【字段进度】（已填/总数，判断分配时参考——避免重复填已填字段）",
+                _progress_summary(answers),
                 "",
                 "【用户已确定的内容】",
                 _answers_digest(answers),
@@ -302,7 +315,8 @@ class RealLLMInterviewer:
                 "字段。其中当前字段优先（反漏填）：如果输入确实是对当前问题的回答"
                 "（即使表述不标准、不像示例、过于简短或口语化），判断后把提取内容填入"
                 "当前 module.subfield（可以同时填其他字段）。绝不允许只填其他字段而漏掉"
-                "当前字段的回答；但如果输入真正属于其他字段或与世界观无关，则不强制填当前字段。",
+                "当前字段的回答；但如果输入真正属于其他字段或与世界观无关，则不强制填当前字段。"
+                "　　3.1 语义对齐铁律：每条 fill 的 module.subfield 必须与用户原话的实际语义匹配——禁止“语义相近就填进去”。例如：用户说“死亡是自然的常态”，这是对概念的解释，应填 concept，绝不能因为包含“自然”就填入 world_type。每条 fill 必须能用一句话说清：“用户这句话属于该字段，因为……”。",
                 "",
                 "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
                 "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
@@ -328,10 +342,12 @@ class RealLLMInterviewer:
                 "「不知道」「没想法」「不懂」，置 user_confused=true 并给出一个用于联网"
                 "检索的中文 search_query（针对用户不理解的概念）。此时 fills 留空，"
                 "不要追问用户，等系统提供参考资料后再引导。",
-                "8. guidance_reply（中文，总共不超过四句话）：先用一句话确认已记录的"
+                "8. guidance_reply（中文，总共不超过三句话）：先用一句话确认已记录的"
                 "设定——引用用户输入中的具体关键词，给出有内容的确认而非套话；"
-                "再自然过渡到下一话题或聚焦当前问题。不得反复重申同一个问题——"
-                "仅当输入确实回答了当前问题时才确认并推进，否则引导用户聚焦当前问题。",
+                "再用一句话衔接收尾即可。**问句单源铁律：guidance_reply 中严禁出现任何"
+                "新的疑问句或新话题——下一个问题完全由系统的结构化问句（下方提示卡）承担，"
+                "你不得自行提问、不得自行引入新字段或新模块的话题。**仅当用户明显困惑时，"
+                "可以用一句话引导用户看下方的当前问题。",
                 "9. 发散引导（访谈引导者的核心职责，当 fills 非空时执行）：从"
                 "【可填字段清单】中挑一个尚未出现在【用户已确定的内容】里、但与"
                 "本次输入存在设定关联的字段，构造一个发散追问。要求："
