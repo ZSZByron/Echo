@@ -1032,6 +1032,10 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         ip_code=f"IP{ip_no:04d}",
     )
     session.answers = dict(parsed["answers"])
+    # Mark these as LLM guesses (unconfirmed by the user) so the write
+    # guard lets user-spoken fills overwrite them directly instead of
+    # converting every topup into a proposal (upload-deadlock fix).
+    session.prefill_fields = list(session.answers.keys())
     sync_position(session)
     file_id = uuid.uuid4().hex
     _SESSIONS[session.session_id] = session

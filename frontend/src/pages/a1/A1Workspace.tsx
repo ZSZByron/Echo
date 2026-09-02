@@ -1038,11 +1038,18 @@ export function A1Workspace() {
                   : 'bg-space-800/60 text-gray-500 cursor-not-allowed border border-nebula-400/10'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              {isChatLoading ? 'Processing...' : 'Finalize IP File'}
+              {isChatLoading ? '处理中...' : finalizable ? '定稿并生成知识图谱' : '定稿（需各板块完成过半字段）'}
             </button>
             {!finalizable && (
               <p className="text-void-400 text-xs text-center">
-                每个板块完成超过 50% 的字段后可定稿；定稿前可继续沟通完善设定。
+                {progressSections
+                  .filter(s => {
+                    const subs = s.subs ?? [];
+                    if (subs.length === 0) return false;
+                    return subs.filter(b => b.done).length / subs.length <= 0.5;
+                  })
+                  .map(s => s.label)
+                  .join('、') || '部分'}板块完成度未过半——在对话中告诉我缺失模块的设定即可补全
               </p>
             )}
             {file?.status === 'finalized' && (

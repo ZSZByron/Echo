@@ -4,6 +4,7 @@
 A1 世界观工坊三态流（种子→LLM引导→定稿→图谱/展板）迭代中，工作区存在大量未提交改动。
 
 ### 已完成
+- 2026-09-02 本次：新增认知边界主题纲要 docs/governance/2-A-认知边界与信息框架总纲.md（301行）——按"边界→分题材预期→信息框架→反馈与工具→留白自由度"五段位横向重组A模块设计：角色权限链（厂家>GM>PC）、A1-A3+GM大厅边界矩阵、8题材×四轴（厚度/伤害性/合法知识/泄漏处理）预期表、趣味性/哲理性双轴承载、工具×层级写权限分配表、GM留白节点清单（DC/锚点/结构洞/张力网/open_questions）、玩家身份三阶段；含TRPG领域惯例引证（GM屏风/朗读框/Session 0/Juul双层论）与设计vs实现诚实清单
 - 2026-08-28 本次（第三批）：明华修仙.txt 全链路能力实测（DeepSeek deepseek-v4-pro，后端 uvicorn + HTTP 直调，11 次调用 0 服务端错误）：上传解析 35/35 字段全预填、逐字保真、空字段诚实拒绝（check_mode=缺少依据）；空白 session 访谈一句话→4字段分解、跑题优雅归档、种子锚定脚手架示例；定稿图谱 46节点/45 TREE边确定性编译、重定稿 v1→v2+stale、409 门禁契约正确。证据存 %TEMP%\opencode\a1_test\*.json
 - A1 全流程：种子选择/上传解析/LLM访谈/定稿/IP展板/视觉背景预生成（前序会话）
 - 2026-08-28 本次（第二批）：L1 发散引导解锁——`interviewer.py` 第8条"两句话确认"改为"确认+过渡（四句内）"+新增第9条发散引导指令（fills 非空时锚定用户关键词构造跨字段追问）；`InterviewResult`/`_parse`/prompt schema 三处新增 `divergent_question` 字段（单独问句，guidance_reply 结尾邀请式带出）；`config.py`+`.env.example`+`README` 默认模型 deepseek-chat→deepseek-v4-flash（纯弃用名修正，运行时行为不变）。全量 692/692 通过，ruff/mypy 零新增问题（存量：Pyright 9 错误/ruff 8 错误/覆盖率门禁 71.91% 均为前序遗留，见 lsp 与全量跑归因）

@@ -80,6 +80,17 @@ class A1Session(BaseModel):
     # Merge count per field key (module.subfield). After 3 merges,
     # the 'merge' option is removed from future proposals.
     merge_counts: dict[str, int] = Field(default_factory=dict)
+    # Fields whose current value came from upload prefill (LLM *guesses*,
+    # never user-confirmed). User-spoken fills overwrite these directly
+    # (write guard protects user-confirmed content only); the key is
+    # removed after overwrite so the field returns to normal guard.
+    prefill_fields: list[str] = Field(default_factory=list)
+    # Field keys prefilled from the upload-pipeline LLM parse. These are
+    # *guesses* the user never confirmed, so the write guard does NOT
+    # protect them: a user-spoken fill overwrites a prefill directly
+    # (after which the key is removed and the field is guarded normally).
+    # Default empty keeps old sessions deserializable.
+    prefill_fields: list[str] = Field(default_factory=list)
 
 
 def first_question() -> dict[str, Any]:
@@ -240,6 +251,21 @@ def _apply_fills(
 
         # Branch 3: intercept — non-empty and different
         if old and old != fill.value:
+            # Prefill exemption: prefill values are LLM guesses made at
+            # upload time and were never confirmed by the user. A fill
+            # spoken by the user directly overwrites them (recorded in
+            # file_diff); afterwards the key reverts to normal guarding.
+            if key in session.prefill_fields:
+                session.prefill_fields.remove(key)
+                file_diff.append({
+                    "field": sf["label"] if sf else fill.subfield,
+                    "module": fill.module,
+                    "section": sf["label"] if sf else fill.subfield,
+                    "old": old,
+                    "new": fill.value,
+                })
+                session.answers[key] = fill.value
+                continue
             proposal = Proposal(
                 module=fill.module,
                 subfield=fill.subfield,
