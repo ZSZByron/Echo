@@ -34,6 +34,8 @@ from app.domains.creation.seed.a1_question_tree import (
     get_module,
     get_subfield,
     is_finalizable,
+    is_module_over_half,
+    module_ids,
     subs_for_module,
 )
 from app.domains.creation.shared.semantic_compiler import (
@@ -128,7 +130,23 @@ def _question_payload(session: A1Session) -> dict[str, Any] | None:
 
 
 def sync_position(session: A1Session) -> None:
-    """Jump to the first unanswered subfield; complete when none left."""
+    """Jump to the first unanswered subfield; complete when none left.
+
+    Gate-aware (user request: 有缺失，在窗口询问): modules still below the
+    50% finalize gate are serviced FIRST, so the chat window proactively
+    asks about missing modules instead of trailing minor fields elsewhere.
+    """
+    # 1) Prefer unfilled fields inside gate-failing modules.
+    for mid in module_ids():
+        if is_module_over_half(mid, session.answers):
+            continue
+        for f in subs_for_module(mid):
+            key = f"{mid}.{f['id']}"
+            if key not in session.answers:
+                session.current_module = mid
+                session.current_subfield = f["id"]
+                return
+    # 2) Fallback: global first unanswered (original behaviour).
     for key in all_subfield_keys():
         if key not in session.answers:
             module_id, sub_id = key.split(".", 1)

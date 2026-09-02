@@ -52,8 +52,12 @@ class TestGuideEngine:
         assert "IP定位.name" in s.answers
         assert "IP定位.concept" in s.answers
         assert "IP定位.world_type" in s.answers
-        # first unanswered is now core_experience
-        assert s.current_subfield == "core_experience"
+        # Gate-aware scheduling (2026-09-02: 有缺失，在窗口询问): IP定位 is
+        # now over half (3/4), so the interviewer jumps to the NEXT
+        # gate-failing module (世界本体.origin) instead of finishing
+        # IP定位's remaining core_experience field.
+        assert s.current_module == "世界本体"
+        assert s.current_subfield == "origin"
 
     def test_genuine_innovation_pends_proposal(self):
         s = make_session()
