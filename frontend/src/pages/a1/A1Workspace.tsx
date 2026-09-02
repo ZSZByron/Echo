@@ -7,7 +7,7 @@
  * 3. PosterView - Display generated poster with link to poster page
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
@@ -291,7 +291,7 @@ export function A1Workspace() {
   const [graphCode, setGraphCode] = useState<string | null>(null);
   
   // File metadata state for graph section
-  const [fileData, setFileData] = useState<FileData | null>(null);
+  const [, setFileData] = useState<FileData | null>(null);
   
   // Classification Proposal State
   const [classificationProposal, setClassificationProposal] = useState<ClassificationProposalData | null>(null);
@@ -318,8 +318,9 @@ export function A1Workspace() {
     } catch { /* quota exceeded, ignore */ }
   }, [workspaceState, sessionId, fileId, ipCode, seedInfo, messages]);
 
-  // Load seeds on mount
+  // Load seeds on mount (skip in graph_view — not needed and would trigger re-renders)
   useEffect(() => {
+    if (workspaceState === 'graph_view') return;
     fetchJson<SeedsResponse>('/api/a1/seeds')
       .then((data: SeedsResponse) => {
         setSeeds(data.seeds);
@@ -338,10 +339,11 @@ export function A1Workspace() {
     localStorage.removeItem('a1_return_intent');
   }, []); // Run once on mount
 
-  // Hydrate file state when fileId changes
+  // Hydrate file state when fileId changes (skip in graph_view to avoid
+  // re-render cycle — GraphViewContent loads its own file data locally)
   useEffect(() => {
     // If we have a fileId, restore the complete file state
-    if (fileId) {
+    if (fileId && workspaceState !== 'graph_view') {
       const hydrateFileState = async () => {
         try {
           const response = await fetchJson<{
@@ -1162,77 +1164,94 @@ export function A1Workspace() {
           </div>
         </div>
         
-        <GraphViewContent fileId={fileId} returnToChat={returnToChat} />
+        <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} />
       </div>
     );
   };
-
-  // Graph View Content Component with Tabs
-  function GraphViewContent({ fileId, returnToChat }: { fileId: string; returnToChat: () => void }) {
-    const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
-    
-    // Load file data when component mounts
-    useEffect(() => {
-      if (fileId) {
-        fetchJson<FileData>(`/api/a1/file/${fileId}`)
-          .then((data) => {
-            setFileData(data);
-          })
-          .catch((err) => {
-            console.error('Failed to load file data:', err);
-          });
-      }
-    }, [fileId]);
-    
-    return (
-      <div className="max-w-7xl mx-auto">
-        {/* Tab Navigation */}
-        <div className="flex gap-4 border-b border-white/5 bg-space-900/30 backdrop-blur-sm">
-          <button
-            onClick={() => setActiveTab('graph')}
-            className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'graph'
-                ? 'border-stardust-400 text-stardust-300'
-                : 'border-transparent text-void-400 hover:text-stardust-300'
-            }`}
-          >
-            知识图谱
-          </button>
-          <button
-            onClick={() => setActiveTab('poster')}
-            className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === 'poster'
-                ? 'border-stardust-400 text-stardust-300'
-                : 'border-transparent text-void-400 hover:text-stardust-300'
-            }`}
-          >
-            展板预览
-          </button>
-        </div>
-        
-        {/* Tab Content */}
-        <div className="p-8">
-          {activeTab === 'graph' && (
-            <A1GraphSection
-              fileId={fileId}
-              returnToChat={returnToChat}
-              version={graphCode ? parseInt(graphCode.split('_')[1]?.replace('v', '') || '1', 10) : 1}
-              isStale={file?.status === 'draft' && graphCode !== null}
-              openQuestions={fileData?.open_questions || []}
-              rejectedEdges={fileData?.rejected_edges || {}}
-            />
-          )}
-          {activeTab === 'poster' && <PosterPreview fileId={fileId} />}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
       {workspaceState === 'seed_selector' && renderSeedSelector()}
       {workspaceState === 'guided_chat' && renderGuidedChat()}
       {workspaceState === 'graph_view' && renderGraphView()}
+    </div>
+  );
+}
+
+// Graph View Content Component with Tabs
+// Defined OUTSIDE A1Workspace to prevent remount on every parent re-render
+// (inner component definition causes React to treat each render as a new component type)
+function GraphViewContent({
+  fileId,
+  returnToChat,
+  graphCode,
+  fileStatus,
+}: {
+  fileId: string;
+  returnToChat: () => void;
+  graphCode: string | null;
+  fileStatus: string | undefined;
+}) {
+  const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
+  const [localFileData, setLocalFileData] = useState<FileData | null>(null);
+
+  // Load file data when component mounts
+  useEffect(() => {
+    if (fileId) {
+      fetchJson<FileData>(`/api/a1/file/${fileId}`)
+        .then((data) => {
+          setLocalFileData(data);
+        })
+        .catch((err) => {
+          console.error('Failed to load file data:', err);
+        });
+    }
+  }, [fileId]);
+
+  // Stable prop identities: useMemo prevents new []/{} on each render
+  const stableOpenQuestions = useMemo(() => localFileData?.open_questions ?? [], [localFileData]);
+  const stableRejectedEdges = useMemo(() => localFileData?.rejected_edges ?? {}, [localFileData]);
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* Tab Navigation */}
+      <div className="flex gap-4 border-b border-white/5 bg-space-900/30 backdrop-blur-sm">
+        <button
+          onClick={() => setActiveTab('graph')}
+          className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'graph'
+              ? 'border-stardust-400 text-stardust-300'
+              : 'border-transparent text-void-400 hover:text-stardust-300'
+          }`}
+        >
+          知识图谱
+        </button>
+        <button
+          onClick={() => setActiveTab('poster')}
+          className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'poster'
+              ? 'border-stardust-400 text-stardust-300'
+              : 'border-transparent text-void-400 hover:text-stardust-300'
+          }`}
+        >
+          展板预览
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      <div className="p-8">
+        {activeTab === 'graph' && (
+          <A1GraphSection
+            fileId={fileId}
+            returnToChat={returnToChat}
+            version={graphCode ? parseInt(graphCode.split('_')[1]?.replace('v', '') || '1', 10) : 1}
+            isStale={fileStatus === 'draft' && graphCode !== null}
+            openQuestions={stableOpenQuestions}
+            rejectedEdges={stableRejectedEdges}
+          />
+        )}
+        {activeTab === 'poster' && <PosterPreview fileId={fileId} />}
+      </div>
     </div>
   );
 }

@@ -665,3 +665,16 @@ _visual_bg_tasks[file_id] = thread
 - ackend/tests/unit/a1/test_a1_edges.py: Added TestFinalizeSignature class with regression test
 - .sisyphus/evidence/final-qa/verify_fix.py: Production verification script
 - .sisyphus/evidence/final-qa/fix-finalize-async.txt: Verification evidence file
+
+## Props Identity Stability Trap
+
+**Pattern**: Inline || [] and || {} in JSX props create new object/array identities on every render.
+
+**Impact**: Child components receiving these props re-render on every parent render. If child has effects depending on these props, triggers effect re-runs -> fetches -> state updates -> loop.
+
+**Fix**: Use useMemo with source data as dependency, or use module-level constants instead of inline fallbacks.
+
+**Deeper issue**: Component defined inside another component's render is the REAL killer. React treats each render's inner component as a different type -> unmount+remount on every parent re-render. Always define components at module level, pass data via props not closures.
+
+**Evidence**: A1Workspace.tsx GraphViewContent was defined inside renderGraphView(). Moving it outside eliminated the infinite fetch loop (26 reqs/10s -> 2 reqs/10s).
+
