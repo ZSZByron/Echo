@@ -659,3 +659,24 @@ class TestEdgeKeyFormat:
 
         resp = client.post(f"/api/a1/file/{payload['file_id']}/edge/{encoded_key}/confirm")
         assert resp.status_code == 200
+
+
+class TestFinalizeSignature:
+    """Regression test: finalize endpoint must be sync (not async) to allow asyncio.run() inside."""
+
+    def test_finalize_must_be_sync_function(self):
+        """finalize endpoint must be a regular function (not async) so asyncio.run() works inside.
+        
+        This is a regression test for the bug where async def finalize crashed with:
+        "asyncio.run() cannot be called from a running event loop"
+        
+        The fix: changing from 'async def finalize' to 'def finalize' allows FastAPI to run
+        the endpoint in a thread pool (no event loop), making asyncio.run() legal inside
+        extract_concept_edges().
+        """
+        import inspect
+        from app.api.a1_routes import finalize
+        
+        # Verify finalize is NOT a coroutine function
+        assert not inspect.iscoroutinefunction(finalize), \
+            "finalize must be a sync function (def, not async def) to allow asyncio.run() inside extract_concept_edges()"

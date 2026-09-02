@@ -666,7 +666,7 @@ def _add_concept_edges_to_graph(
 
 
 @router.post("/api/a1/file/{file_id}/finalize")
-async def finalize(file_id: str) -> dict:
+def finalize(file_id: str) -> dict:
     rec = _get_file(file_id)
     session = _SESSIONS[rec["session_id"]]
 
@@ -747,10 +747,23 @@ async def finalize(file_id: str) -> dict:
     )
 
     # B 触发点：finalize 时检查预生成状态，未完成则触发
+    # Since endpoint is now sync (def), we need to run create_task in a new event loop
     if (rec.get("visual_bg_status") not in ("completed", "generating")
             and file_id not in _visual_bg_tasks):
-        task = asyncio.create_task(_pregenerate_visual_bg(file_id))
-        _visual_bg_tasks[file_id] = task
+        # Run in background thread to avoid blocking
+        import threading
+        def _run_background_task():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                task = loop.create_task(_pregenerate_visual_bg(file_id))
+                loop.run_until_complete(task)
+            finally:
+                loop.close()
+        
+        thread = threading.Thread(target=_run_background_task, daemon=True)
+        thread.start()
+        _visual_bg_tasks[file_id] = thread
 
     return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings, "status": "finalized"}
 
