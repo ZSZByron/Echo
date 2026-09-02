@@ -531,6 +531,12 @@ def handle_message(
     if result.fills:
         file_diff, intercepted = _apply_fills(session, result.fills)
 
+        # Advance position FIRST (when not intercepted) so next_question
+        # reflects the post-fill state — asking the just-answered field
+        # again ("问两遍" regression) otherwise.
+        if not intercepted:
+            sync_position(session)
+
         # Divergent fallback (Metis AC-M8)
         dq = result.divergent_question
         if dq is None:
@@ -567,10 +573,6 @@ def handle_message(
         guard = _apply_stall_guard(session, text, cur_key, out_fills, interviewer)
         if guard is not None:
             return guard
-
-        # Only sync position when no interception (intercepted = don't advance)
-        if not intercepted:
-            sync_position(session)
 
         return out_fills
 
