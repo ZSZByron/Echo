@@ -192,7 +192,7 @@ Max Concurrent: 3 (Wave 1)
 
 ## TODOs
 
-- [ ] 0. 备份门禁：gitignore 清理 + 全量提交 + 标签 + 推送 + 假设验证 + 基线计数
+- [x] 0. 备份门禁：gitignore 清理 + 全量提交 + 标签 + 推送 + 假设验证 + 基线计数
 
   **What to do**:
   - **第一步（备份优先，用户铁律）**：
@@ -283,7 +283,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: .gitignore + 全部 56 个有效改动文件
   - Pre-commit: `git status` 复核清单符合预期
 
-- [ ] 1. interviewer.py 模型扩展 + prompt 三规则（TDD）
+- [x] 1. interviewer.py 模型扩展 + prompt 三规则（TDD）
 
   **What to do**:
   - **RED 先行**：在 `backend/tests/unit/a1/` 新建 `test_interviewer_extensions.py`，先写失败测试：
@@ -365,7 +365,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: interviewer.py + test_interviewer_extensions.py
   - Pre-commit: `python -m pytest tests/unit/a1/ -q && python -m pytest -q`
 
-- [ ] 2. concept_edge_vocab.py 边词表编译（TDD）
+- [x] 2. concept_edge_vocab.py 边词表编译（TDD）
 
   **What to do**:
   - **RED 先行**：新建 `backend/tests/unit/a1/test_concept_edge_vocab.py`：
@@ -441,7 +441,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: concept_edge_vocab.py + test_concept_edge_vocab.py
   - Pre-commit: `python -m pytest tests/unit/a1/test_concept_edge_vocab.py -q`
 
-- [ ] 3. 前端类型与 API client 扩展
+- [x] 3. 前端类型与 API client 扩展
 
   **What to do**:
   - `frontend/src/types/`（现有 graph.ts 或新建 a1.ts）新增类型：
@@ -517,7 +517,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: frontend/src/types/*, frontend/src/api/*
   - Pre-commit: `npm run build`
 
-- [ ] 4. guide_engine.py 写入守卫 + 提案机制 + 发散兜底（TDD）
+- [x] 4. guide_engine.py 写入守卫 + 提案机制 + 发散兜底（TDD）
 
   **What to do**:
   - **RED 先行**：新建 `backend/tests/unit/a1/test_write_guard.py`（守卫核心）+ 扩展 test_guide_engine.py（兜底）：
@@ -620,7 +620,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: guide_engine.py + test_write_guard.py + test_guide_engine.py 扩展
   - Pre-commit: `python -m pytest tests/unit/a1/ -q && python -m pytest -q`
 
-- [ ] 5. concept_edge_extractor.py LLM 抽取封装（TDD）
+- [x] 5. concept_edge_extractor.py LLM 抽取封装（TDD）
 
   **What to do**:
   - **RED 先行**：新建 `backend/tests/unit/a1/test_concept_edge_extractor.py`（全部 mock LLM，零真实调用，Metis QA 红线）：
@@ -706,7 +706,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: concept_edge_extractor.py + test_concept_edge_extractor.py
   - Pre-commit: `python -m pytest tests/unit/a1/ -q`
 
-- [ ] 6. a1_routes.py chat 侧集成：提案返回 + confirm kind 判别 + GET file 扩展（TDD）
+- [x] 6. a1_routes.py chat 侧集成：提案返回 + confirm kind 判别 + GET file 扩展（TDD）
 
   **What to do**:
   - **行区所有权**（Metis G4）：本任务只改 a1_routes.py 的 chat 区（~328-392 行）、GET file 区（~440-452 行）与 ConfirmRequest 模型定义；**不碰** finalize 区（~455-508 行）、_build_graph（~183-250 行）——那是 Task 7 的领地
@@ -793,7 +793,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: a1_routes.py（chat/confirm/GET file 区）+ test_a1_routes.py 扩展
   - Pre-commit: `python -m pytest tests/unit/a1/ -q && python -m pytest -q`
 
-- [ ] 7. a1_routes.py finalize 侧集成：概念边 + 确认态持久化 + edge 审核 API（TDD）
+- [x] 7. a1_routes.py finalize 侧集成：概念边 + 确认态持久化 + edge 审核 API（TDD）
 
   **What to do**:
   - **行区所有权**（Metis G4）：本任务只改 finalize 区（~455-508 行）、_build_graph（~183-250 行）、models/knowledge_graph.py、文件尾部新端点；**不碰** chat/confirm/GET file 区——那是 Task 6 的领地
@@ -894,7 +894,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: a1_routes.py（finalize/_build_graph/尾部新端点）+ models/knowledge_graph.py + 测试
   - Pre-commit: `python -m pytest tests/unit/a1/ -q && python -m pytest -q`
 
-- [ ] 8. GuidedChat 提案卡片 + 托盘 + 模糊响应 + 单问句铁律
+- [x] 8. GuidedChat 提案卡片 + 托盘 + 模糊响应 + 单问句铁律
 
   **What to do**:
   - 新建 `frontend/src/components/guided/ProposalCard.tsx`（提案卡片，设计 §6.6 线框照抄）：
@@ -979,7 +979,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: ProposalCard.tsx + ProposalTray.tsx + GuidedChat.tsx + A1Workspace.tsx chat 区 + 组件测试
   - Pre-commit: `npx vitest run && npm run build`
 
-- [ ] 9. A1KnowledgeGraph 概念网视图 + 审核台
+- [x] 9. A1KnowledgeGraph 概念网视图 + 审核台
 
   **What to do**:
   - `frontend/src/components/graph/A1KnowledgeGraph.tsx` 扩展（393 行现状）：
@@ -1067,7 +1067,7 @@ Max Concurrent: 3 (Wave 1)
   - Files: A1KnowledgeGraph.tsx + 测试
   - Pre-commit: `npx vitest run && npm run build`
 
-- [ ] 10. A1Workspace 状态徽章 + 一键重定稿 + 待问闭环
+- [x] 10. A1Workspace 状态徽章 + 一键重定稿 + 待问闭环
 
   **What to do**:
   - `frontend/src/pages/a1/A1Workspace.tsx`（A1GraphSection 区 1134-1217 行附近）：
