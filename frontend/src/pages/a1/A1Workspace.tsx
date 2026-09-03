@@ -513,7 +513,6 @@ export function A1Workspace() {
           session_id: sessionId,
           message: text,
         }),
-        timeoutMs: 120000,
       });
       
       // Add assistant reply
