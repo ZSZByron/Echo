@@ -583,7 +583,6 @@ export function A1Workspace() {
           proposal: classificationProposal,
           choice,
         }),
-        timeoutMs: 120000,
       });
       
       // Add assistant reply
