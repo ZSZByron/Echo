@@ -225,6 +225,16 @@ export function A1GraphSection({
   if (isLoading) {
     return (
       <FullscreenShell>
+        {/* Top toolbar — back button must be reachable even during loading,
+            otherwise the user is trapped in the fullscreen spinner. */}
+        <div className="h-14 shrink-0 flex items-center px-4 border-b border-white/10 bg-space-900/70">
+          <button
+            onClick={returnToChat}
+            className="px-3 py-1.5 rounded-md text-sm font-medium text-stardust-300 hover:bg-white/10 transition-colors"
+          >
+            ← 返回访谈
+          </button>
+        </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
@@ -284,6 +294,15 @@ export function A1GraphSection({
   if (error || !graph) {
     return (
       <FullscreenShell>
+        {/* Top toolbar — back button must be reachable on error too. */}
+        <div className="h-14 shrink-0 flex items-center px-4 border-b border-white/10 bg-space-900/70">
+          <button
+            onClick={returnToChat}
+            className="px-3 py-1.5 rounded-md text-sm font-medium text-stardust-300 hover:bg-white/10 transition-colors"
+          >
+            ← 返回访谈
+          </button>
+        </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
             <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
