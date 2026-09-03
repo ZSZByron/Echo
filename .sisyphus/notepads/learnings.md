@@ -55,3 +55,20 @@
 - 测试：新 tests/unit/a1/test_concept_finalize_v2.py（8 场景）；test_a1_edges.py 旧槽位边语义逐个
   迁移（finalize 零概念边/只有 term 节点，edge confirm/reject API 端点不变保留）
 - 全量回归 833 passed 零失败（基线 825 + 新增 8）
+
+## T-D: 前端对接两阶段流程（概念词确认组 + 提取概念关系按钮）
+- 完整前端状态机：定稿 → term: 节点未确认态(半透明+虚线) → 面板概念词组逐个/全部确认
+  → confirmed>=2 提取按钮亮 → extract-edges(LLM 30-90s, fetch timeoutMs 必须 180_000)
+  → 概念边入关系清单(琥珀待确认+[新关系]徽章) → 确认后端自动入典(徽章消失)
+- 新 props（EdgeReviewPanel）：conceptTerms / proposedRelations / onConfirmTerm /
+  onConfirmAllTerms / onExtractRelations / isExtracting；A1KnowledgeGraph 加 conceptTerms
+- 新 API（api/a1.ts）：confirmConceptTerms(fileId, terms|'all')、
+  extractConceptRelations(fileId)（fetchJson timeoutMs: 180_000，fetchWithTimeout 固定 30s 不够用）
+- [新关系]徽章判定：isNewRelationEdge = proposed_relations 中 name===edge.relation
+  且 from/to === `term:<from_term>/<to_term>`；只在 pending 态显示（确认入典后自然消失）
+- 未确认 term 节点样式映射：conceptTerms.find(t => node.id === `term:${t.term}`) →
+  opacity 0.5 + dashed border；toReactFlowNode 依赖数组需加 conceptTerms
+- 坑：A1GraphSection 新增 GET file 拉概念字段后，原 sequential mockResolvedValueOnce 测试
+  会被多出的 file fetch 打乱顺序 → 改为按 URL mockImplementation（/graph、/finalize、file 三分支）
+- 规格偏离：spec 的 [✗移除] 按钮未实现——后端无 un-confirm 端点，仅保留 [✓确认]（移除=不确认暂无 API 支撑）
+- 验证：vitest 10 files/118 tests 全绿 + npm run build 退出码 0

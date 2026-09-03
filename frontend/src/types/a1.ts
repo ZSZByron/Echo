@@ -64,3 +64,33 @@ export interface EdgeStats {
   /** Edges awaiting user review */
   pending_review: number;
 }
+
+/**
+ * Concept term extracted from finalized worldview (Task T-B/T-D two-phase flow).
+ * Returned by GET /api/a1/file/{id} as `concept_terms`.
+ */
+export interface ConceptTerm {
+  /** The concept word itself (e.g., "死亡转生") */
+  term: string;
+  /** Source structured field key the term was extracted from */
+  field_key: string;
+  /** Short gloss/explanation of the term */
+  gloss: string;
+  /** Whether the user has confirmed this term into the dictionary */
+  confirmed: boolean;
+}
+
+/**
+ * A concept relation proposed by LLM edge extraction (pre-confirmation).
+ * Returned by GET /api/a1/file/{id} as `proposed_relations`.
+ */
+export interface ProposedRelation {
+  /** Relation name (e.g., "触发") — may be a new relation word not yet in dictionary */
+  name: string;
+  /** Source concept term */
+  from_term: string;
+  /** Target concept term */
+  to_term: string;
+  /** Rationale for why this relation was proposed */
+  rationale: string;
+}

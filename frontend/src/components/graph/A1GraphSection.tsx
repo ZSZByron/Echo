@@ -9,10 +9,11 @@
 
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
-import { confirmEdge, rejectEdge } from '../../api/a1';
+import { confirmEdge, rejectEdge, confirmConceptTerms, extractConceptRelations } from '../../api/a1';
 import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
 import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
+import type { ConceptTerm, ProposedRelation } from '../../types/a1';
 
 interface A1GraphSectionProps {
   fileId: string;
@@ -48,6 +49,11 @@ export function A1GraphSection({
   const [error, setError] = useState<string | null>(null);
   const [isRefinalizing, setIsRefinalizing] = useState(false);
   const [showRejectedList, setShowRejectedList] = useState(false);
+
+  // T-D: two-phase concept flow state
+  const [conceptTerms, setConceptTerms] = useState<ConceptTerm[]>([]);
+  const [proposedRelations, setProposedRelations] = useState<ProposedRelation[]>([]);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   // Fullscreen layout state (T-C)
   const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
@@ -91,6 +97,58 @@ export function A1GraphSection({
   useEffect(() => {
     loadGraph();
   }, [loadGraph]);
+
+  // T-D: fetch file record for concept_terms / proposed_relations (resident fields)
+  const loadFileTerms = useCallback(async () => {
+    try {
+      const file = await fetchJson<{
+        concept_terms?: ConceptTerm[];
+        proposed_relations?: ProposedRelation[];
+      }>(`/api/a1/file/${fileId}`);
+      setConceptTerms(file.concept_terms ?? []);
+      setProposedRelations(file.proposed_relations ?? []);
+    } catch (err) {
+      console.error('Failed to load concept terms:', err);
+    }
+  }, [fileId]);
+
+  useEffect(() => {
+    loadFileTerms();
+  }, [loadFileTerms]);
+
+  /** T-D: confirm one concept term into dictionary. */
+  const handleConfirmTerm = useCallback(async (term: string) => {
+    try {
+      const res = await confirmConceptTerms(fileId, [term]);
+      setConceptTerms(res.concept_terms);
+    } catch (err) {
+      console.error('Failed to confirm term:', err);
+    }
+  }, [fileId]);
+
+  /** T-D: confirm all concept terms at once. */
+  const handleConfirmAllTerms = useCallback(async () => {
+    try {
+      const res = await confirmConceptTerms(fileId, 'all');
+      setConceptTerms(res.concept_terms);
+    } catch (err) {
+      console.error('Failed to confirm all terms:', err);
+    }
+  }, [fileId]);
+
+  /** T-D: LLM edge extraction (30-90s) then refresh graph + file fields. */
+  const handleExtractRelations = useCallback(async () => {
+    if (isExtracting) return;
+    setIsExtracting(true);
+    try {
+      await extractConceptRelations(fileId);
+      await Promise.all([loadGraph(), loadFileTerms()]);
+    } catch (err) {
+      console.error('Failed to extract concept relations:', err);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [fileId, isExtracting, loadGraph, loadFileTerms]);
 
   const handleRefinalize = async () => {
     if (!fileId || isRefinalizing) return;
@@ -348,6 +406,7 @@ export function A1GraphSection({
             onEdgeFocus={setFocusEdgeKey}
             focusEdgeKey={focusEdgeKey}
             hoverEdgeKey={hoverEdgeKey}
+            conceptTerms={conceptTerms}
           />
 
           {/* Pending questions overlay (P4, tree mode convenience) */}
@@ -394,6 +453,12 @@ export function A1GraphSection({
             highlightKey={focusEdgeKey}
             onHoverEdge={setHoverEdgeKey}
             rejectedKeys={rejectedEdges}
+            conceptTerms={conceptTerms}
+            proposedRelations={proposedRelations}
+            onConfirmTerm={handleConfirmTerm}
+            onConfirmAllTerms={handleConfirmAllTerms}
+            onExtractRelations={handleExtractRelations}
+            isExtracting={isExtracting}
           />
         )}
       </div>

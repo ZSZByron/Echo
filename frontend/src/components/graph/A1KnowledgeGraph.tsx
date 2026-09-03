@@ -16,6 +16,7 @@ import ReactFlow, {
 } from 'reactflow';
 import type { Node, Edge } from 'reactflow';
 import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
+import type { ConceptTerm } from '../../types/a1';
 import { confirmEdge, rejectEdge } from '../../api/a1';
 import 'reactflow/dist/style.css';
 
@@ -43,6 +44,8 @@ export interface A1KnowledgeGraphProps {
   focusEdgeKey?: string | null;
   /** Edge key hovered in the review panel (canvas dimming sync) */
   hoverEdgeKey?: string | null;
+  /** Concept terms (T-D): unconfirmed term nodes render semi-transparent with dashed border */
+  conceptTerms?: ConceptTerm[];
 }
 
 /** Canonical concept edge key: `from/to/relation` (slash-separated). */
@@ -150,6 +153,7 @@ export function A1KnowledgeGraph({
   onEdgeFocus,
   focusEdgeKey = null,
   hoverEdgeKey = null,
+  conceptTerms,
 }: A1KnowledgeGraphProps) {
   // View mode state: 'tree' | 'concept' (controlled when viewModeProp provided)
   const [internalViewMode, setInternalViewMode] = useState<'tree' | 'concept'>('tree');
@@ -211,6 +215,10 @@ export function A1KnowledgeGraph({
     const isConstraint = node.id.startsWith('cst_') || node.level === 0;
     const isTerm = isConceptTermNode(node);
 
+    // T-D: unconfirmed concept term -> semi-transparent + dashed border
+    const termMeta = conceptTerms?.find(t => node.id === `term:${t.term}`);
+    const isUnconfirmedTerm = isTerm && termMeta !== undefined && !termMeta.confirmed;
+
     let nodeStyle: React.CSSProperties = {};
     let label = '';
 
@@ -218,11 +226,14 @@ export function A1KnowledgeGraph({
       // Concept-term node: small circular dot + word label, clustered by module palette
       const clusterColor = termClusterColor(node.id);
       nodeStyle = {
-        border: `1.5px solid ${clusterColor}`,
+        border: isUnconfirmedTerm
+          ? `1.5px dashed ${clusterColor}`
+          : `1.5px solid ${clusterColor}`,
         backgroundColor: 'rgba(19, 19, 42, 0.85)',
         borderRadius: '9999px',
         padding: '4px 12px',
         fontSize: '12px',
+        opacity: isUnconfirmedTerm ? 0.5 : 1,
         boxShadow: `0 0 6px ${clusterColor}40`
       };
       label = `● ${node.description}`;
@@ -308,7 +319,7 @@ export function A1KnowledgeGraph({
       },
       style: nodeStyle
     };
-  }, []);
+  }, [conceptTerms]);
 
   /**
    * Transform GraphEdge to ReactFlow Edge with concept network styling

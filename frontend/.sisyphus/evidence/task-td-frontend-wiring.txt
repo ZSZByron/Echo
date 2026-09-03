@@ -1,0 +1,28 @@
+Task T-D: 前端对接两阶段概念流程 — 验证证据
+日期: 2026-09-03
+工作目录: H:\UGC\frontend
+
+== 验证命令与结果 ==
+
+1) npx vitest run src/components/__tests__/
+   Test Files  10 passed (10)
+   Tests       118 passed (118)
+   Duration    35.68s
+   （含 T-D 新增：EdgeReviewPanel 概念词组 11 项断言 + A1KnowledgeGraph 未确认/已确认节点样式 2 项）
+
+2) npm run build
+   dist/index.html                   0.45 kB
+   dist/assets/index-CrZapHjp.css   53.45 kB
+   dist/assets/index-CF3lc2ba.js   485.79 kB
+   built in 4.00s — 退出码 0
+
+== 变更文件 ==
+- src/types/a1.ts                      : +ConceptTerm / +ProposedRelation 类型
+- src/api/a1.ts                        : +confirmConceptTerms / +extractConceptRelations(timeoutMs 180_000)
+- src/components/graph/EdgeReviewPanel.tsx : 概念词确认组 + 提取概念关系按钮 + [新关系]琥珀徽章
+- src/components/graph/A1GraphSection.tsx  : GET file 拉 concept_terms/proposed_relations，接线确认/全部确认/提取回调
+- src/components/graph/A1KnowledgeGraph.tsx: conceptTerms prop → 未确认 term: 节点 opacity 0.5 + 虚线描边
+- src/components/__tests__/{EdgeReviewPanel,A1KnowledgeGraph,A1GraphSection}.test.tsx : 测试追加/修正
+
+== 约束遵守 ==
+- 未改后端；零文本输入；未动行政树 Tab/访谈侧；未引入新依赖

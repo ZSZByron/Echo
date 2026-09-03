@@ -202,10 +202,21 @@ describe('A1GraphSection - One-Click Refinalize', () => {
       edges: [],
     };
 
-    vi.mocked(fetchJson)
-      .mockResolvedValueOnce(mockGraph)
-      .mockResolvedValueOnce({ graph_code: 'updated', graph_id: 'new-id' }) // finalize response
-      .mockResolvedValueOnce(mockUpdatedGraph); // graph reload
+    // T-D: file fetch added for concept_terms — mock by URL so extra calls don't
+    // consume the sequential graph mocks. Graph returns old data until the
+    // finalize POST happens, then updated data.
+    let finalized = false;
+    vi.mocked(fetchJson).mockImplementation(async (url: string) => {
+      const u = typeof url === 'string' ? url : '';
+      if (u.endsWith('/finalize')) {
+        finalized = true;
+        return { graph_code: 'updated', graph_id: 'new-id' };
+      }
+      if (u.includes('/graph')) {
+        return finalized ? mockUpdatedGraph : mockGraph;
+      }
+      return {}; // file record (no concept_terms)
+    }) as never;
 
     render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={true} />);
 

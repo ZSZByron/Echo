@@ -8,7 +8,8 @@
  * Backend endpoints: backend/app/api/a1_routes.py
  */
 
-import { fetchWithTimeout } from "./client";
+import { fetchWithTimeout, fetchJson } from "./client";
+import type { ConceptTerm } from "../types/a1";
 
 const A1_BASE = "/api/a1";
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -85,4 +86,50 @@ export async function rejectEdge(
   );
 
   return (await res.json()) as { success: boolean; message?: string };
+}
+
+/**
+ * Confirm concept terms (Task T-D two-phase flow).
+ * POST /api/a1/file/{fileId}/terms/confirm
+ *
+ * @param fileId - Workspace file identifier
+ * @param terms - Specific terms to confirm, or "all" to confirm every term
+ * @returns Updated concept_terms list
+ */
+export async function confirmConceptTerms(
+  fileId: string,
+  terms: string[] | "all"
+): Promise<{ concept_terms: ConceptTerm[] }> {
+  const res = await fetchWithTimeout(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/terms/confirm`,
+    {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify(terms === "all" ? { all: true } : { terms }),
+    }
+  );
+
+  return (await res.json()) as { concept_terms: ConceptTerm[] };
+}
+
+/**
+ * Trigger LLM concept-edge extraction (Task T-D two-phase flow).
+ * POST /api/a1/file/{fileId}/concept/extract-edges
+ *
+ * Backend requires >= 2 confirmed terms (otherwise 400).
+ * LLM latency is 30-90s, hence the 180s timeout.
+ *
+ * @returns { success, edges_count?, warning? }
+ */
+export async function extractConceptRelations(
+  fileId: string
+): Promise<{ success: boolean; edges_count?: number; warning?: string }> {
+  return fetchJson<{ success: boolean; edges_count?: number; warning?: string }>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/concept/extract-edges`,
+    {
+      method: "POST",
+      headers: JSON_HEADERS,
+      timeoutMs: 180_000,
+    }
+  );
 }

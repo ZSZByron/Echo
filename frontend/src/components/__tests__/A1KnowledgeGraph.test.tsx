@@ -681,3 +681,69 @@ describe('Concept Term Nodes (T-C)', () => {
     expect(isConceptTermNode({ id: 'entry-1', level: 3 })).toBe(false);
   });
 });
+
+describe('Concept Term Node Confirmation State (T-D)', () => {
+  it('renders unconfirmed term node semi-transparent with dashed border', () => {
+    const base = fabricateTestGraph();
+    const graph: KnowledgeGraph = {
+      ...base,
+      nodes: {
+        ...base.nodes,
+        'term:死亡转生': {
+          id: 'term:死亡转生',
+          serial_number: '',
+          level: 4,
+          description: '死亡转生',
+          status: 'completed'
+        }
+      },
+      edges: base.edges
+    };
+
+    const { container } = render(
+      <A1KnowledgeGraph
+        graph={graph}
+        isLoading={false}
+        error={null}
+        conceptTerms={[{ term: '死亡转生', field_key: 'world.rules', gloss: '', confirmed: false }]}
+      />
+    );
+
+    const termNode = container.querySelector('.concept-term-node') as HTMLElement;
+    expect(termNode).not.toBeNull();
+    expect(termNode.style.opacity).toBe('0.5');
+    expect(termNode.style.borderStyle).toBe('dashed');
+  });
+
+  it('renders confirmed term node fully opaque with solid border', () => {
+    const base = fabricateTestGraph();
+    const graph: KnowledgeGraph = {
+      ...base,
+      nodes: {
+        ...base.nodes,
+        'term:死亡转生': {
+          id: 'term:死亡转生',
+          serial_number: '',
+          level: 4,
+          description: '死亡转生',
+          status: 'completed'
+        }
+      },
+      edges: base.edges
+    };
+
+    const { container } = render(
+      <A1KnowledgeGraph
+        graph={graph}
+        isLoading={false}
+        error={null}
+        conceptTerms={[{ term: '死亡转生', field_key: 'world.rules', gloss: '', confirmed: true }]}
+      />
+    );
+
+    const termNode = container.querySelector('.concept-term-node') as HTMLElement;
+    expect(termNode).not.toBeNull();
+    expect(termNode.style.opacity).toBe('1');
+    expect(termNode.style.borderStyle).toBe('solid');
+  });
+});
