@@ -507,6 +507,7 @@ export function A1Workspace() {
     try {
       const response = await fetchJson<ChatResponse>('/api/a1/chat', {
         method: 'POST',
+        timeoutMs: 120_000,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
@@ -575,6 +576,7 @@ export function A1Workspace() {
     try {
       const response = await fetchJson<ChatResponse>('/api/a1/chat/confirm', {
         method: 'POST',
+        timeoutMs: 120_000,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
@@ -640,6 +642,10 @@ export function A1Workspace() {
     try {
       const response = await fetchJson<FinalizeResponse>(`/api/a1/file/${fileId}/finalize`, {
         method: 'POST',
+        // Finalize runs concept-edge LLM extraction (measured 60-120s with a
+        // real provider) — the 30s global timeout aborts before completion
+        // and the workspace never switches to graph view.
+        timeoutMs: 180_000,
       });
       
       console.log('File finalized:', response);
@@ -714,6 +720,7 @@ export function A1Workspace() {
     try {
       const response = await fetchJson<UploadResponse>('/api/a1/upload', {
         method: 'POST',
+        timeoutMs: 180_000,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
@@ -796,6 +803,7 @@ export function A1Workspace() {
     try {
       const response = await fetchJson<ConvertResponse>('/api/a1/upload/convert', {
         method: 'POST',
+        timeoutMs: 180_000,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
@@ -824,6 +832,7 @@ export function A1Workspace() {
     if (pendingUploadId) {
       fetchJson('/api/a1/upload/convert', {
         method: 'POST',
+        timeoutMs: 180_000,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
