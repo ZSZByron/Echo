@@ -623,3 +623,61 @@ describe('A1KnowledgeGraph', () => {
     });
   });
 });
+
+describe('Concept Term Nodes (T-C)', () => {
+  const fabricateTermGraph = (): KnowledgeGraph => {
+    const base = fabricateTestGraph();
+    return {
+      ...base,
+      nodes: {
+        ...base.nodes,
+        'term:死亡转生': {
+          id: 'term:死亡转生',
+          serial_number: '',
+          level: 4,
+          description: '死亡转生',
+          status: 'completed'
+        }
+      },
+      edges: [
+        ...base.edges,
+        {
+          from_node_id: 'term:死亡转生',
+          to_node_id: 'term:灵魂占卜',
+          edge_type: 'cross',
+          visual_description: 'AI 推断关联',
+          relation: '关联',
+          confidence: 'semantic',
+          confirmed: false
+        }
+      ]
+    };
+  };
+
+  it('should style term: nodes as circular concept-term nodes', () => {
+    const { container } = render(
+      <A1KnowledgeGraph graph={fabricateTermGraph()} isLoading={false} error={null} />
+    );
+
+    const termNodes = container.querySelectorAll('.concept-term-node');
+    expect(termNodes.length).toBeGreaterThan(0);
+    // Circular pill: fully rounded border radius inline style
+    const style = (termNodes[0] as HTMLElement).style;
+    expect(style.borderRadius).toBe('9999px');
+  });
+
+  it('should render term node label with dot marker and word text', () => {
+    const { container } = render(
+      <A1KnowledgeGraph graph={fabricateTermGraph()} isLoading={false} error={null} />
+    );
+
+    expect(container.textContent).toContain('● 死亡转生');
+  });
+
+  it('isConceptTermNode detects term: prefix OR level 4 (defensive OR)', async () => {
+    const { isConceptTermNode } = await import('../graph/A1KnowledgeGraph');
+    expect(isConceptTermNode({ id: 'term:血月', level: 4 })).toBe(true);
+    expect(isConceptTermNode({ id: 'legacy_node', level: 4 })).toBe(true);
+    expect(isConceptTermNode({ id: 'entry-1', level: 3 })).toBe(false);
+  });
+});

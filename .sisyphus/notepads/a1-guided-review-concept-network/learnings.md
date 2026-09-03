@@ -661,10 +661,27 @@ _visual_bg_tasks[file_id] = thread
 ✅ **F3 QA RESOLVED**: Bug reported by QA team confirmed fixed and verified
 
 ### Files Modified
-- ackend/app/api/a1_routes.py: Line 669 (async def → def), Line 752 (asyncio.create_task workaround)
-- ackend/tests/unit/a1/test_a1_edges.py: Added TestFinalizeSignature class with regression test
+- backend/app/api/a1_routes.py: Line 669 (async def → def), Line 752 (asyncio.create_task workaround)
+- backend/tests/unit/a1/test_a1_edges.py: Added TestFinalizeSignature class with regression test
 - .sisyphus/evidence/final-qa/verify_fix.py: Production verification script
 - .sisyphus/evidence/final-qa/fix-finalize-async.txt: Verification evidence file
+
+## 访谈错位修复（2026-09-02）
+
+### 根因分析
+**双源问句问题**: `guidance_reply`（Rule 3.1 定义的下问语义）与 `next_question`（Rule 8 的单源问句）同时存在，导致前端困惑（显示哪个？）  
+**fills 字段错填**: 缺少字段分配纪律时，LLM 容易将语义相近的值填入错误的 slot（如 world_type 填了概念而非类型）
+
+### 修复模式
+1. **规则 3.1 语义对齐铁律**: `guidance_reply` 必须是承接式问句（基于上答展开），不得是全新的下问
+2. **规则 8 问句单源铁律**: `next_question` 作为唯一问句输出源，`guidance_reply` 改为纯语义承接段落（可空）
+3. **字段进度注入**: prompt 中增加 `_progress_summary` 函数生成的【字段进度】区块，明确各字段填充状态与语义期望
+4. **测试断言迁移**: test_prompt_rule_8_softened 随规则 8 重写调整断言（从完全禁止 → 禁止纯问句格式）
+
+### 验证结论
+- **全量回归**: 792/792 零失败
+- **真实 LLM 验证**: world_type 错填消除、concept 经守卫流语义正确、reply 疑问句比率 25%
+- **证据文件**: `.sisyphus/evidence/fix-interview-misalignment.txt`
 
 ## Props Identity Stability Trap
 
@@ -678,3 +695,13 @@ _visual_bg_tasks[file_id] = thread
 
 **Evidence**: A1Workspace.tsx GraphViewContent was defined inside renderGraphView(). Moving it outside eliminated the infinite fetch loop (26 reqs/10s -> 2 reqs/10s).
 
+
+## 问两遍回归 (d9b71c2, 2026-09-02)
+- 陷阱: 响应组装(取 next_question)与位置推进(sync_position)的先后序——next 必须在 sync 之后取,否则问句落后一步(每字段问两遍)
+- Task 4 把 sync 挪进 if not intercepted 分支时放在了 return 前,埋下回归
+- 教训: 任何'状态推进 vs 响应快照'顺序改动,必须断言 next_question 与推进后状态一致(repro_twice.py 范式)
+
+## 门禁感知调度 (2026-09-02)
+用户需求: 有模块缺失时在窗口主动询问, 而非让用户自己看底部提示猜
+实现: sync_position 先扫低于50%门禁的模块的未填字段, 无缺失再回退全局顺序
+语义迁移: test_multi_field_fills_jump_to_first_unanswered 断言更新(过半模块的收尾字段让位于缺失模块)

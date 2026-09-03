@@ -422,3 +422,87 @@ describe('A1GraphSection - Pending Questions UI (P4)', () => {
     });
   });
 });
+
+describe('A1GraphSection - Fullscreen Layout + Guide (T-C)', () => {
+  const mockFileId = 'test-file-123';
+  const mockReturnToChat = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(() => {}),
+      removeItem: vi.fn(() => {}),
+      clear: vi.fn(() => {}),
+      length: 0,
+      key: vi.fn(() => null),
+    };
+  });
+
+  const mockGraph: KnowledgeGraph = {
+    scene_id: 'test-scene',
+    nodes: {
+      'term:死亡转生': {
+        id: 'term:死亡转生',
+        serial_number: '',
+        level: 4,
+        description: '死亡转生',
+        status: 'completed',
+      },
+    },
+    edges: [
+      {
+        from_node_id: 'term:死亡转生',
+        to_node_id: 'term:血月',
+        edge_type: 'cross' as const,
+        visual_description: 'AI 推断关联',
+        relation: '关联',
+        confidence: 'semantic' as const,
+        confirmed: false,
+      },
+    ],
+  };
+
+  it('should render fullscreen fixed inset-0 container', async () => {
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+    const { container } = render(
+      <A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} />
+    );
+
+    await waitFor(() => {
+      const shell = container.querySelector('[data-testid="a1-graph-fullscreen"]');
+      expect(shell).toBeInTheDocument();
+      expect(shell?.className).toContain('fixed');
+      expect(shell?.className).toContain('inset-0');
+    });
+  });
+
+  it('should show concept guide bar on first concept-net visit and dismiss via 知道了', async () => {
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} />);
+
+    // Switch to concept tab
+    fireEvent.click(await screen.findByText('概念网'));
+
+    // Guide bar visible (first visit)
+    const guideBar = await screen.findByTestId('concept-guide-bar');
+    expect(guideBar.textContent).toContain('概念关联网');
+    expect(guideBar.textContent).toContain('右侧清单');
+
+    // Dismiss persists to localStorage
+    fireEvent.click(screen.getByText('知道了'));
+    expect(localStorage.setItem).toHaveBeenCalledWith('a1_concept_guide_seen', '1');
+    expect(screen.queryByTestId('concept-guide-bar')).not.toBeInTheDocument();
+  });
+
+  it('should render EdgeReviewPanel with concept edges in concept mode', async () => {
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} />);
+
+    fireEvent.click(await screen.findByText('概念网'));
+
+    const panel = await screen.findByTestId('edge-review-panel');
+    expect(panel).toBeInTheDocument();
+    expect(panel.textContent).toContain('死亡转生');
+  });
+});

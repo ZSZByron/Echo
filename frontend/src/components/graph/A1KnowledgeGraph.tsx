@@ -34,7 +34,42 @@ export interface A1KnowledgeGraphProps {
   };
   openQuestions?: string[];
   onRefresh?: () => void;
+  /** Controlled view mode (toolbar rendered by parent fullscreen layout) */
+  viewMode?: 'tree' | 'concept';
+  onViewModeChange?: (mode: 'tree' | 'concept') => void;
+  /** Canvas edge clicked -> parent panel scrolls/highlights matching entry */
+  onEdgeFocus?: (edgeKey: string) => void;
+  /** Edge key to highlight (set when panel entry focused) */
+  focusEdgeKey?: string | null;
+  /** Edge key hovered in the review panel (canvas dimming sync) */
+  hoverEdgeKey?: string | null;
 }
+
+/** Canonical concept edge key: `from/to/relation` (slash-separated). */
+export const conceptEdgeKey = (edge: Pick<GraphEdge, 'from_node_id' | 'to_node_id' | 'relation' | 'visual_description'>): string =>
+  `${edge.from_node_id}/${edge.to_node_id}/${edge.relation || edge.visual_description}`;
+
+/** Detect concept-term node per backend contract: id prefix `term:` OR level===4 (defensive OR). */
+export const isConceptTermNode = (node: Pick<GraphNode, 'id' | 'level'>): boolean =>
+  node.id.startsWith('term:') || node.level === 4;
+
+/** Cluster palette for concept-term nodes (reuses existing module cluster colors). */
+const TERM_CLUSTER_COLORS = [
+  '#a78bfa', // nebula purple
+  '#fbbf24', // stardust amber
+  '#10b981', // emerald
+  '#60a5fa', // blue
+  '#f472b6', // pink
+];
+
+/** Deterministic cluster color from node id hash. */
+const termClusterColor = (id: string): string => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  }
+  return TERM_CLUSTER_COLORS[Math.abs(hash) % TERM_CLUSTER_COLORS.length];
+};
 
 /**
  * Parse constraint description into display format
@@ -109,10 +144,24 @@ export function A1KnowledgeGraph({
   fileId, 
   edgeStats, 
   openQuestions = [],
-  onRefresh 
+  onRefresh,
+  viewMode: viewModeProp,
+  onViewModeChange,
+  onEdgeFocus,
+  focusEdgeKey = null,
+  hoverEdgeKey = null,
 }: A1KnowledgeGraphProps) {
-  // View mode state: 'tree' | 'concept'
-  const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
+  // View mode state: 'tree' | 'concept' (controlled when viewModeProp provided)
+  const [internalViewMode, setInternalViewMode] = useState<'tree' | 'concept'>('tree');
+  const viewMode = viewModeProp ?? internalViewMode;
+  const setViewMode = (mode: 'tree' | 'concept') => {
+    if (onViewModeChange) {
+      onViewModeChange(mode);
+    } else {
+      setInternalViewMode(mode);
+    }
+  };
+  const isControlled = viewModeProp !== undefined;
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -160,11 +209,24 @@ export function A1KnowledgeGraph({
    */
   const toReactFlowNode = useCallback((node: GraphNode): Node => {
     const isConstraint = node.id.startsWith('cst_') || node.level === 0;
+    const isTerm = isConceptTermNode(node);
 
     let nodeStyle: React.CSSProperties = {};
     let label = '';
 
-    if (node.level === 1) {
+    if (isTerm) {
+      // Concept-term node: small circular dot + word label, clustered by module palette
+      const clusterColor = termClusterColor(node.id);
+      nodeStyle = {
+        border: `1.5px solid ${clusterColor}`,
+        backgroundColor: 'rgba(19, 19, 42, 0.85)',
+        borderRadius: '9999px',
+        padding: '4px 12px',
+        fontSize: '12px',
+        boxShadow: `0 0 6px ${clusterColor}40`
+      };
+      label = `● ${node.description}`;
+    } else if (node.level === 1) {
       // Background root node: golden border
       nodeStyle = {
         border: '2px solid var(--color-stardust-400)',
@@ -231,6 +293,7 @@ export function A1KnowledgeGraph({
       id: node.id,
       type: 'default',
       position: { x: 0, y: 0 }, // Will be set by layout
+      className: isTerm ? 'concept-term-node' : undefined,
       data: {
         label: (
           <div style={{
@@ -348,9 +411,15 @@ export function A1KnowledgeGraph({
       className = 'edge-cross';
     }
 
-    // Apply hover dimming effect
-    const isDimmed = hoveredEdge && hoveredEdge !== `${edge.from_node_id}-${edge.to_node_id}`;
-    if (isDimmed && hoveredEdge) {
+    // Apply hover dimming effect (canvas hover + panel entry hover merged)
+    const activeHover = hoverEdgeKey ?? hoveredEdge;
+    const isFocused = focusEdgeKey && conceptEdgeKey(edge) === focusEdgeKey;
+    const edgeKeyId = conceptEdgeKey(edge);
+    const isDimmed = activeHover && activeHover !== edgeKeyId && activeHover !== `${edge.from_node_id}-${edge.to_node_id}`;
+    if (isFocused) {
+      edgeStyle.stroke = '#34d399';
+      edgeStyle.strokeWidth = 3;
+    } else if (isDimmed && activeHover) {
       edgeStyle.opacity = '0.2';
       edgeStyle.stroke = '#444';
     }
@@ -367,10 +436,11 @@ export function A1KnowledgeGraph({
       className,
       data: {
         ...edge,
+        edgeKey: edgeKeyId,
         onEdgeClick: () => handleEdgeClick(edge)
       }
     };
-  }, [hoveredEdge]);
+  }, [hoveredEdge, hoverEdgeKey, focusEdgeKey]);
 
   /**
    * Calculate layout positions for all nodes
@@ -458,15 +528,34 @@ export function A1KnowledgeGraph({
       });
     }
 
+    // Level 4 / concept-term nodes: single row below entries
+    const termNodes = nodes.filter(n => isConceptTermNode(n));
+    if (termNodes.length > 0) {
+      const TERM_SPACING = 180;
+      const totalWidth = (termNodes.length - 1) * TERM_SPACING;
+      termNodes.forEach((node, index) => {
+        const rfNode = toReactFlowNode(node);
+        rfNode.position = {
+          x: (index * TERM_SPACING) - (totalWidth / 2),
+          y: 760
+        };
+        positionedNodes.push(rfNode);
+      });
+    }
+
     return positionedNodes;
   }, [toReactFlowNode]);
 
   /**
-   * Handle edge click - show review card for pending edges
+   * Handle edge click - panel focus mode (T-C) or legacy review card
    */
   const handleEdgeClick = useCallback((edge: GraphEdge) => {
+    if (onEdgeFocus) {
+      onEdgeFocus(conceptEdgeKey(edge));
+      return;
+    }
     setSelectedEdge(edge);
-  }, []);
+  }, [onEdgeFocus]);
 
   /**
    * Handle edge confirm
@@ -474,7 +563,7 @@ export function A1KnowledgeGraph({
   const handleConfirmEdge = useCallback(async () => {
     if (!selectedEdge || !fileId) return;
     
-    const edgeKey = `${selectedEdge.from_node_id},${selectedEdge.to_node_id},${selectedEdge.relation || selectedEdge.visual_description}`;
+    const edgeKey = conceptEdgeKey(selectedEdge);
     try {
       await confirmEdge(fileId, edgeKey);
       setSelectedEdge(null);
@@ -495,7 +584,7 @@ export function A1KnowledgeGraph({
       return;
     }
     
-    const edgeKey = `${selectedEdge.from_node_id},${selectedEdge.to_node_id},${selectedEdge.relation || selectedEdge.visual_description}`;
+    const edgeKey = conceptEdgeKey(selectedEdge);
     try {
       await rejectEdge(fileId, edgeKey);
       setSelectedEdge(null);
@@ -603,7 +692,8 @@ export function A1KnowledgeGraph({
     <div className="relative h-full w-full">
       {/* Top control bar */}
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between gap-4">
-        {/* View toggle tabs */}
+        {/* View toggle tabs (hidden in controlled fullscreen mode — tabs live in parent toolbar) */}
+        {!isControlled && (
         <div className="flex gap-2">
           <button
             onClick={() => setViewMode('tree')}
@@ -626,8 +716,10 @@ export function A1KnowledgeGraph({
             概念网
           </button>
         </div>
+        )}
 
-        {/* Statistics bar */}
+        {/* Statistics bar (hidden in controlled mode — shown in parent toolbar) */}
+        {!isControlled && (
         <div className="flex items-center gap-4 text-sm">
           {stats.pending_review > 0 && (
             <div className="flex items-center gap-2 px-3 py-1 bg-amber-900/30 border border-amber-500/30 rounded-md">
@@ -642,6 +734,7 @@ export function A1KnowledgeGraph({
             </div>
           )}
         </div>
+        )}
 
         {/* Legend */}
         <div className="flex items-center gap-4 text-xs">
@@ -854,6 +947,7 @@ export function A1KnowledgeGraph({
 
             if (nodeData.level === 1) return 'var(--color-stardust-400)';
             if (nodeData.level === 2) return 'var(--color-nebula-400)';
+            if (isConceptTermNode(nodeData)) return termClusterColor(nodeData.id);
             if (nodeData.level === 3 || nodeData.id.startsWith('cst_')) return '#ffffff';
             return '#a78bfa';
           }}
@@ -876,6 +970,14 @@ export function A1KnowledgeGraph({
         
         .edge-semantic-pending {
           animation: breathing 2s ease-in-out infinite;
+        }
+
+        @keyframes edge-review-flash {
+          0%, 100% { background-color: transparent; }
+          30% { background-color: rgba(52, 211, 153, 0.35); }
+        }
+        .edge-review-flash {
+          animation: edge-review-flash 0.8s ease-in-out 2;
         }
       `}</style>
     </div>

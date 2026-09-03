@@ -1,15 +1,18 @@
 /**
  * A1GraphSection Component
  *
- * Displays the knowledge graph with status badge, rejected list, and pending questions.
- * Task 10: Extended from A1Workspace with new features per design doc §6.7 mechanisms 1/4/6.
+ * Task T-C: Fullscreen knowledge graph layout (fixed inset-0 overlay).
+ * Top toolbar (56px): back to chat / [行政树|概念网] tabs / stats bar.
+ * Body: React Flow canvas (flex-1) + right EdgeReviewPanel (340px, collapsible).
+ * Concept-net guide bar (first visit, localStorage-gated).
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
-import { confirmEdge } from '../../api/a1';
-import { A1KnowledgeGraph } from './A1KnowledgeGraph';
-import type { KnowledgeGraph } from '../../types/graph';
+import { confirmEdge, rejectEdge } from '../../api/a1';
+import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
+import { EdgeReviewPanel } from './EdgeReviewPanel';
+import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
 
 interface A1GraphSectionProps {
   fileId: string;
@@ -18,6 +21,17 @@ interface A1GraphSectionProps {
   isStale?: boolean;
   openQuestions?: string[];
   rejectedEdges?: Record<string, { from_node_id: string; to_node_id: string; relation: string }>;
+}
+
+const CONCEPT_GUIDE_KEY = 'a1_concept_guide_seen';
+
+/** Fixed fullscreen overlay shell (T-C): covers the entire workspace viewport. */
+function FullscreenShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col bg-space-950" data-testid="a1-graph-fullscreen">
+      {children}
+    </div>
+  );
 }
 
 export function A1GraphSection({
@@ -34,6 +48,25 @@ export function A1GraphSection({
   const [error, setError] = useState<string | null>(null);
   const [isRefinalizing, setIsRefinalizing] = useState(false);
   const [showRejectedList, setShowRejectedList] = useState(false);
+
+  // Fullscreen layout state (T-C)
+  const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [focusEdgeKey, setFocusEdgeKey] = useState<string | null>(null);
+  const [hoverEdgeKey, setHoverEdgeKey] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+
+  // Show guide on first concept-net visit
+  useEffect(() => {
+    if (viewMode === 'concept' && !localStorage.getItem(CONCEPT_GUIDE_KEY)) {
+      setShowGuide(true);
+    }
+  }, [viewMode]);
+
+  const dismissGuide = useCallback(() => {
+    localStorage.setItem(CONCEPT_GUIDE_KEY, '1');
+    setShowGuide(false);
+  }, []);
 
   const loadGraph = useCallback(async () => {
     setIsLoading(true);
@@ -88,156 +121,309 @@ export function A1GraphSection({
     }
   };
 
+  /** Confirm a concept edge from the review panel (slash-separated key). */
+  const handlePanelConfirm = useCallback(async (edgeKey: string) => {
+    try {
+      await confirmEdge(fileId, edgeKey);
+      await loadGraph();
+    } catch (err) {
+      console.error('Failed to confirm edge:', err);
+    }
+  }, [fileId, loadGraph]);
+
+  /** Reject a concept edge from the review panel. */
+  const handlePanelReject = useCallback(async (edgeKey: string) => {
+    try {
+      await rejectEdge(fileId, edgeKey);
+      await loadGraph();
+    } catch (err) {
+      console.error('Failed to reject edge:', err);
+    }
+  }, [fileId, loadGraph]);
+
   const handleGoAnswer = () => {
     localStorage.setItem('a1_return_intent', 'chat');
     returnToChat();
   };
 
+  // Concept edges + stats derived from graph (T-C toolbar stats)
+  const conceptEdges: GraphEdge[] = useMemo(
+    () => (graph ? graph.edges.filter(e => e.confidence === 'semantic' || e.confidence === 'rule' || e.confidence === 'structure') : []),
+    [graph]
+  );
+  const stats = useMemo(() => {
+    const pending = conceptEdges.filter(e => e.confirmed === false && e.confidence === 'semantic').length;
+    const confirmed = conceptEdges.filter(e => e.confirmed === true).length;
+    return { pending, confirmed };
+  }, [conceptEdges]);
+  const nodeLabels = useMemo(() => {
+    if (!graph) return {} as Record<string, string>;
+    const map: Record<string, string> = {};
+    Object.values(graph.nodes).forEach(n => { map[n.id] = n.description; });
+    return map;
+  }, [graph]);
+
+  // ---- Fullscreen container (T-C): fixed overlay covering the workspace ----
   if (isLoading) {
     return (
-      <div className="min-h-[70vh] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-stardust-300">构建知识图谱中...</p>
+      <FullscreenShell>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-stardust-300">构建知识图谱中...</p>
+          </div>
         </div>
-      </div>
+      </FullscreenShell>
     );
   }
 
   if (error === 'pending_finalize') {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <FullscreenShell>
+        {/* Top toolbar */}
+        <div className="h-14 shrink-0 flex items-center justify-between gap-4 px-4 border-b border-white/10 bg-space-900/70">
           <button
-            onClick={handleRefinalize}
-            disabled={isRefinalizing}
-            className="glass-panel px-4 py-2 bg-cosmos-warning/10 border-cosmos-warning/30 rounded-lg hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={returnToChat}
+            className="px-3 py-1.5 rounded-md text-sm font-medium text-stardust-300 hover:bg-white/10 transition-colors"
           >
-            <span className="text-cosmos-warning font-medium">
-              ⚠ 设定已更新——点此重新定稿查看新图
-            </span>
+            ← 返回访谈
           </button>
+          <span className="text-void-400 text-sm">知识图谱</span>
+          <div className="w-24" />
         </div>
 
-        {lastGraph && (
-          <div className="h-[70vh]">
-            <A1KnowledgeGraph graph={lastGraph} isLoading={false} error={null} />
+        <div className="flex-1 min-h-0 flex flex-col p-4 gap-4 overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleRefinalize}
+              disabled={isRefinalizing}
+              className="glass-panel px-4 py-2 bg-cosmos-warning/10 border-cosmos-warning/30 rounded-lg hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="text-cosmos-warning font-medium">
+                ⚠ 设定已更新——点此重新定稿查看新图
+              </span>
+            </button>
           </div>
-        )}
 
-        <div className="glass-panel p-4">
-          <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
-            <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
-            <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+          {lastGraph && (
+            <div className="flex-1 min-h-[50vh]">
+              <A1KnowledgeGraph graph={lastGraph} isLoading={false} error={null} />
+            </div>
+          )}
+
+          <div className="glass-panel p-4">
+            <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
+              <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
+              <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+            </div>
           </div>
         </div>
-      </div>
+      </FullscreenShell>
     );
   }
 
   if (error || !graph) {
     return (
-      <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
-        <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
-        <button
-          onClick={loadGraph}
-          className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
-        >
-          重试
-        </button>
-      </div>
+      <FullscreenShell>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
+            <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
+            <button
+              onClick={loadGraph}
+              className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
+            >
+              重试
+            </button>
+          </div>
+        </div>
+      </FullscreenShell>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Status Badge (Mechanism 1) */}
-      <div className="flex items-center justify-between">
-        {isStale ? (
+    <FullscreenShell>
+      {/* ---- Top toolbar (56px) ---- */}
+      <div className="h-14 shrink-0 flex items-center justify-between gap-4 px-4 border-b border-white/10 bg-space-900/70">
+        {/* Left: back */}
+        <button
+          onClick={returnToChat}
+          className="px-3 py-1.5 rounded-md text-sm font-medium text-stardust-300 hover:bg-white/10 transition-colors"
+        >
+          ← 返回访谈
+        </button>
+
+        {/* Center: view tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode('tree')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'tree'
+                ? 'bg-nebula-500 text-white'
+                : 'bg-void-800 text-void-400 hover:bg-void-700'
+            }`}
+          >
+            行政树
+          </button>
+          <button
+            onClick={() => setViewMode('concept')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'concept'
+                ? 'bg-nebula-500 text-white'
+                : 'bg-void-800 text-void-400 hover:bg-void-700'
+            }`}
+          >
+            概念网
+          </button>
+        </div>
+
+        {/* Right: stats + panel toggle */}
+        <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3">
+            {!isStale && (
+              <span className="px-2 py-0.5 rounded bg-cosmos-success/10 border border-cosmos-success/30 text-cosmos-success text-xs whitespace-nowrap">
+                已定稿 v{version} ✓
+              </span>
+            )}
+            <span className="text-amber-400">待确认 <b>{stats.pending}</b></span>
+            <span className="text-emerald-400">已确认 <b>{stats.confirmed}</b></span>
+            <span className="text-blue-400">待问 <b>{openQuestions.length}</b></span>
+          </div>
+          {viewMode === 'concept' && (
+            <button
+              onClick={() => setPanelOpen(!panelOpen)}
+              className="px-2 py-1 rounded border border-white/15 text-void-300 hover:bg-white/10 text-xs transition-colors"
+            >
+              {panelOpen ? '隐藏清单 ▶' : '显示清单 ◀'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ---- Stale banner (Mechanism 1) ---- */}
+      {isStale && (
+        <div className="shrink-0 flex justify-center py-2 border-b border-white/5 bg-space-900/40">
           <button
             onClick={handleRefinalize}
             disabled={isRefinalizing}
             className="glass-panel px-4 py-2 bg-cosmos-warning/10 border-cosmos-warning/30 rounded-lg hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="text-cosmos-warning font-medium">
-              ⚠ 设定已更新——点此重新定稿查看新图
+              ⚠ 设定已更新——点此重新定稿查看新图（当前 v{version}）
             </span>
           </button>
-        ) : (
-          <div className="glass-panel px-4 py-2 bg-cosmos-success/10 border-cosmos-success/30 rounded-lg">
-            <span className="text-cosmos-success font-medium">
-              已定稿 v{version} ✓
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Pending Questions UI (P4) */}
-      {openQuestions.length > 0 && (
-        <div className="glass-panel p-6 bg-space-800/50 border-white/10">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-stardust-300 text-lg font-medium">
-              待问 {openQuestions.length}
-            </h3>
-          </div>
-          <ul className="space-y-3">
-            {openQuestions.map((question, index) => (
-              <li key={index} className="flex items-start gap-3">
-                <span className="text-nebula-400 mt-1">•</span>
-                <span className="text-gray-300 flex-1">{question}</span>
-                <button
-                  onClick={handleGoAnswer}
-                  className="text-stardust-400 hover:text-stardust-300 text-sm font-medium transition-colors"
-                >
-                  去回答 →
-                </button>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
-      {/* Graph Display */}
-      <div className="h-[70vh]">
-        <A1KnowledgeGraph graph={graph} isLoading={false} error={null} />
-      </div>
-
-      {/* Graph Legend */}
-      <div className="glass-panel p-4">
-        <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
-        <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
-          <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
-          <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+      {/* ---- Concept-net guide bar (first visit) ---- */}
+      {viewMode === 'concept' && showGuide && (
+        <div
+          className="shrink-0 flex items-center justify-between gap-4 px-4 py-2 bg-nebula-500/10 border-b border-nebula-500/30"
+          data-testid="concept-guide-bar"
+        >
+          <p className="text-sm text-gray-200">
+            这是从你的设定中提取的<b className="text-stardust-300">概念关联网</b>——节点是你设定中的概念词，连线表示概念间的关系。请在右侧清单确认 AI 推断的关系。
+          </p>
+          <button
+            onClick={dismissGuide}
+            className="shrink-0 px-3 py-1 rounded bg-nebula-500 hover:bg-nebula-400 text-white text-sm transition-colors"
+          >
+            知道了
+          </button>
         </div>
+      )}
+
+      {/* ---- Body: canvas + review panel ---- */}
+      <div className="flex-1 min-h-0 flex">
+        {/* Canvas */}
+        <div className="flex-1 min-w-0 relative">
+          <A1KnowledgeGraph
+            graph={graph}
+            isLoading={false}
+            error={null}
+            fileId={fileId}
+            onRefresh={loadGraph}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            onEdgeFocus={setFocusEdgeKey}
+            focusEdgeKey={focusEdgeKey}
+            hoverEdgeKey={hoverEdgeKey}
+          />
+
+          {/* Pending questions overlay (P4, tree mode convenience) */}
+          {viewMode === 'tree' && openQuestions.length > 0 && (
+            <div className="absolute bottom-4 left-4 z-10 w-80 glass-panel p-4 bg-space-800/80 border-white/10 max-h-[40%] overflow-y-auto">
+              <h3 className="text-stardust-300 text-sm font-medium mb-2">
+                待问 {openQuestions.length}
+              </h3>
+              <ul className="space-y-2">
+                {openQuestions.map((question, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <span className="text-nebula-400 mt-1">•</span>
+                    <span className="text-gray-300 flex-1 text-xs">{question}</span>
+                    <button
+                      onClick={handleGoAnswer}
+                      className="text-stardust-400 hover:text-stardust-300 text-xs font-medium transition-colors"
+                    >
+                      去回答 →
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div className="absolute bottom-4 right-4 z-10 glass-panel px-4 py-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-void-400 text-xs">
+              <div><span className="text-emerald-400">★</span> 铁律推断</div>
+              <div><span className="text-amber-400">◆</span> 联想</div>
+              <div><span className="text-gray-400">◇</span> 结构拆解</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right review panel (concept mode only) */}
+        {viewMode === 'concept' && panelOpen && (
+          <EdgeReviewPanel
+            edges={conceptEdges}
+            nodeLabels={nodeLabels}
+            fileId={fileId}
+            onConfirm={handlePanelConfirm}
+            onReject={handlePanelReject}
+            highlightKey={focusEdgeKey}
+            onHoverEdge={setHoverEdgeKey}
+            rejectedKeys={rejectedEdges}
+          />
+        )}
       </div>
 
-      {/* Rejected List (Mechanism 4) */}
-      {Object.keys(rejectedEdges).length > 0 && (
-        <div className="glass-panel p-6 bg-space-800/50 border-white/10">
+      {/* ---- Rejected edges restore list (Mechanism 4, tree mode) ---- */}
+      {viewMode === 'tree' && Object.keys(rejectedEdges).length > 0 && (
+        <div className="absolute bottom-20 left-4 z-10 w-96 glass-panel p-4 bg-space-800/80 border-white/10 max-h-[40%] overflow-y-auto">
           <button
             onClick={() => setShowRejectedList(!showRejectedList)}
             className="w-full flex items-center justify-between text-left"
           >
-            <h3 className="text-stardust-300 text-lg font-medium">
+            <h3 className="text-stardust-300 text-sm font-medium">
               已拒绝清单 ({Object.keys(rejectedEdges).length} 条已拒绝边)
             </h3>
             <span className="text-void-400">{showRejectedList ? '▼' : '▶'}</span>
           </button>
 
           {showRejectedList && (
-            <ul className="mt-4 space-y-3">
+            <ul className="mt-3 space-y-2">
               {Object.entries(rejectedEdges).map(([edgeKey, edge]) => (
-                <li key={edgeKey} className="flex items-center gap-3 p-3 bg-space-900/50 rounded-lg">
-                  <div className="flex-1">
-                    <div className="text-gray-300 text-sm">
+                <li key={edgeKey} className="flex items-center gap-3 p-2 bg-space-900/50 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-gray-300 text-xs truncate">
                       {edge.from_node_id} → {edge.to_node_id}
                     </div>
                     <div className="text-void-400 text-xs">{edge.relation}</div>
                   </div>
                   <button
                     onClick={() => handleRestoreEdge(edgeKey)}
-                    className="bg-stardust-400 text-space-950 px-3 py-1 rounded text-sm font-medium hover:bg-stardust-300 transition-colors"
+                    className="bg-stardust-400 text-space-950 px-2 py-1 rounded text-xs font-medium hover:bg-stardust-300 transition-colors"
                   >
                     恢复
                   </button>
@@ -247,6 +433,9 @@ export function A1GraphSection({
           )}
         </div>
       )}
-    </div>
+    </FullscreenShell>
   );
 }
+
+// Re-export for consumers that imported the key helper from A1GraphSection
+export { conceptEdgeKey };
