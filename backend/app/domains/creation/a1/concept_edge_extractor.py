@@ -24,12 +24,13 @@ Reference:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from app.ai.provider import LLMProvider
 from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES
+from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
 
 
 # =============================================================================
@@ -376,3 +377,261 @@ def get_default_provider() -> LLMProvider:
     raise NotImplementedError(
         "Default provider not implemented - tests must inject mock provider"
     )
+
+
+# =============================================================================
+# 两阶段抽取器 V2 (Task T-A 用户产品决策)
+# =============================================================================
+# 阶段1: extract_concept_terms  — 从回答值中抽概念词节点（用户确认/否决）
+# 阶段2: extract_concept_relations — 节点确认后，用概念关系词典抽边（提议制）
+# 词典: concept_relation_vocab.py (RelationRegistry, 种子10条+运行时入典)
+# 降级约定与旧 extract_concept_edges 一致：永不抛出，success=False + warning
+# warning 关键字: 阶段1 "concept_term" / 阶段2 "concept_edge"
+# =============================================================================
+
+
+class ConceptTerm(BaseModel):
+    """阶段1产出：一个概念词节点。
+
+    Attributes:
+        term: 概念词（≤8字中文短语，名词性）——设定中实际起作用的概念实体
+        field_key: 来源 module.subfield（同词跨字段去重时记首次出现）
+        gloss: 一句话释义（可选）
+        confirmed: 用户确认态（默认 False，阶段2只连已确认词）
+    """
+
+    term: str
+    field_key: str
+    gloss: str = ""
+    confirmed: bool = False
+
+
+class TermsResult(BaseModel):
+    """阶段1结果。"""
+
+    terms: list[ConceptTerm] = Field(default_factory=list)
+    success: bool = True
+    warning: str = ""
+
+
+class ConceptEdgeV2(BaseModel):
+    """阶段2产出：一条概念边。
+
+    Attributes:
+        from_term / to_term: 概念词（必须在已确认概念词集合内）
+        relation: 词典关系名（∈当前 RELATION_NAMES）或 LLM 提议新词
+        is_new_relation: 提议新词标记（待用户确认入典，默认◆semantic）
+        rationale: 判定依据
+        confidence: 三级可信度（★=rule, ◆=semantic, ◇=structure）
+        confirmed: 用户确认态（默认 False，提议制逐条确认）
+    """
+
+    from_term: str
+    to_term: str
+    relation: str
+    is_new_relation: bool = False
+    rationale: str = ""
+    confidence: Literal["rule", "semantic", "structure"] = "semantic"
+    confirmed: bool = False
+
+
+class EdgesV2Result(BaseModel):
+    """阶段2结果。"""
+
+    edges: list[ConceptEdgeV2] = Field(default_factory=list)
+    success: bool = True
+    warning: str = ""
+
+
+# =============================================================================
+# 阶段1: 概念词抽取
+# =============================================================================
+
+
+def _terms_prompt(answers: dict[str, str]) -> str:
+    """阶段1 prompt：从每个已填字段的值中提取 1-3 个核心概念词。"""
+    answers_lines = [f"{k} = {v[:80] if len(v) > 80 else v}" for k, v in answers.items() if v]
+    answers_digest = "\n".join(answers_lines) if answers_lines else "（暂无）"
+    return "\n".join(
+        [
+            "你是TRPG世界观概念词抽取器，负责从用户已填写的A1问卷答案中拆出概念词节点。",
+            "",
+            "【用户已确定的内容】",
+            answers_digest,
+            "",
+            "【你的任务】",
+            "1. 从每个已填字段的值中提取 1-3 个核心概念词。",
+            "2. 概念词 = 设定中实际起作用的概念实体（如「死亡转生」「业报」「轮回之门」），",
+            "   不是字段名，不是整句回答。",
+            "3. 概念词为 ≤8 字的中文名词性短语。",
+            "4. 每个概念词给出一句话释义（gloss，可选）。",
+            "",
+            "【返回格式】严格JSON（不要输出其他内容）：",
+            '{"terms": [{"term": "...", "field_key": "模块.子字段", "gloss": "..."}]}',
+        ]
+    )
+
+
+def extract_concept_terms(
+    session: Any,
+    provider: LLMProvider | None = None,
+) -> TermsResult:
+    """阶段1：从 session.answers 中抽取概念词节点。
+
+    去重规则：同词跨字段保留一个，field_key 记首次出现。
+    降级：LLM 异常 → TermsResult(success=False, warning 含 "concept_term")，永不抛出。
+    """
+    try:
+        answers = getattr(session, "answers", {}) or {}
+        filled = {k: v for k, v in answers.items() if v and v.strip()}
+        if not filled:
+            return TermsResult(terms=[], success=True, warning="")
+
+        if provider is None:
+            provider = get_default_provider()
+
+        raw = asyncio.run(provider.chat_json([{"role": "system", "content": _terms_prompt(filled)}]))
+        items = raw.get("terms", [])
+
+        terms: list[ConceptTerm] = []
+        seen: dict[str, str] = {}  # term -> field_key（首次出现）
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            term = item.get("term", "")
+            if not term or not isinstance(term, str):
+                continue
+            if term in seen:
+                continue  # 同词跨字段去重，保留首次
+            seen[term] = item.get("field_key", "")
+            terms.append(
+                ConceptTerm(
+                    term=term,
+                    field_key=seen[term],
+                    gloss=item.get("gloss", ""),
+                    confirmed=False,
+                )
+            )
+        return TermsResult(terms=terms, success=True, warning="")
+
+    except Exception as e:  # noqa: BLE001 — degrade, never crash
+        return TermsResult(
+            success=False,
+            warning=f"concept_term extraction failed: {str(e)[:200]}",
+        )
+
+
+# =============================================================================
+# 阶段2: 概念边抽取（节点确认后）
+# =============================================================================
+
+
+def _relations_prompt(
+    confirmed_terms: list[ConceptTerm],
+    known_relations: list[str],
+    max_edges: int,
+) -> str:
+    """阶段2 prompt：只能连接已确认概念词；关系优先用词典现有名。"""
+    terms_lines = [f"  - {t.term}（来自 {t.field_key}）" for t in confirmed_terms]
+    terms_digest = "\n".join(terms_lines) if terms_lines else "（暂无）"
+    vocab_lines = "\n".join(f"  - {name}" for name in known_relations)
+    return "\n".join(
+        [
+            "你是TRPG世界观概念边抽取器，负责在已确认的概念词之间建立概念关系。",
+            "",
+            "【已确认概念词节点】（只能连接这些词，不得自造节点）",
+            terms_digest,
+            "",
+            "【概念关系词典】（优先使用这些关系名）",
+            vocab_lines,
+            "",
+            "【你的任务】",
+            "1. 只能连接【已确认概念词节点】中的词。",
+            "2. 关系优先使用词典现有名；内容确实需要新关系时可提议新词，并标 is_new_relation=true。",
+            "3. 每条边给出判定依据（rationale）。",
+            "4. 边的数量限制：最多 " + str(max_edges) + " 条边（1.5×概念词数），超限截断。",
+            "5. 边的优先级：★ rule > ◆ semantic > ◇ structure。",
+            "",
+            "【返回格式】严格JSON（不要输出其他内容）：",
+            '{"edges": [{"from_term": "...", "to_term": "...", "relation": "...", "is_new_relation": false, "rationale": "...", "confidence": "rule/semantic/structure"}]}',
+        ]
+    )
+
+
+def extract_concept_relations(
+    terms: list[ConceptTerm],
+    session: Any,
+    registry: RelationRegistry,
+    provider: LLMProvider | None = None,
+) -> EdgesV2Result:
+    """阶段2：在已确认概念词之间抽取概念边（关系词典提议制）。
+
+    词表校验：relation ∈ 词典 → 按 RelationSpec.level 定 confidence；
+    新词 → confidence="semantic" + is_new_relation=True（待用户确认入典）。
+    上限：边数 ≤ 概念词数×1.5（rule > semantic > structure 优先截断）。
+    降级：LLM 异常 → EdgesV2Result(success=False, warning 含 "concept_edge")，永不抛出。
+    """
+    try:
+        confirmed = [t for t in terms if t.confirmed]
+        if not confirmed:
+            return EdgesV2Result(edges=[], success=True, warning="")
+
+        max_edges = int(len(confirmed) * 1.5)  # 抽取上限：1.5×概念词数
+        known_names = [spec.name for spec in registry.all_specs()]
+
+        if provider is None:
+            provider = get_default_provider()
+
+        system = _relations_prompt(confirmed, known_names, max_edges)
+        raw = asyncio.run(provider.chat_json([{"role": "system", "content": system}]))
+
+        # 已确认概念词集合
+        term_names = {t.term for t in confirmed}
+
+        edges: list[ConceptEdgeV2] = []
+        for item in raw.get("edges", []):
+            if not isinstance(item, dict):
+                continue
+            from_term = item.get("from_term", "")
+            to_term = item.get("to_term", "")
+            # 只能连接已确认概念词
+            if from_term not in term_names or to_term not in term_names:
+                continue
+            relation = item.get("relation", "")
+            if not relation or not isinstance(relation, str):
+                continue
+
+            if registry.is_known(relation):
+                # 词典关系 → 按 RelationSpec.level 定 confidence
+                spec = next(s for s in registry.all_specs() if s.name == relation)
+                confidence: Literal["rule", "semantic", "structure"] = spec.level
+                is_new = False
+            else:
+                # 新词 → semantic + is_new_relation（待用户确认入典）
+                confidence = "semantic"
+                is_new = True
+
+            edges.append(
+                ConceptEdgeV2(
+                    from_term=from_term,
+                    to_term=to_term,
+                    relation=relation,
+                    is_new_relation=is_new,
+                    rationale=item.get("rationale", ""),
+                    confidence=confidence,
+                    confirmed=False,
+                )
+            )
+
+        # 上限截断 + 优先级排序 (rule > semantic > structure)
+        priority_order = {"rule": 0, "semantic": 1, "structure": 2}
+        edges.sort(key=lambda e: priority_order.get(e.confidence, 3))
+        edges = edges[:max_edges]
+
+        return EdgesV2Result(edges=edges, success=True, warning="")
+
+    except Exception as e:  # noqa: BLE001 — degrade, never crash
+        return EdgesV2Result(
+            success=False,
+            warning=f"concept_edge extraction failed: {str(e)[:200]}",
+        )
