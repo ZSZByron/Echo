@@ -58,9 +58,21 @@ from app.models.dimension import (
     SocOutput,
     WstOutput,
 )
-from app.domains.creation.a1.concept_edge_extractor import ExtractResult, extract_concept_edges
-from app.domains.creation.a1.concept_edge_vocab import EDGE_VOCAB
-from app.models.knowledge_graph import EdgeType, GraphEdge, GraphNode, KnowledgeGraph
+from app.domains.creation.a1.concept_edge_extractor import (
+    ConceptTerm,
+    EdgesV2Result,
+    TermsResult,
+    extract_concept_relations,
+    extract_concept_terms,
+)
+from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
+from app.models.knowledge_graph import (
+    EdgeType,
+    GraphEdge,
+    GraphNode,
+    KnowledgeGraph,
+    NodeStatus,
+)
 
 router = APIRouter()
 
@@ -183,7 +195,7 @@ def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
     return DimensionResultSet(**drs_kwargs)
 
 
-def _build_graph(session: A1Session, file_rec: dict) -> KnowledgeGraph:
+def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, set[str]]:
     bg_id = f"bg_{session.session_id[:8]}"
     nodes: dict[str, GraphNode] = {
         bg_id: GraphNode(id=bg_id, serial_number="0", level=1,
@@ -566,6 +578,9 @@ def get_file(file_id: str) -> dict:
         "edge_stats": edge_stats,
         "confirmed_edges": rec.get("confirmed_edges", {}),
         "rejected_edges": rec.get("rejected_edges", {}),
+        # Task T-B: 常驻字段（draft 态为空）
+        "concept_terms": rec.get("concept_terms", []),
+        "proposed_relations": rec.get("proposed_relations", []),
     }
 
 
@@ -614,9 +629,9 @@ def _add_concept_edges_to_graph(
     confirmed_edges: dict[str, dict],
     rejected_edges: dict[str, dict],
 ) -> list[GraphEdge]:
-    """Add concept edges to graph, with node validation and state restoration.
+    """[Task T-B 停用] 旧槽位级概念边合并——finalize 已改两阶段编排，不再调用.
 
-    Returns list of GraphEdge objects that were actually added.
+    保留函数体仅作文件级兼容（历史 graph_json 迁移参考），新代码勿用。
     """
     added: list[GraphEdge] = []
     prior_confirmed = dict(confirmed_edges)  # snapshot BEFORE loop (fix intra-pass pollution)
@@ -697,34 +712,71 @@ def finalize(file_id: str) -> dict:
     graph, valid_node_ids = _build_graph(session, rec)
     warnings: list[str] = []
 
-    # Task 7: Extract concept edges and integrate into graph
+    # Task T-B 阶段1: 抽概念词节点入图（TREE 结构不动；概念边本阶段不抽，
+    # 节点确认后经 POST /concept/extract-edges 阶段2抽取）
     try:
         try:
             provider = create_provider(load_provider_config())
         except Exception:  # noqa: BLE001
             provider = None
-        extract_result = extract_concept_edges(session, EDGE_VOCAB, provider=provider)
+        terms_result = extract_concept_terms(session, provider=provider)
     except Exception as exc:  # noqa: BLE001 — degrade on any extraction error
-        extract_result = ExtractResult(
+        terms_result = TermsResult(
             success=False,
-            warning=f"concept_edge extraction failed: {str(exc)[:200]}",
+            warning=f"concept_term extraction failed: {str(exc)[:200]}",
         )
 
-    if extract_result.success:
-        # Ensure confirmed_edges/rejected_edges dicts exist (backward compat)
+    if terms_result.success:
+        # Re-finalize: 恢复此前概念词的 confirmed 态（同词保留，新词默认 False）
+        prev_terms = {t["term"]: t for t in rec.get("concept_terms", [])}
+        merged: list[dict] = []
+        for ct in terms_result.terms:
+            p = prev_terms.get(ct.term)
+            merged.append({
+                "term": ct.term,
+                "field_key": ct.field_key,
+                "gloss": ct.gloss,
+                "confirmed": bool(p["confirmed"]) if p else False,
+            })
+        rec["concept_terms"] = merged
+
+        # 概念词节点入图：id 前缀 term: + level=4 双标识；同词去重
+        for t in merged:
+            nid = f"term:{t['term']}"
+            if nid not in graph.nodes:
+                graph.nodes[nid] = GraphNode(
+                    id=nid, serial_number="", level=4,
+                    description=t["term"], status=NodeStatus.COMPLETED,
+                )
+            valid_node_ids.add(nid)
+
+        # 重定稿恢复：已确认/未确认概念边按 confirmed_edges 快照重入图
+        #（键格式 term:A/term:B/relation）；已拒绝边不重现；引用失效的边丢弃
         confirmed = rec.get("confirmed_edges", {})
         rejected = rec.get("rejected_edges", {})
-
-        _add_concept_edges_to_graph(
-            graph, extract_result.edges, valid_node_ids, confirmed, rejected,
-        )
-
-        # Write open_questions to _FILES
-        rec["open_questions"] = extract_result.open_questions
+        for key, snap in confirmed.items():
+            if key in rejected:
+                continue
+            fid = snap.get("from_node_id", "")
+            tid = snap.get("to_node_id", "")
+            if fid not in graph.nodes or tid not in graph.nodes:
+                continue
+            confidence = snap.get("confidence", "semantic")
+            graph.edges.append(GraphEdge(
+                from_node_id=fid, to_node_id=tid,
+                edge_type=_CONFIDENCE_TO_EDGETYPE.get(confidence, EdgeType.SEMANTIC),
+                visual_description=snap.get("relation", ""),
+                relation=snap.get("relation", ""),
+                confidence=confidence,
+                confirmed=bool(snap.get("confirmed", False)),
+            ))
     else:
-        # Degradation: pure TREE graph, warnings contain "concept_edge"
-        warnings.append(extract_result.warning or "concept_edge extraction failed")
-        rec["open_questions"] = rec.get("open_questions", [])
+        # Degradation: 纯 TREE 图 + 无概念节点，warnings 含 "concept_term"
+        warnings.append(terms_result.warning or "concept_term extraction failed")
+        rec["concept_terms"] = rec.get("concept_terms", [])
+
+    # 旧槽位级概念边抽取已停用（两阶段编排取代）；open_questions 字段保留常驻
+    rec["open_questions"] = rec.get("open_questions", [])
 
     # Compute edge_stats from all edges in the graph
     rec["edge_stats"] = _compute_edge_stats(graph.edges)
@@ -765,7 +817,8 @@ def finalize(file_id: str) -> dict:
         thread.start()
         _visual_bg_tasks[file_id] = thread
 
-    return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings, "status": "finalized"}
+    return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings,
+            "status": "finalized", "concept_terms_count": len(rec.get("concept_terms", []))}
 
 
 @router.get("/api/a1/file/{file_id}/graph")
@@ -1230,6 +1283,8 @@ def confirm_edge(file_id: str, key: str) -> dict:
             g = _KG.model_validate(rec["graph_json"])
             rec["edge_stats"] = _compute_edge_stats(g.edges)
 
+        # Task T-B: 新词入典流——确认含提议新关系的边 → relation 入典
+        _induct_proposed_relation(rec, key)
         return {"confirmed": True, "key": key}
 
     if key not in confirmed:
@@ -1253,6 +1308,13 @@ def confirm_edge(file_id: str, key: str) -> dict:
                 edge["confirmed"] = True
                 break
 
+        # Recompute edge_stats after confirmed state flip
+        from app.models.knowledge_graph import KnowledgeGraph as _KG2
+        g2 = _KG2.model_validate(rec["graph_json"])
+        rec["edge_stats"] = _compute_edge_stats(g2.edges)
+
+    # Task T-B: 新词入典流——确认含提议新关系的边 → relation 入典
+    _induct_proposed_relation(rec, key)
     return {"confirmed": True, "key": key}
 
 
@@ -1292,3 +1354,147 @@ def reject_edge(file_id: str, key: str) -> dict:
         rec["edge_stats"] = _compute_edge_stats(g.edges)
 
     return {"rejected": True, "key": key}
+
+
+# ---------------------------------------------------------------------------
+# Task T-B: 两阶段编排——节点确认 + 阶段2概念边抽取端点
+# ---------------------------------------------------------------------------
+
+
+class TermsConfirmRequest(BaseModel):
+    """批量确认概念词：terms=[词列表] 或 all=true."""
+    terms: list[str] = []
+    all: bool = False
+
+
+def _registry_from_rec(rec: dict) -> RelationRegistry:
+    """从 _FILES 持久化键 relation_registry 恢复词典（种子+运行时入典条目）."""
+    registry = RelationRegistry()
+    for name, spec in (rec.get("relation_registry") or {}).items():
+        registry.add(name, level=spec.get("level", "semantic"),
+                     gloss=spec.get("gloss", ""))
+    return registry
+
+
+def _persist_registry(rec: dict, registry: RelationRegistry) -> None:
+    """序列化 RelationRegistry 当前条目到 _FILES.relation_registry（re-finalize 恢复用）."""
+    rec["relation_registry"] = {
+        s.name: {"level": s.level, "gloss": s.gloss} for s in registry.all_specs()
+    }
+
+
+def _induct_proposed_relation(rec: dict, key: str) -> None:
+    """Task T-B 新词入典流：用户确认含提议新关系的边 → relation 入典（默认◆semantic）
+    并从 proposed_relations 移除该条."""
+    snap = rec.get("confirmed_edges", {}).get(key)
+    if not snap:
+        return
+    relation = snap.get("relation", "")
+    proposed = rec.get("proposed_relations", [])
+    match = next(
+        (p for p in proposed
+         if p["name"] == relation
+         and f"term:{p['from_term']}" == snap.get("from_node_id")
+         and f"term:{p['to_term']}" == snap.get("to_node_id")),
+        None,
+    )
+    if match is None:
+        return
+    registry = _registry_from_rec(rec)
+    registry.add(relation)
+    _persist_registry(rec, registry)
+    proposed.remove(match)
+
+
+@router.post("/api/a1/file/{file_id}/terms/confirm")
+def confirm_terms(file_id: str, req: TermsConfirmRequest) -> dict:
+    """批量确认概念词节点（阶段2前置：confirmed ≥ 2 才能抽边）."""
+    rec = _get_file(file_id)
+    terms = rec.get("concept_terms", [])
+    for t in terms:
+        if req.all or t["term"] in req.terms:
+            t["confirmed"] = True
+    rec["concept_terms"] = terms
+    return {"concept_terms": terms}
+
+
+@router.post("/api/a1/file/{file_id}/concept/extract-edges")
+def extract_concept_edges_v2(file_id: str) -> dict:
+    """阶段2：在已确认概念词之间抽边（提议制）。失败降级 200+success=false."""
+    rec = _get_file(file_id)
+    if rec["status"] != "finalized" or not rec.get("graph_json"):
+        raise HTTPException(status_code=409, detail="pending_finalize")
+
+    terms_all = [ConceptTerm(**t) for t in rec.get("concept_terms", [])]
+    confirmed_terms = [t for t in terms_all if t.confirmed]
+    if len(confirmed_terms) < 2:
+        raise HTTPException(status_code=400, detail="需先确认至少2个概念词")
+
+    registry = _registry_from_rec(rec)
+    session = _SESSIONS[rec["session_id"]]
+
+    try:
+        try:
+            provider = create_provider(load_provider_config())
+        except Exception:  # noqa: BLE001
+            provider = None
+        result = extract_concept_relations(
+            confirmed_terms, session, registry, provider=provider,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade, never crash
+        return {"success": False,
+                "warning": f"concept_edge extraction failed: {str(exc)[:200]}"}
+
+    if not result.success:
+        return {"success": False, "warning": result.warning}
+
+    _persist_registry(rec, registry)
+
+    confirmed = rec.setdefault("confirmed_edges", {})
+    rejected = rec.get("rejected_edges", {})
+    proposed = rec.setdefault("proposed_relations", [])
+    proposed_names = {p["name"] for p in proposed}
+    graph_nodes = rec["graph_json"]["nodes"]
+
+    added = 0
+    for e in result.edges:
+        fid = f"term:{e.from_term}"
+        tid = f"term:{e.to_term}"
+        # 引用校验：词必须在已入图概念词节点内，缺失丢弃
+        if fid not in graph_nodes or tid not in graph_nodes:
+            continue
+        key = _make_edge_key(fid, tid, e.relation)
+        if key in rejected:
+            continue
+        confirmed_state = bool(confirmed.get(key, {}).get("confirmed", False))
+        edge_type = _CONFIDENCE_TO_EDGETYPE.get(e.confidence, EdgeType.SEMANTIC)
+        rec["graph_json"]["edges"].append({
+            "from_node_id": fid, "to_node_id": tid,
+            "edge_type": edge_type.value,
+            "visual_description": e.relation,
+            "relation": e.relation,
+            "confidence": e.confidence,
+            "confirmed": confirmed_state,
+        })
+        confirmed[key] = {
+            "from_node_id": fid, "to_node_id": tid,
+            "relation": e.relation, "confidence": e.confidence,
+            "confirmed": confirmed_state,
+        }
+        # 新词入典流：提议新关系不直接确认，记入 proposed_relations 待用户裁决
+        if (e.is_new_relation and not registry.is_known(e.relation)
+                and e.relation not in proposed_names):
+            proposed.append({
+                "name": e.relation,
+                "from_term": e.from_term, "to_term": e.to_term,
+                "rationale": e.rationale,
+            })
+            proposed_names.add(e.relation)
+        added += 1
+
+    from app.models.knowledge_graph import KnowledgeGraph as _KG
+    g = _KG.model_validate(rec["graph_json"])
+    rec["edge_stats"] = _compute_edge_stats(g.edges)
+
+    return {"success": True, "added": added,
+            "edges": [e.model_dump() for e in result.edges]}
