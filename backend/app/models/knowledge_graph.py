@@ -40,6 +40,8 @@ class GraphNode(BaseModel):
         level: Depth level (1-indexed by segment count).
         description: Visual description of the asset.
         status: Current lifecycle status.
+        tier: Content layer (0-6) from the A1 v0.5 tier mapping. Optional
+            for backward compatibility with legacy nodes without tier.
     """
 
     id: str
@@ -47,6 +49,7 @@ class GraphNode(BaseModel):
     level: int
     description: str = ""
     status: NodeStatus = NodeStatus.PENDING
+    tier: int | None = None
 
 
 class GraphEdge(BaseModel):

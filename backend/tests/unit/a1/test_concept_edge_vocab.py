@@ -23,14 +23,14 @@ class TestEdgeVocabFaithfulTranscription:
     """Verify EDGE_VOCAB matches v0.4 §3 exactly."""
 
     def test_edge_count_matches_document(self):
-        """§3 has exactly 16 edge entries (7★ + 5◆ + 4◇)."""
-        assert len(EDGE_VOCAB) == 16, f"Expected 16 edges from v0.4 §3, got {len(EDGE_VOCAB)}"
+        """§3 总表 16 条 + §2 tier 间派生边 10 条 = 26。"""
+        assert len(EDGE_VOCAB) == 26, f"Expected 26 edges from v0.4 §3+§2, got {len(EDGE_VOCAB)}"
 
     def test_level_distribution(self):
-        """§3 distribution: 7 rule (★) + 5 semantic (◆) + 4 structure (◇)."""
+        """Distribution: §3 (7★+5◆+4◇) + §2 tier 派生 (1★+9◆)."""
         level_counter = Counter(edge.level for edge in EDGE_VOCAB)
-        assert level_counter["rule"] == 7, f"Expected 7 rule edges, got {level_counter['rule']}"
-        assert level_counter["semantic"] == 5, f"Expected 5 semantic edges, got {level_counter['semantic']}"
+        assert level_counter["rule"] == 8, f"Expected 8 rule edges, got {level_counter['rule']}"
+        assert level_counter["semantic"] == 14, f"Expected 14 semantic edges, got {level_counter['semantic']}"
         assert level_counter["structure"] == 4, f"Expected 4 structure edges, got {level_counter['structure']}"
 
         # Write distribution evidence
@@ -39,11 +39,14 @@ class TestEdgeVocabFaithfulTranscription:
         evidence_dir = Path(__file__).resolve().parents[4] / ".sisyphus" / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
         with open(evidence_dir / "task-2-vocab-distribution.txt", "w", encoding="utf-8") as f:
-            f.write("Edge Vocabulary Distribution (from v0.4 §3):\n")
+            f.write("Edge Vocabulary Distribution (from v0.4 §3 + §2 tier 派生边):\n")
             f.write(f"  Total edges: {len(EDGE_VOCAB)}\n")
             for level in ["rule", "semantic", "structure"]:
                 f.write(f"  {level}: {level_counter[level]}\n")
             f.write(f"\nFull counter: {dict(level_counter)}\n")
+            f.write("\nAll edge names:\n")
+            for edge in EDGE_VOCAB:
+                f.write(f"  [{edge.level}] {edge.name}: {edge.from_slots} -> {edge.to_slots}\n")
 
     def test_each_edge_complete(self):
         """Every edge must have required fields (name, level, from_slots, to_slots)."""
@@ -77,6 +80,65 @@ class TestEdgeVocabFaithfulTranscription:
                 f.write("\n✅ All relation names are unique\n")
 
         assert not duplicates, f"Duplicate edge names found: {duplicates}"
+
+    def test_vocab_closed_set_enumeration(self):
+        """VOCAB_RELATION_NAMES should enumerate all edge names exactly."""
+        expected_names = frozenset(edge.name for edge in EDGE_VOCAB)
+        assert VOCAB_RELATION_NAMES == expected_names, "VOCAB_RELATION_NAMES should match all edge names"
+
+    def test_edge_names_use_v04_originals(self):
+        """Edge internal names must use v0.4 original text (no LLM inventions)."""
+        # Sample verification of key edges from §3
+        edge_names = {edge.name for edge in EDGE_VOCAB}
+
+        # Must-have ★ rule edges from v0.4 §3
+        expected_rule_edges = {
+            "DERIVES→骰子.概率分布",
+            "DERIVES→骰子.骰子数量",
+            "DERIVES→骰子.判定方式",
+            "DERIVES→骰子.成功判定",
+            "DERIVES→骰子.代价机制",
+            "DERIVES→力量.交互拓扑",
+            "COMPILES→Constraint(6维)",
+        }
+        assert expected_rule_edges.issubset(edge_names), f"Missing expected rule edges: {expected_rule_edges - edge_names}"
+
+        # Must-have ◆ semantic edges from v0.4 §3
+        expected_semantic_edges = {
+            "DERIVES→视觉.建筑/材质",
+            "DERIVES→文明.经济",
+            "DERIVES→文明.阶层",
+            "DERIVES→历史.主剧情4维",
+            "DERIVES→IP.类型",
+        }
+        assert expected_semantic_edges.issubset(edge_names), f"Missing expected semantic edges: {expected_semantic_edges - edge_names}"
+
+    def test_tier_derived_edges_coverage(self):
+        """§2 槽位注册表 tier 间派生边覆盖清单（逐条入库）。"""
+        edge_names = {edge.name for edge in EDGE_VOCAB}
+        expected_tier_edges = {
+            "力量源自",                    # tier0→tier1 (§2 L0: 起源力量→力量.溯源)
+            "中心位于",                    # tier2→tier0 (计划 §5.1 范本)
+            "争夺焦点",                    # tier2→tier2 跨模块 (计划 §5.1 范本)
+            "纪元塑史",                    # tier2→tier3 (§2 L3: 纪元维度→历史.事件图)
+            "时间起于",                    # tier0→tier3 (§2 L0: 起源时间线→历史.长度)
+            "存在塑力",                    # tier0→tier1 (§2: 存在物→力量.层级拓扑)
+            "视觉投影",                    # tier5/2→tier4 (§2 L4: 视觉.关键词上游)
+            "身份锚定",                    # tier2→tier4 (§2 L4: 玩法.玩家身份上游)
+            "成长映射",                    # tier1/5/3→tier4 (§2 L4: 成长方式/尽头上游)
+            "CONSTRAINT_LIMITS（边界锚定）",  # tier6→tier0-4 (§2 L6, ★)
+        }
+        missing = expected_tier_edges - edge_names
+        assert not missing, f"Missing tier-derived edges: {missing}"
+
+    def test_vocab_out_of_table_rejected(self):
+        """负向：表外关系不被词表接受（如 '力气很大'）。"""
+        edge_names = {edge.name for edge in EDGE_VOCAB}
+        out_of_table = {"力气很大", "DERIVES→力气", "力量很大"}
+        rejected = out_of_table - edge_names
+        assert rejected == out_of_table, f"表外关系意外出现在词表中: {out_of_table - rejected}"
+        for name in out_of_table:
+            assert not is_known_relation(name), f"表外关系被误接受: {name}"
 
     def test_vocab_closed_set_enumeration(self):
         """VOCAB_RELATION_NAMES should enumerate all edge names exactly."""
@@ -148,11 +210,11 @@ class TestHelperFunctions:
     def test_get_vocab_by_level(self):
         """get_vocab_by_level should filter edges by level."""
         rule_edges = get_vocab_by_level("rule")
-        assert len(rule_edges) == 7, f"Expected 7 rule edges, got {len(rule_edges)}"
+        assert len(rule_edges) == 8, f"Expected 8 rule edges, got {len(rule_edges)}"
         assert all(edge.level == "rule" for edge in rule_edges)
 
         semantic_edges = get_vocab_by_level("semantic")
-        assert len(semantic_edges) == 5, f"Expected 5 semantic edges, got {len(semantic_edges)}"
+        assert len(semantic_edges) == 14, f"Expected 14 semantic edges, got {len(semantic_edges)}"
         assert all(edge.level == "semantic" for edge in semantic_edges)
 
         structure_edges = get_vocab_by_level("structure")

@@ -49,7 +49,9 @@ class EdgeSpec:
 # Each entry corresponds to one row in the v0.4 §3 table (lines 353-368)
 # Column mapping: 级→level / 边→name / 上游→from_slots / 下游→to_slots / 说明→hint
 #
-# Level counts: 7 ★ (rule) + 5 ◆ (semantic) + 4 ◇ (structure) = 16 total
+# Level counts: §3 总表 7 ★ (rule) + 5 ◆ (semantic) + 4 ◇ (structure) = 16
+#             + §2 槽位注册表 tier 间派生边 1 ★ (rule) + 9 ◆ (semantic) = 10
+# 总计: 26 edges (8 rule + 14 semantic + 4 structure)
 # =============================================================================
 
 EDGE_VOCAB: list[EdgeSpec] = [
@@ -199,6 +201,106 @@ EDGE_VOCAB: list[EdgeSpec] = [
         hint="按 §2.L2b 映射表",
         rule="解析 冲突类型 答案值(ENUM)，按 v0.4 §2.L2b 映射表展开为 FACTION_OPPOSES / ALLIED 复合边",
         slot_note="v0.4 slots '文明.冲突'→'文明与社会.conflict', 映射表见 v0.4 §2.L2b (lines 238-245)",
+    ),
+    # =========================================================================
+    # Tier 间派生边（增量编译自 v0.4 §2 槽位注册表「上游依据→下游派生」列）
+    # =========================================================================
+    # §3 总表未覆盖的 §2 上下游链接，按 tier 映射（v0.5 §3）跨模块补入：
+    #   tier0 世界本体 / tier1 力量体系 / tier2 地理空间+文明与社会 /
+    #   tier3 历史时间线 / tier4 视觉+玩法 / tier5 IP定位 / tier6 设定边界
+    # 命名采用设计计划 §5.1 形状范本的中文短边名（机器可读常量，仍封闭）
+    # =========================================================================
+    # ◆ Tier-spanning semantic edges (9 total)
+    EdgeSpec(
+        name="力量源自",
+        level="semantic",
+        from_slots=["世界本体.起源.起源力量"],
+        to_slots=["力量.溯源"],
+        hint="力量源头指向起源设定",
+        rule="LLM 依据 起源力量(意志型/物质型) 推断力量体系的来源底层，需用户确认",
+        slot_note="v0.4 §2 L0: 起源力量 下游 力量.溯源(流动拓扑)；tier0→tier1；A1 keys '世界本体.origin'→'力量体系.source'",
+    ),
+    EdgeSpec(
+        name="中心位于",
+        level="semantic",
+        from_slots=["地理.主世界设计.架构维度"],
+        to_slots=["世界本体.起源.起源力量"],
+        hint="世界结构的中心=起源物",
+        rule="LLM 依据 架构维度(浮岛/同心球/世界树) 推断世界中心与起源物的空间对应，需用户确认",
+        slot_note="设计计划 §5.1 范本边；tier2→tier0；'地理空间.terrain'→'世界本体.origin'",
+    ),
+    EdgeSpec(
+        name="争夺焦点",
+        level="semantic",
+        from_slots=["文明.冲突"],
+        to_slots=["地理.特殊地理"],
+        hint="冲突围绕的地理目标",
+        rule="LLM 依据 冲突类型 推断各方争夺的地理焦点(特殊地理/高势能区)，需用户确认",
+        slot_note="设计计划 §5.1 范本边；tier2→tier2 跨模块；'文明与社会.conflict'→'地理空间.special_geo'",
+    ),
+    EdgeSpec(
+        name="纪元塑史",
+        level="semantic",
+        from_slots=["地理.主世界设计.纪元维度"],
+        to_slots=["历史.事件图"],
+        hint="事件图拓扑形态与纪元设定一致（进步→链/循环→环/虚无→熵增链）",
+        rule="LLM 依据 纪元维度(创世阶段/循环机制) 推断事件图拓扑形态，v0.4 §2 标注为[校验]，需用户确认",
+        slot_note="v0.4 §2 L3: 历史事件图 上游 主世界.纪元维度；tier2→tier3；'地理空间.terrain'→'历史时间线.key_nodes'",
+    ),
+    EdgeSpec(
+        name="时间起于",
+        level="semantic",
+        from_slots=["世界本体.起源.起源时间线"],
+        to_slots=["历史.长度"],
+        hint="历史时间轴起点=起源时间线",
+        rule="LLM 依据 起源时间线 推断历史长度与 era 划分起点，需用户确认",
+        slot_note="v0.4 §2 L0: 起源时间线 下游 历史.time_span；tier0→tier3；'世界本体.origin'→'历史时间线.length'",
+    ),
+    EdgeSpec(
+        name="存在塑力",
+        level="semantic",
+        from_slots=["世界本体.存在物"],
+        to_slots=["力量.载体.层级拓扑"],
+        hint="存在物差异→力量分布（龙→天赋拓扑；人类→习得拓扑）",
+        rule="LLM 依据 存在物分类 推断力量层级分化形态，需用户确认",
+        slot_note="v0.4 §2 L0: 存在物 下游 力量.层级拓扑；tier0→tier1；'世界本体.existence'→'力量体系.acquire'",
+    ),
+    EdgeSpec(
+        name="视觉投影",
+        level="semantic",
+        from_slots=["IP.概念", "地理.主世界设计", "文明.核心价值"],
+        to_slots=["视觉.关键词"],
+        hint="风格DNA=概念+地理+文明的投影",
+        rule="LLM 依据 IP.概念 + 地理 + 文明.核心价值 推断视觉风格关键词，需用户确认",
+        slot_note="v0.4 §2 L4: 视觉.关键词 上游 IP.概念+地理+文明；tier5/2→tier4；'视觉.关键词'→'视觉设计.style'",
+    ),
+    EdgeSpec(
+        name="身份锚定",
+        level="semantic",
+        from_slots=["文明.势力类型"],
+        to_slots=["玩法.玩家身份"],
+        hint="社会→维度→超越三阶段分别锚定 L2/L1宇宙学/L0哲学",
+        rule="LLM 依据 势力类型 推断玩家身份的社会位置与超越路径，需用户确认",
+        slot_note="v0.4 §2 L4: 玩法.玩家身份 上游 文明.势力；tier2→tier4；'文明与社会.faction'→'玩法设计DNA.player_role'",
+    ),
+    EdgeSpec(
+        name="成长映射",
+        level="semantic",
+        from_slots=["力量.机制.交互拓扑", "IP.概念", "历史.主剧情.归宿维度"],
+        to_slots=["玩法.成长方式", "玩法.成长尽头"],
+        hint="量变/质变→成长路径；归宿→成长尽头（社会性/法则性/哲学性）",
+        rule="LLM 依据 力量.机制 + IP.概念 + 历史.归宿 推断成长方式与成长尽头拓扑，需用户确认",
+        slot_note="v0.4 §2 L4: 成长方式/成长尽头 上游链；tier1/5/3→tier4；'玩法设计DNA.growth'",
+    ),
+    # ★ Tier-spanning rule edge (1 total) - 确定性编译
+    EdgeSpec(
+        name="CONSTRAINT_LIMITS（边界锚定）",
+        level="rule",
+        from_slots=["边界.不可变集"],
+        to_slots=["IP定位", "世界本体", "力量体系", "地理空间", "历史时间线", "视觉设计", "玩法设计DNA"],
+        hint="锚定不可变集声明的全部节点（v0.4 §2 L6）",
+        rule="解析 边界.不可变集 锁定清单，对清单内每个模块节点建 CONSTRAINT_LIMITS 锚定边（确定性编译）",
+        slot_note="v0.4 §2 L6: 边界.不可变集 CONSTRAINT_LIMITS 边；tier6→tier0-4；A1 key '设定边界.immutable_core'",
     ),
 ]
 
