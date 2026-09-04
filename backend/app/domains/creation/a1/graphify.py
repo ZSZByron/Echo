@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -37,6 +38,9 @@ from app.domains.creation.seed.a1_question_tree import all_subfield_keys
 
 #: LLM call timeout in seconds. Overridable via ``GRAPHIFY_TIMEOUT`` env var.
 GRAPHIFY_TIMEOUT: int = int(os.environ.get("GRAPHIFY_TIMEOUT", "60"))
+
+#: Pause before the single retry of a provider-layer failure (seconds).
+_RETRY_PAUSE_SECONDS: float = 1.0
 
 #: Placeholder title when sanitization leaves nothing usable.
 _UNNAMED_PLACEHOLDER = "未命名"
@@ -512,9 +516,16 @@ def graphify_llm(
 
     Contract: prompt = answers full text + closed vocab + immutable list +
     tier table + node reference rules (+ C7 answered evidence slot, wired
-    in T17). Single ``chat_json`` call under ``asyncio.wait_for``; any
-    failure (exception / timeout / parse error / validation shape error)
-    degrades to ``GraphifyResult(success=False, warning="graphify failed: …")``
+    in T17). Single ``chat_json`` call per attempt under ``asyncio.wait_for``.
+
+    Retry policy: provider-layer failures (timeout / network exception from
+    ``chat_json``) are retried **once** after a short pause; transient
+    provider failures are thus absorbed. JSON parse / shape validation
+    failures are NOT retried (same prompt replay would fail identically).
+    Timeout semantics: each attempt gets a full ``timeout`` budget (worst
+    case total ≈ 2×timeout + 1s retry pause — acceptable inside finalize).
+    Any final failure degrades to
+    ``GraphifyResult(success=False, warning="graphify failed: …")``
     and NEVER raises.
 
     Args:
@@ -529,10 +540,28 @@ def graphify_llm(
         answers = getattr(session, "answers", {}) or {}
         system = build_graphify_prompt(answers, answered_evidence)
         messages = [{"role": "system", "content": system}]
-        raw = asyncio.run(
-            asyncio.wait_for(provider.chat_json(messages), timeout=effective_timeout)
-        )
+
+        async def _attempt() -> Any:
+            """One provider call under its own full timeout budget."""
+            return await asyncio.wait_for(
+                provider.chat_json(messages), timeout=effective_timeout
+            )
+
+        raw: Any = None
+        last_err: Exception | None = None
+        for attempt in (1, 2):
+            try:
+                raw = asyncio.run(_attempt())
+                break
+            except Exception as e:  # noqa: BLE001 — provider-layer failure
+                last_err = e
+                if attempt == 1:
+                    time.sleep(_RETRY_PAUSE_SECONDS)
+        if raw is None and last_err is not None:
+            raise last_err
         log_event(session_id, "graphify_raw", chars=len(str(raw)))
+        # Parse/validate OUTSIDE the retry loop: wrong-shape JSON replays
+        # identically on retry — degrade fast instead.
         result = parse_graphify_raw(raw)
         return apply_graphify_validation(result)
     except Exception as e:  # noqa: BLE001 — degrade, never crash finalize

@@ -295,3 +295,86 @@ def test_negative_wrong_type_is_total_failure(make_stub_llm) -> None:
 def test_result_type_is_graphify_result(make_stub_llm) -> None:
     result = graphify_llm(_make_session(), make_stub_llm(response={}))
     assert isinstance(result, GraphifyResult)
+
+
+# =============================================================================
+# Provider-layer retry (retry once on transient failure)
+# =============================================================================
+
+
+class _FlakyProvider:
+    """Programmable provider whose chat_json behaves per-call (retry tests)."""
+
+    def __init__(self, behaviors: list) -> None:
+        # behaviors: list of either Exception instances (raise) or dicts
+        # (return), consumed one per chat_json call; the last one repeats.
+        self._behaviors = list(behaviors)
+        self.chat_json_calls = 0
+        self.last_messages = None
+
+    async def chat_json(self, messages, **kwargs):  # type: ignore[no-untyped-def]
+        idx = min(self.chat_json_calls, len(self._behaviors) - 1)
+        self.chat_json_calls += 1
+        self.last_messages = messages
+        behavior = self._behaviors[idx]
+        if isinstance(behavior, Exception):
+            raise behavior
+        return behavior
+
+
+def test_retry_once_on_provider_error_succeeds() -> None:
+    provider = _FlakyProvider([RuntimeError("transient"), _happy_response()])
+    result = graphify_llm(_make_session({VALID_ANCHOR: "答案正文"}), provider)
+
+    assert provider.chat_json_calls == 2
+    assert result.success is True
+    assert result.warning == ""
+    assert result.module_summaries  # five fields parsed
+    assert len(result.entries) == 1
+    assert len(result.edges) == 1
+    assert len(result.open_questions) == 1
+    assert result.constraint_fields
+
+
+def test_retry_exhausted_still_degrades() -> None:
+    provider = _FlakyProvider([RuntimeError("api down")])
+    result = graphify_llm(_make_session(), provider)
+
+    assert provider.chat_json_calls == 2  # retried once
+    assert result.success is False
+    assert "graphify failed" in result.warning
+    assert "api down" in result.warning
+    assert result.edges == []
+
+
+def test_parse_failure_not_retried() -> None:
+    provider = _FlakyProvider([["not", "a", "dict"]])  # wrong container type
+    result = graphify_llm(_make_session(), provider)
+
+    assert provider.chat_json_calls == 1  # no retry on parse/shape failure
+    assert result.success is False
+    assert "graphify failed" in result.warning
+
+
+def test_timeout_retried_and_second_attempt_succeeds() -> None:
+    import asyncio as _asyncio
+
+    class _SlowThenFastProvider(_FlakyProvider):
+        async def chat_json(self, messages, **kwargs):  # type: ignore[no-untyped-def]
+            idx = min(self.chat_json_calls, len(self._behaviors) - 1)
+            self.chat_json_calls += 1
+            self.last_messages = messages
+            behavior = self._behaviors[idx]
+            if isinstance(behavior, Exception):
+                raise behavior
+            delay, payload = behavior
+            if delay:
+                await _asyncio.sleep(delay)
+            return payload
+
+    provider = _SlowThenFastProvider([(0.5, None), (0.0, _happy_response())])
+    result = graphify_llm(_make_session(), provider, timeout=0.2)
+
+    assert provider.chat_json_calls == 2
+    assert result.success is True
+    assert len(result.entries) == 1
