@@ -99,6 +99,17 @@ interface ChatResponse {
   pending_questions_count?: number;
 }
 
+/** T17+P0: open_questions 结构化记录契约（后端 C6：禁裸 list[str]） */
+export type OpenQuestionStatus = 'pending' | 'asked' | 'answered' | 'skipped';
+export interface OpenQuestionRecord {
+  id: string;
+  question: string;
+  status: OpenQuestionStatus;
+  answer?: string;
+  created_at?: string;
+  source_hint?: string;
+}
+
 interface FileData {
   file_id: string;
   status: 'draft' | 'finalized';
@@ -112,7 +123,7 @@ interface FileData {
     content?: string;
     subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
   }>;
-  open_questions: string[];
+  open_questions: Array<OpenQuestionRecord | string>;
   edge_stats: {
     semantic_total: number;
     semantic_confirmed: number;
@@ -1267,7 +1278,16 @@ function GraphViewContent({
   }, [fileId]);
 
   // Stable prop identities: useMemo prevents new []/{} on each render
-  const stableOpenQuestions = useMemo(() => localFileData?.open_questions ?? [], [localFileData]);
+  // P0: 归一化兜底 — 旧会话数据可能是裸 string，统一转为 OpenQuestionRecord
+  const stableOpenQuestions = useMemo(
+    () =>
+      (localFileData?.open_questions ?? []).map((q, i) =>
+        typeof q === 'string'
+          ? { id: `legacy-${i}`, question: q, status: 'pending' as const }
+          : q
+      ),
+    [localFileData]
+  );
   const stableRejectedEdges = useMemo(() => localFileData?.rejected_edges ?? {}, [localFileData]);
 
   return (

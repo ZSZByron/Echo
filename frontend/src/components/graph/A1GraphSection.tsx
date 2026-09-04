@@ -14,13 +14,14 @@ import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
 import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation } from '../../types/a1';
+import type { OpenQuestionRecord } from '../../pages/a1/A1Workspace';
 
 interface A1GraphSectionProps {
   fileId: string;
   returnToChat: () => void;
   version?: number;
   isStale?: boolean;
-  openQuestions?: string[];
+  openQuestions?: OpenQuestionRecord[];
   rejectedEdges?: Record<string, { from_node_id: string; to_node_id: string; relation: string }>;
 }
 
@@ -56,6 +57,11 @@ export function A1GraphSection({
   openQuestions = [],
   rejectedEdges = {},
 }: A1GraphSectionProps) {
+  // P0: 只把 pending/asked 算作「待问」；answered/skipped 不显示也不计数
+  const pendingOpenQuestions = useMemo(
+    () => openQuestions.filter((q) => q.status === 'pending' || q.status === 'asked'),
+    [openQuestions]
+  );
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [lastGraph, setLastGraph] = useState<KnowledgeGraph | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -397,7 +403,7 @@ export function A1GraphSection({
             )}
             <span className="text-amber-400">待确认 <b>{stats.pending}</b></span>
             <span className="text-emerald-400">已确认 <b>{stats.confirmed}</b></span>
-            <span className="text-blue-400">待问 <b>{openQuestions.length}</b></span>
+            <span className="text-blue-400">待问 <b>{pendingOpenQuestions.length}</b></span>
             {/* T16: degradation badge — only when finalize produced warnings */}
             {finalizeWarnings.length > 0 && (
               <div className="relative">
@@ -504,16 +510,16 @@ export function A1GraphSection({
           />
 
           {/* Pending questions overlay (P4, tree mode convenience) */}
-          {viewMode === 'tree' && openQuestions.length > 0 && (
+          {viewMode === 'tree' && pendingOpenQuestions.length > 0 && (
             <div className="absolute bottom-4 left-4 z-10 w-80 glass-panel p-4 bg-space-800/80 border-white/10 max-h-[40%] overflow-y-auto">
               <h3 className="text-stardust-300 text-sm font-medium mb-2">
-                待问 {openQuestions.length}
+                待问 {pendingOpenQuestions.length}
               </h3>
               <ul className="space-y-2">
-                {openQuestions.map((question, index) => (
-                  <li key={index} className="flex items-start gap-2">
+                {pendingOpenQuestions.map((q, index) => (
+                  <li key={q.id || index} className="flex items-start gap-2">
                     <span className="text-nebula-400 mt-1">•</span>
-                    <span className="text-gray-300 flex-1 text-xs">{question}</span>
+                    <span className="text-gray-300 flex-1 text-xs">{q.question}</span>
                     <button
                       onClick={handleGoAnswer}
                       className="text-stardust-400 hover:text-stardust-300 text-xs font-medium transition-colors"

@@ -199,15 +199,40 @@ describe('computeNodeLayout — zero-overlap invariant (occlusion fix R6)', () =
     expectZeroOverlap(layout);
   });
 
-  it('fixture B (concept): tier2 + tier4 columns -> no bbox overlap', () => {
+  it('fixture B (concept): tier2 + tier4 columns -> module-level nodes only, no bbox overlap', () => {
     const tiers = new Map([
       ['m1', 2], ['m2', 2],
       ['m3', 4], ['m4', 4], ['m5', 4],
     ]);
     const { nodes, edges } = buildFixture(['m1', 'm2', 'm3', 'm4', 'm5'], tiers);
     const layout = computeNodeLayout(nodes, edges, 'concept');
-    expect(layout.size).toBe(nodes.length);
+    // Concept = module relation web (T15): only L1 root + L2 modules get boxes
+    const moduleLevelCount = nodes.filter(n => n.level <= 2).length;
+    expect(layout.size).toBe(moduleLevelCount);
     expectZeroOverlap(layout);
+  });
+
+  it('concept mode: NO entry (dot/slug id), depth (d:) or term: nodes get boxes (T15)', () => {
+    const nodes: GraphNode[] = [
+      mkNode('bg', 1),
+      mkNode('世界本体', 2, 0),
+      mkNode('世界本体.origin', 3),      // real-data dot-key entry
+      mkNode('m1-e1', 3),                // slug entry
+      mkNode('d:m1-e1:detail1', 4),      // depth node
+      mkNode('term:灵气', 4),            // concept-term node
+    ];
+    const edges: GraphEdge[] = [
+      treeEdge('bg', '世界本体'),
+      treeEdge('世界本体', '世界本体.origin'),
+      treeEdge('世界本体', 'm1-e1'),
+      treeEdge('m1-e1', 'd:m1-e1:detail1'),
+    ];
+    const layout = computeNodeLayout(nodes, edges, 'concept');
+    expect(layout.size).toBe(2); // bg + module only
+    expect(layout.has('世界本体.origin')).toBe(false);
+    expect(layout.has('m1-e1')).toBe(false);
+    expect(layout.has('d:m1-e1:detail1')).toBe(false);
+    expect(layout.has('term:灵气')).toBe(false);
   });
 
   it('fixture C (degenerate): single module single entry -> finite positions, no NaN', () => {
@@ -251,13 +276,20 @@ describe('computeNodeLayout — zero-overlap invariant (occlusion fix R6)', () =
     m1Entries.forEach(a => m2Entries.forEach(b => expect(separated(a, b)).toBe(true)));
   });
 
-  it('R4: concept-mode detail bands shift below the deepest tier column', () => {
+  it('R4 (updated by T15): concept mode excludes detail nodes, keeps module tier positions', () => {
     const tiers = new Map([['m1', 2], ['m2', 2], ['m3', 4], ['m4', 4], ['m5', 4]]);
     const { nodes, edges } = buildFixture(['m1', 'm2', 'm3', 'm4', 'm5'], tiers);
     const layout = computeNodeLayout(nodes, edges, 'concept');
-    // With 3 modules in one tier column, entry band must sit below row 3
-    const entry = layout.get('m1-e1')!;
-    expect(entry.y).toBeGreaterThanOrEqual(240 + 2 * 220 + 180);
+    // T15: entries/terms/depth nodes no longer laid out in concept mode
+    expect(layout.has('m1-e1')).toBe(false);
+    expect(layout.has('term:t1')).toBe(false);
+    expect(layout.has('d:m1-e1:detail1')).toBe(false);
+    // Modules keep their tier columns
+    // Modules keep their tier bands: same tier -> one band (centred fan),
+    // tier 0 band column strictly left of tier 4 band column
+    const band2Center = (layout.get('m1')!.x + layout.get('m2')!.x) / 2;
+    const band4Center = (layout.get('m3')!.x + layout.get('m4')!.x + layout.get('m5')!.x) / 3;
+    expect(band2Center).toBeLessThan(band4Center);
   });
 
   it('R5: deterministic zIndex per kind', () => {

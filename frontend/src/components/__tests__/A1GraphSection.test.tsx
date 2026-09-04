@@ -360,8 +360,8 @@ describe('A1GraphSection - Pending Questions UI (P4)', () => {
 
   it('should display pending questions list from open_questions data', async () => {
     const mockOpenQuestions = [
-      '力量体系和文明的关系是怎样的？',
-      '在这个世界中，骰子的运作机制是什么？',
+      { id: 'q1', question: '力量体系和文明的关系是怎样的？', status: 'pending' as const },
+      { id: 'q2', question: '在这个世界中，骰子的运作机制是什么？', status: 'pending' as const },
     ];
 
     const mockGraph: KnowledgeGraph = { scene_id: 'test-scene', nodes: {}, edges: [] };
@@ -385,7 +385,9 @@ describe('A1GraphSection - Pending Questions UI (P4)', () => {
   });
 
   it('should set a1_return_intent to "chat" and call returnToChat when "去回答" is clicked', async () => {
-    const mockOpenQuestions = ['力量体系和文明的关系是怎样的？'];
+    const mockOpenQuestions = [
+      { id: 'q1', question: '力量体系和文明的关系是怎样的？', status: 'pending' as const },
+    ];
     const mockGraph: KnowledgeGraph = { scene_id: 'test-scene', nodes: {}, edges: [] };
     vi.mocked(fetchJson).mockResolvedValue(mockGraph);
 
@@ -430,6 +432,37 @@ describe('A1GraphSection - Pending Questions UI (P4)', () => {
 
     await waitFor(() => {
       expect(screen.queryByText(/待问/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('should not display answered/skipped questions in pending list or count', async () => {
+    const mockOpenQuestions = [
+      { id: 'q1', question: '待问的问题？', status: 'pending' as const },
+      { id: 'q2', question: '已回答的问题？', status: 'answered' as const, answer: '答案是……' },
+      { id: 'q3', question: '已跳过的问题？', status: 'skipped' as const },
+      { id: 'q4', question: '已提出的问题？', status: 'asked' as const },
+    ];
+    const mockGraph: KnowledgeGraph = { scene_id: 'test-scene', nodes: {}, edges: [] };
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+
+    render(
+      <A1GraphSection
+        fileId={mockFileId}
+        returnToChat={mockReturnToChat}
+        version={1}
+        isStale={false}
+        openQuestions={mockOpenQuestions}
+      />
+    );
+
+    await waitFor(() => {
+      // pending + asked = 2
+      expect(screen.getByText(/待问 2/)).toBeInTheDocument();
+      expect(screen.getByText('待问的问题？')).toBeInTheDocument();
+      expect(screen.getByText('已提出的问题？')).toBeInTheDocument();
+      // answered/skipped 不显示
+      expect(screen.queryByText('已回答的问题？')).not.toBeInTheDocument();
+      expect(screen.queryByText('已跳过的问题？')).not.toBeInTheDocument();
     });
   });
 });

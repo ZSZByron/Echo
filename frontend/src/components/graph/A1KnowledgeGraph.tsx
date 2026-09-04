@@ -33,7 +33,7 @@ export interface A1KnowledgeGraphProps {
     structure_total: number;
     pending_review: number;
   };
-  openQuestions?: string[];
+  openQuestions?: import('../../pages/a1/A1Workspace').OpenQuestionRecord[];
   onRefresh?: () => void;
   /** Controlled view mode (toolbar rendered by parent fullscreen layout) */
   viewMode?: 'tree' | 'concept';
@@ -136,7 +136,10 @@ export const DEPTH_SPACING = 220;
 export const DEPTH_SLOT = 200;
 export const TERM_SPACING = 190; // > term node width estimate (170)
 
-/** Conservative bounding boxes per node kind (occlusion fix R6, pure layout tests). */
+/** Conservative bounding boxes per node kind (occlusion fix R6, pure layout tests).
+ *  NOTE: these heights assume the 2-line CSS clamp (WebkitLineClamp: 2) applied to
+ *  L1/L2/L3/term/L4 labels in toReactFlowNode — unclamped long text breaks the
+ *  ENTRY_ROW_HEIGHT wrap-grid guarantee (overlap regression fix). */
 export const NODE_SIZE_ESTIMATES = {
   L0: { width: 180, height: 56 },
   L1: { width: 220, height: 64 },
@@ -337,6 +340,16 @@ export const computeNodeLayout = (
   mode: 'tree' | 'concept' = 'tree'
 ): Map<string, NodeLayoutBox> => {
   const boxes = new Map<string, NodeLayoutBox>();
+
+  // Concept = module relation web (T15, aligns with governance doc T14 contract):
+  // only module-level nodes participate — L2 modules + L1 root + L0 constraints.
+  // L3 entries / term nodes / depth nodes produce NO box in concept mode (their
+  // detail ocean drowned the tier grouping); semantic edges still render so the
+  // concept view becomes a clean module relationship network. Tree mode keeps
+  // rendering everything.
+  if (mode === 'concept') {
+    nodes = nodes.filter(n => n.level <= 2 && !isConceptTermNode(n));
+  }
 
   const byLevel: Record<number, GraphNode[]> = {};
   nodes.forEach(n => {
@@ -597,11 +610,15 @@ export const computeNodeLayout = (
   };
 
   // --- Entries under their module, wrapped into rows (F1) ---
+  // Track each entry's wrap row so its L4 children can follow it vertically
+  // (exclusive-row layout: same-module depth-bearing entries share x).
+  const entryRowOf = new Map<string, number>();
   entriesByModule.forEach((children, moduleId) => {
     const baseX = moduleId === '__orphans__' ? 0 : (moduleX.get(moduleId) ?? 0);
     const placed = relEntryXs.get(moduleId) ?? [];
     children.forEach((c, i) => {
       const p = placed[i] ?? { x: 0, row: 0 };
+      entryRowOf.set(c.id, p.row);
       boxes.set(c.id, boxFor('L3', baseX + p.x, bandY.L3 + p.row * ENTRY_ROW_HEIGHT));
     });
   });
@@ -623,8 +640,10 @@ export const computeNodeLayout = (
     const entryBox = boxes.get(entry.id);
     if (!plan || !entryBox) return;
     const children = l4ByEntry.get(entry.id)!;
+    const entryWrapRow = entryRowOf.get(entry.id) ?? 0;
     children.forEach((c, i) => {
-      const y = bandY.L4 + (plan.rows[i] ?? 0) * ENTRY_ROW_HEIGHT;
+      // y follows BOTH the parent entry's wrap row AND the slot's own wrap row
+      const y = bandY.L4 + (entryWrapRow + (plan.rows[i] ?? 0)) * ENTRY_ROW_HEIGHT;
       l4RowY.set(c.id, y);
       boxes.set(c.id, boxFor('L4', entryBox.x + plan.centers[i], y));
     });
@@ -750,6 +769,14 @@ export function A1KnowledgeGraph({
         boxShadow: `0 0 6px ${clusterColor}40`
       };
       label = `● ${node.description}`;
+      // 2-line clamp keeps term nodes within NODE_SIZE_ESTIMATES.term.height.
+      tooltip = node.description;
+      labelExtraStyle = {
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden'
+      };
     } else if (isDepth) {
       // v0.5 depth-tree node (level 4): thin cluster-colored border, content = LLM entry description
       const clusterColor = termClusterColor(node.id);
@@ -765,6 +792,15 @@ export function A1KnowledgeGraph({
       };
       label = `▸ ${node.description}`;
       tooltip = node.description;
+      // 2-line clamp keeps the rendered height <= NODE_SIZE_ESTIMATES.L4.height
+      // (long LLM entry descriptions would otherwise stretch the node and break
+      // the ENTRY_ROW_HEIGHT wrap-grid guarantee).
+      labelExtraStyle = {
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden'
+      };
     } else if (node.level === 1) {
       // Background root node: golden border
       nodeStyle = {
@@ -776,6 +812,16 @@ export function A1KnowledgeGraph({
         boxShadow: '0 0 10px rgba(251, 191, 36, 0.3)'
       };
       label = `✦ ${node.description}`;
+      // Defensive clamp: L1 descriptions (LLM summaries) can be long; keep the
+      // node within its NODE_SIZE_ESTIMATES.L1 box (maxWidth 260 + 2-line clamp).
+      tooltip = node.description;
+      nodeStyle.maxWidth = '260px';
+      labelExtraStyle = {
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden'
+      };
     } else if (node.level === 2) {
       // Module node: purple border
       nodeStyle = {
@@ -811,15 +857,32 @@ export function A1KnowledgeGraph({
           fontSize: '13px'
         };
         label = `· ${entryLabel}: ${entryValue}`;
+        // 2-line clamp + tooltip: real-data entry values are 50-100 char sentences;
+        // without clamping the node grows to 200px+ and breaks the wrap grid.
+        tooltip = node.description;
+        labelExtraStyle = {
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden'
+        };
       } else {
         nodeStyle = {
           border: '1px solid rgba(255, 255, 255, 0.15)',
           backgroundColor: 'rgba(19, 19, 42, 0.7)',
           borderRadius: '4px',
           padding: '8px',
-          minWidth: '140px'
+          minWidth: '140px',
+          maxWidth: '180px'
         };
         label = `· ${node.description}`;
+        tooltip = node.description;
+        labelExtraStyle = {
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden'
+        };
       }
     } else if (isConstraint) {
       // Constraint node: amber border
@@ -1203,12 +1266,18 @@ export function A1KnowledgeGraph({
               <span className="text-amber-300 font-bold">{stats.pending_review}</span>
             </div>
           )}
-          {openQuestions.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-blue-900/30 border border-blue-500/30 rounded-md">
-              <span className="text-blue-400">待问</span>
-              <span className="text-blue-300 font-bold">{openQuestions.length}</span>
-            </div>
-          )}
+          {(() => {
+            // P0: 只把 pending/asked 算作「待问」
+            const pendingOpenQuestions = openQuestions.filter(
+              (q) => q.status === 'pending' || q.status === 'asked'
+            );
+            return pendingOpenQuestions.length > 0 ? (
+              <div className="flex items-center gap-2 px-3 py-1 bg-blue-900/30 border border-blue-500/30 rounded-md">
+                <span className="text-blue-400">待问</span>
+                <span className="text-blue-300 font-bold">{pendingOpenQuestions.length}</span>
+              </div>
+            ) : null;
+          })()}
         </div>
         )}
 
@@ -1259,6 +1328,14 @@ export function A1KnowledgeGraph({
             />
             <span className="text-void-400">无分组</span>
           </div>
+          {filteredEdges.filter(e => e.confidence === 'semantic').length === 0 && (
+            <div
+              className="text-xs text-void-400/70 italic mt-1 border-t border-void-700 pt-2"
+              data-testid="no-semantic-edges-hint"
+            >
+              本轮无语义边（定稿降级或暂无派生关系）
+            </div>
+          )}
         </div>
       )}
 

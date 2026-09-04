@@ -392,7 +392,7 @@ export function EdgeReviewPanel({
     const isRejected = status === 'rejected';
 
     return (
-      <li
+      <div
         key={key}
         ref={el => { itemRefs.current[key] = el; }}
         data-edge-key={key}
@@ -454,7 +454,7 @@ export function EdgeReviewPanel({
             )}
           </div>
         </div>
-      </li>
+      </div>
     );
   };
 

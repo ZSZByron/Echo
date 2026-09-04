@@ -280,7 +280,10 @@ describe('A1KnowledgeGraph', () => {
         graph: fabricateTestGraph(),
         isLoading: false,
         error: null,
-        openQuestions: ['What is the magic source?', 'How do tribes interact?']
+        openQuestions: [
+          { id: 'q1', question: 'What is the magic source?', status: 'pending' },
+          { id: 'q2', question: 'How do tribes interact?', status: 'asked' },
+        ]
       };
 
       render(<A1KnowledgeGraph {...props} />);
