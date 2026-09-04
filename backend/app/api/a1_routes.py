@@ -40,6 +40,7 @@ from app.domains.creation.a1.semantic_compiler import (
 from app.domains.creation.graph.constraint_topology import apply_constraints
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
+    all_subfield_keys,
     first_subfield,
     get_module,
     get_subfield,
@@ -66,6 +67,13 @@ from app.domains.creation.a1.concept_edge_extractor import (
     extract_concept_terms,
 )
 from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
+from app.domains.creation.a1.graphify import (
+    GraphifyResult,
+    dedupe_items,
+    depth_id,
+    validate_anchors,
+)
+from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import (
     EdgeType,
     GraphEdge,
@@ -195,7 +203,132 @@ def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
     return DimensionResultSet(**drs_kwargs)
 
 
-def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, set[str]]:
+def _assemble_depth_tree(
+    session: A1Session,
+    llm_result: GraphifyResult,
+    nodes: dict[str, GraphNode],
+    edges: list[GraphEdge],
+    module_serial_by_id: dict[str, int],
+    entry_serial_by_id: dict[str, int],
+) -> tuple[list[str], int]:
+    """Mount the depth tree (L4 ``d:`` nodes) under answered concept-tree anchors.
+
+    Governance §5b: node id = ``depth_id(anchor, title)``; serial =
+    ``D{module_serial}-{entry_serial}-{k}``; TREE edge L3→L4 "分条目".
+    Phase 1: non-empty ``children`` only produce warnings (never consumed).
+    Returns ``(warnings, depth_node_count)``.
+    """
+    warnings: list[str] = []
+    illegal = set(validate_anchors(llm_result))
+    warnings.extend(illegal)
+    legal_anchors = set(all_subfield_keys())
+    mounted = 0
+    for group in llm_result.entries:
+        if group.anchor not in legal_anchors:
+            continue  # illegal anchor already reported via validate_anchors
+        anchor_module = group.anchor.split(".", 1)[0]
+        m_serial = module_serial_by_id.get(anchor_module)
+        e_serial = entry_serial_by_id.get(group.anchor)
+        if m_serial is None or e_serial is None:
+            # anchor's L3 entry node absent (empty answer) → nothing to mount under
+            warnings.append(f"锚点无已答条目节点，深度条目跳过: {group.anchor!r}")
+            continue
+        kept, dupes = dedupe_items(group.items)
+        warnings.extend(f"重复条目去重: {t!r}" for t in dupes)
+        warnings.extend(
+            f"children 深度 Phase 1 不开放: {group.anchor} / {item.title!r}"
+            for item in kept if item.children
+        )
+        for k, item in enumerate(kept, start=1):
+            nid = depth_id(group.anchor, item.title)
+            if nid in nodes:
+                continue
+            nodes[nid] = GraphNode(
+                id=nid,
+                serial_number=f"D{m_serial}-{e_serial}-{k}",
+                level=4,
+                description=item.content or item.title,
+            )
+            edges.append(GraphEdge(
+                from_node_id=group.anchor,
+                to_node_id=nid,
+                edge_type=EdgeType.TREE,
+                visual_description="分条目",
+            ))
+            mounted += 1
+    return warnings, mounted
+
+
+def _merge_llm_edges(
+    session: A1Session,
+    llm_result: GraphifyResult,
+    nodes: dict[str, GraphNode],
+    edges: list[GraphEdge],
+    file_rec: dict,
+    dead_edges: list[dict],
+) -> int:
+    """Merge ``llm_result.edges`` into the graph (governance §5c).
+
+    Endpoint-missing edges go into ``dead_edges`` (dead zone, persisted on
+    the file record) instead of being silently dropped. Re-finalize
+    recovery: a (from, to, relation) triple present in
+    ``file_rec["confirmed_edges"]`` restores ``confirmed=True`` (idempotent
+    merge pattern, mirrors the confirmed-edge loop in finalize).
+    Returns the number of edges actually added to the graph.
+    """
+    confirmed = file_rec.get("confirmed_edges", {})
+    added = 0
+    for spec in llm_result.edges:
+        fid, tid = spec.from_, spec.to
+        if fid not in nodes or tid not in nodes:
+            dead_edges.append({
+                "from": fid, "to": tid, "relation": spec.relation,
+                "confidence": spec.confidence, "reason": "endpoint_missing",
+            })
+            continue
+        key = _make_edge_key(fid, tid, spec.relation)
+        edges.append(GraphEdge(
+            from_node_id=fid,
+            to_node_id=tid,
+            edge_type=_CONFIDENCE_TO_EDGETYPE.get(spec.confidence, EdgeType.SEMANTIC),
+            visual_description=spec.relation,
+            relation=spec.relation,
+            confidence=spec.confidence,
+            confirmed=bool(key in confirmed),
+        ))
+        added += 1
+    return added
+
+
+def _assemble_assertions(
+    session: A1Session,
+    llm_result: GraphifyResult,
+    nodes: dict[str, GraphNode],
+    llm_semantic_added: int,
+    input_edges: int,
+) -> None:
+    """Runtime assembly assertions (governance §5 invariant checks, log-only)."""
+    if llm_result.constraint_fields and not any(
+        nid.startswith("cst:") for nid in nodes
+    ):
+        log_event(
+            session.session_id, "assemble_assertion",
+            kind="constraint_fields_without_cst_nodes",
+            constraint_fields=len(llm_result.constraint_fields),
+        )
+    if input_edges and llm_semantic_added == 0:
+        log_event(
+            session.session_id, "assemble_assertion",
+            kind="edges_without_semantic_edge",
+            input_edges=input_edges,
+        )
+
+
+def _build_graph(
+    session: A1Session,
+    file_rec: dict,
+    llm_result: GraphifyResult | None = None,
+) -> tuple[KnowledgeGraph, set[str]]:
     bg_id = f"bg_{session.session_id[:8]}"
     nodes: dict[str, GraphNode] = {
         bg_id: GraphNode(id=bg_id, serial_number="0", level=1,
@@ -205,6 +338,12 @@ def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, se
 
     # Track module serial number (only for modules with non-empty answers)
     module_serial = 0
+    module_serial_by_id: dict[str, int] = {}
+    entry_serial_by_id: dict[str, int] = {}
+
+    # Dead-edge zone: rebuilt every assemble; finalize may append more
+    # (confirmed-edge snapshots referencing endpoints absent from the graph).
+    dead_edges: list[dict] = []
 
     # Build level=2 module nodes and level=3 entry nodes
     for module in MODULES:
@@ -222,12 +361,18 @@ def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, se
         # Only create module node if there are non-empty answers
         if subfield_answers:
             module_serial += 1
-            # Level 2: Module node (description is just the label, not aggregated)
+            module_serial_by_id[module_id] = module_serial
+            # Level 2: Module node. With an LLM result, description comes
+            # from module_summaries (governance §5a); fall back to label.
+            l2_description = module_label
+            if llm_result is not None:
+                l2_description = llm_result.module_summaries.get(module_id) or module_label
             nodes[module_id] = GraphNode(
                 id=module_id,
                 serial_number=str(module_serial),
                 level=2,
-                description=module_label,
+                description=l2_description,
+                tier=TIER_MAP.get(module_id),
             )
 
             # TREE edge: background -> module
@@ -243,6 +388,7 @@ def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, se
             for sf, value in subfield_answers:
                 entry_serial += 1
                 entry_id = f"{module_id}.{sf['id']}"
+                entry_serial_by_id[entry_id] = entry_serial
                 nodes[entry_id] = GraphNode(
                     id=entry_id,
                     serial_number=f"{module_serial}-{entry_serial}",
@@ -257,6 +403,30 @@ def _build_graph(session: A1Session, file_rec: dict) -> tuple[KnowledgeGraph, se
                     edge_type=EdgeType.TREE,
                     visual_description="条目",
                 ))
+
+    # ---- A1 v0.5 dual-tree assembly (governance §2/§5) ----
+    llm_warnings: list[str] = []
+    input_edges = 0
+    llm_semantic_added = 0
+    if llm_result is not None:
+        llm_warnings, _mounted = _assemble_depth_tree(
+            session, llm_result, nodes, edges,
+            module_serial_by_id, entry_serial_by_id,
+        )
+        input_edges = len(llm_result.edges)
+        added = _merge_llm_edges(
+            session, llm_result, nodes, edges, file_rec, dead_edges,
+        )
+        llm_semantic_added = sum(
+            1 for e in edges[len(edges) - added:]
+            if e.confidence == "semantic"
+        ) if added else 0
+        _assemble_assertions(
+            session, llm_result, nodes, llm_semantic_added, input_edges,
+        )
+
+    file_rec["dead_edges"] = dead_edges
+    file_rec["assemble_warnings"] = llm_warnings
 
     graph = KnowledgeGraph(
         scene_id=session.session_id, background_node_id=bg_id,
@@ -760,6 +930,13 @@ def finalize(file_id: str) -> dict:
             fid = snap.get("from_node_id", "")
             tid = snap.get("to_node_id", "")
             if fid not in graph.nodes or tid not in graph.nodes:
+                # Dead zone (T7): persist instead of silent drop; the
+                # list itself was (re)initialized by _build_graph.
+                rec.setdefault("dead_edges", []).append({
+                    "key": key, "from": fid, "to": tid,
+                    "relation": snap.get("relation", ""),
+                    "reason": "endpoint_missing",
+                })
                 continue
             confidence = snap.get("confidence", "semantic")
             graph.edges.append(GraphEdge(

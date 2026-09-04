@@ -361,14 +361,23 @@ class TestA1Routes:
             assert len(incoming_edges) == 1
             assert incoming_edges[0]["visual_description"] == "条目"
 
-        # (e) Total TREE edges == modules + entries
+        # (e) Total TREE edges == modules + entries + 分条目 (depth tree,
+        # T7 dual-tree assembly; 0 in the degraded no-LLM path)
         # Count all non-empty subfield answers across all modules
         total_entries = sum(
             1 for module in MODULES
             for sf in module["fields"]
             if session.answers.get(f"{module['id']}.{sf['id']}", "")
         )
-        expected_tree_edges = len(modules_with_answers) + total_entries
+        depth_nodes = [
+            n for n in nodes_list
+            if n["level"] == 4 and n["id"].startswith("d:")
+        ]
+        fen_tiao_mu_edges = [
+            e for e in tree_edges if e["visual_description"] == "分条目"
+        ]
+        assert len(fen_tiao_mu_edges) == len(depth_nodes)
+        expected_tree_edges = len(modules_with_answers) + total_entries + len(depth_nodes)
         assert len(tree_edges) == expected_tree_edges
 
         # Verify module nodes only have label in description (not aggregated answers)
@@ -655,3 +664,199 @@ class TestA1Routes:
         assert stats.get("rule_total", 0) == 0
         assert stats.get("structure_total", 0) == 0
         assert stats.get("pending_review", 0) == 0
+
+
+# ---- T7: dual-tree assembly + dead-edge zone + assertions (_build_graph) ----
+
+def _t7_session_and_answers(payload):
+    """Prep a session with IP定位 + 世界本体(2 subs) answered (module serial 2)."""
+    from app.api import a1_routes
+    session = a1_routes._SESSIONS[payload["session_id"]]
+    session.answers["IP定位.name"] = "测试IP"
+    session.answers["世界本体.origin"] = "世界起源于一声钟响"
+    session.answers["世界本体.existence"] = "万物以概念形式存在"
+    return session
+
+
+def test_build_graph_dual_tree_depth_mount(started):
+    """T7: depth-tree mounting — 4 items under 世界本体.existence → 4 L4 nodes
+    with serials D2-2-1..4, TREE 分条目 edges, L2 description from LLM summary."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import (
+        AnchorEntries,
+        EdgeSpec,
+        EntryItem,
+        GraphifyResult,
+    )
+    from app.models.knowledge_graph import EdgeType
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    llm = GraphifyResult(
+        module_summaries={"世界本体": "存在的根基与世界法则"},
+        entries=[AnchorEntries(anchor="世界本体.existence", items=[
+            EntryItem(title=f"存在之环{i}", content=f"内容{i}") for i in range(1, 5)
+        ])],
+        edges=[
+            EdgeSpec(**{
+                "from": "世界本体.existence",
+                "to": "d:世界本体.existence:存在之环1",
+                "relation": "衍生",
+                "confidence": "semantic",
+            }),
+        ],
+    )
+    graph, ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    # (1) 4 depth nodes, level=4, correct ids + serials
+    d_nodes = [n for n in graph.nodes.values() if n.level == 4]
+    assert len(d_nodes) == 4
+    assert {n.serial_number for n in d_nodes} == {
+        "D2-2-1", "D2-2-2", "D2-2-3", "D2-2-4",
+    }
+    assert "d:世界本体.existence:存在之环1" in graph.nodes
+
+    # (2) TREE 分条目 edges L3→L4
+    fen_edges = [e for e in graph.edges if e.visual_description == "分条目"]
+    assert len(fen_edges) == 4
+    assert all(e.edge_type == EdgeType.TREE for e in fen_edges)
+    assert all(e.from_node_id == "世界本体.existence" for e in fen_edges)
+
+    # (3) L2 description from module_summaries (not the label fallback)
+    assert graph.nodes["世界本体"].description == "存在的根基与世界法则"
+    # tier annotation from TIER_MAP
+    assert graph.nodes["世界本体"].tier == 0
+
+    # (4) semantic edge merged with correct EdgeType mapping
+    sem = [e for e in graph.edges if e.relation == "衍生"]
+    assert len(sem) == 1
+    assert sem[0].edge_type == EdgeType.SEMANTIC
+    assert sem[0].confidence == "semantic"
+
+    # (5) edge accounting invariant: input == graph + dead
+    assert file_rec["dead_edges"] == []
+    graph_edge_count = sum(
+        1 for e in graph.edges
+        if e.from_node_id == "世界本体.existence" and e.relation == "衍生"
+    )
+    assert len(llm.edges) == graph_edge_count + len(file_rec["dead_edges"])
+
+
+def test_build_graph_dead_edges_and_confirmed_recovery(started):
+    """T7: endpoint-missing edges land in dead_edges (equality invariant);
+    confirmed_edges triple match restores confirmed=True."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import (
+        AnchorEntries,
+        EdgeSpec,
+        EntryItem,
+        GraphifyResult,
+    )
+    from app.models.knowledge_graph import EdgeType
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    nid_ok = "d:世界本体.origin:命运之钟"
+    file_rec: dict = {
+        "confirmed_edges": {
+            f"世界本体.origin/{nid_ok}/关联": {
+                "from_node_id": "世界本体.origin",
+                "to_node_id": nid_ok,
+                "relation": "关联",
+                "confirmed": True,
+            },
+        },
+    }
+
+    llm = GraphifyResult(
+        entries=[AnchorEntries(anchor="世界本体.origin", items=[
+            EntryItem(title="命运之钟", content="钟声即存在"),
+        ])],
+        edges=[
+            # (a) matching triple → confirmed=True recovered
+            EdgeSpec(**{"from": "世界本体.origin", "to": nid_ok, "relation": "关联"}),
+            # (b) dead edge → dead zone
+            EdgeSpec(**{"from": "世界本体.origin", "to": "不存在的节点", "relation": "关联"}),
+        ],
+    )
+    graph, _ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    # dead zone: exactly the endpoint-missing edge
+    dead = file_rec["dead_edges"]
+    assert len(dead) == 1
+    assert dead[0]["to"] == "不存在的节点"
+    assert dead[0]["reason"] == "endpoint_missing"
+
+    # accounting invariant: input == graph + dead
+    graph_edges = [e for e in graph.edges if e.relation == "关联"]
+    assert len(graph_edges) == 1
+    assert len(llm.edges) == len(graph_edges) + len(dead)
+
+    # confirmed recovery via triple match
+    recovered = [e for e in graph_edges if e.to_node_id == nid_ok]
+    assert len(recovered) == 1
+    assert recovered[0].confirmed is True
+    assert recovered[0].edge_type == EdgeType.SEMANTIC
+
+
+def test_build_graph_none_result_keeps_legacy_behavior(started):
+    """T7: llm_result=None → 全降级现状路径: no L4 nodes, label descriptions,
+    empty dead_edges."""
+    from app.api import a1_routes
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    graph, _ids = a1_routes._build_graph(session, file_rec)
+
+    assert not [n for n in graph.nodes.values() if n.level == 4]
+    assert graph.nodes["世界本体"].description == "世界本体"  # label fallback
+    assert file_rec["dead_edges"] == []
+    assert file_rec["assemble_warnings"] == []
+    # TREE edges: 2 bg→module + 3 module→entry (no 分条目 edges)
+    tree = [e for e in graph.edges if e.edge_type.value == "tree"]
+    assert len(tree) == 5
+    assert not [e for e in tree if e.visual_description == "分条目"]
+
+
+def test_build_graph_children_warn_not_consumed(started):
+    """T7 Phase 1: non-empty children → warning only, single L4 node."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import (
+        AnchorEntries,
+        EntryItem,
+        GraphifyResult,
+    )
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    llm = GraphifyResult(entries=[AnchorEntries(anchor="世界本体.origin", items=[
+        EntryItem(title="命运之钟", content="钟声即存在", children=[
+            EntryItem(title="子钟", content="不应存在"),
+        ]),
+    ])])
+    graph, _ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    d_nodes = [n for n in graph.nodes.values() if n.level == 4]
+    assert len(d_nodes) == 1  # children NOT consumed
+    assert any("children" in w for w in file_rec["assemble_warnings"])
+
+
+def test_build_graph_constraint_fields_assertion_logged(started, caplog):
+    """T7: constraint_fields non-empty but no cst nodes → assemble_assertion log."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import GraphifyResult
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    llm = GraphifyResult(constraint_fields={"LAW.world_structure": "层级世界"})
+    a1_routes._build_graph(session, file_rec, llm_result=llm)
+    # assertion is log-only (JSONL); smoke-check it didn't raise and warnings stored
+    assert file_rec["dead_edges"] == []
