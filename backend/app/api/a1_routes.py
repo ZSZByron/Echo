@@ -8,12 +8,13 @@ downstream graphs stale (iron law: never delete, never overwrite).
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.ai.config import load_provider_config
 from app.ai.provider import create_provider
@@ -175,7 +176,12 @@ def _question_payload(session: A1Session) -> dict | None:
 
 
 def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
-    """Parse `tag=value; ...` answer fragments into structured Outputs."""
+    """Parse `tag=value; ...` answer fragments into structured Outputs.
+
+    # deprecated (A1 v0.5: constraint_fields 通道取代) — kept for
+    # archaeology; still wired as the answers-channel source for
+    # apply_constraints in _build_graph.
+    """
     kwargs: dict[str, dict[str, str]] = {"LAW": {}, "ACT": {}, "NAR": {}, "WST": {}, "SOC": {}}
     dim_by_cls = {cls: dim for dim, cls in _TAG_TO_OUTPUT}
     for value in session.answers.values():
@@ -214,13 +220,20 @@ def _assemble_depth_tree(
 
     Governance §5b: node id = ``depth_id(anchor, title)``; serial =
     ``D{module_serial}-{entry_serial}-{k}``; TREE edge L3→L4 "分条目".
-    Phase 1: non-empty ``children`` only produce warnings (never consumed).
+    T11: ``items[].children`` mount recursively (one extra level, depth cap
+    2 = items→children; children with their own children are rejected with
+    a warning). Child ids reuse the same ``d:{anchor}:{title}`` scheme
+    (uniqueness within the anchor layer; title conflicts keep the first
+    occurrence); child serials are ``D{module_serial}-{entry_serial}-{k}-{j}``;
+    TREE edge parent→child "分条目". Env switch ``A1_DEPTH_CHILDREN``
+    (default on) disables child mounting entirely.
     Returns ``(warnings, depth_node_count)``.
     """
     warnings: list[str] = []
     illegal = set(validate_anchors(llm_result))
     warnings.extend(illegal)
     legal_anchors = set(all_subfield_keys())
+    children_enabled = os.environ.get("A1_DEPTH_CHILDREN", "1") == "1"
     mounted = 0
     for group in llm_result.entries:
         if group.anchor not in legal_anchors:
@@ -234,27 +247,55 @@ def _assemble_depth_tree(
             continue
         kept, dupes = dedupe_items(group.items)
         warnings.extend(f"重复条目去重: {t!r}" for t in dupes)
-        warnings.extend(
-            f"children 深度 Phase 1 不开放: {group.anchor} / {item.title!r}"
-            for item in kept if item.children
-        )
         for k, item in enumerate(kept, start=1):
             nid = depth_id(group.anchor, item.title)
-            if nid in nodes:
+            if nid not in nodes:
+                nodes[nid] = GraphNode(
+                    id=nid,
+                    serial_number=f"D{m_serial}-{e_serial}-{k}",
+                    level=4,
+                    description=item.content or item.title,
+                )
+                edges.append(GraphEdge(
+                    from_node_id=group.anchor,
+                    to_node_id=nid,
+                    edge_type=EdgeType.TREE,
+                    visual_description="分条目",
+                ))
+                mounted += 1
+            # ---- T11: children recursion (depth cap 2: items→children) ----
+            if not item.children:
                 continue
-            nodes[nid] = GraphNode(
-                id=nid,
-                serial_number=f"D{m_serial}-{e_serial}-{k}",
-                level=4,
-                description=item.content or item.title,
-            )
-            edges.append(GraphEdge(
-                from_node_id=group.anchor,
-                to_node_id=nid,
-                edge_type=EdgeType.TREE,
-                visual_description="分条目",
-            ))
-            mounted += 1
+            if not children_enabled:
+                warnings.append(
+                    f"children 挂载已禁用(A1_DEPTH_CHILDREN=0): "
+                    f"{group.anchor} / {item.title!r}"
+                )
+                continue
+            kept_children, child_dupes = dedupe_items(item.children)
+            warnings.extend(f"重复子条目去重: {t!r}" for t in child_dupes)
+            for j, child in enumerate(kept_children, start=1):
+                if child.children:
+                    warnings.append(
+                        f"children 深度超限(>2层)拒收: "
+                        f"{group.anchor} / {child.title!r}"
+                    )
+                cid = depth_id(group.anchor, child.title)
+                if cid in nodes:
+                    continue  # 层级内 title 唯一化：冲突保留首条
+                nodes[cid] = GraphNode(
+                    id=cid,
+                    serial_number=f"D{m_serial}-{e_serial}-{k}-{j}",
+                    level=4,
+                    description=child.content or child.title,
+                )
+                edges.append(GraphEdge(
+                    from_node_id=nid,
+                    to_node_id=cid,
+                    edge_type=EdgeType.TREE,
+                    visual_description="分条目",
+                ))
+                mounted += 1
     return warnings, mounted
 
 
@@ -299,6 +340,54 @@ def _merge_llm_edges(
     return added
 
 
+def _build_constraint_result_set(
+    constraint_fields: dict[str, str],
+) -> tuple[DimensionResultSet, list[str]]:
+    """cst channel (T11): LLM ``constraint_fields`` (``DIM.tag`` → str) →
+    ``DimensionResultSet`` for ``apply_constraints``.
+
+    Output-model fields are enum-validated, but graphify rule 4 only
+    whitelists keys — values may be free-form LLM strings. On
+    ``ValidationError`` the dim Output is built via ``model_construct``:
+    values are recorded verbatim in the Constraint node description
+    (description-only channel, not re-parsed as enums).
+    Unknown dims / malformed keys are skipped with a warning.
+    """
+    warnings: list[str] = []
+    per_dim: dict[str, dict[str, str]] = {}
+    dim_map = {"LAW": LawOutput, "ACT": ActOutput, "NAR": NarOutput,
+               "WST": WstOutput, "SOC": SocOutput}
+    for key, value in constraint_fields.items():
+        dim, _, tag = str(key).partition(".")
+        if not tag or dim not in dim_map or not str(value):
+            warnings.append(f"[constraint_fields] 非法键跳过: {key!r}")
+            continue
+        per_dim.setdefault(dim, {})[tag] = str(value)
+    kwargs: dict[str, Any] = {}
+    for dim, fields in per_dim.items():
+        cls = dim_map[dim]
+        try:
+            kwargs[dim] = cls(**fields)
+        except ValidationError:
+            kwargs[dim] = cls.model_construct(**fields)
+    return DimensionResultSet(**kwargs), warnings
+
+
+def _apply_constraint_fields(
+    graph: KnowledgeGraph,
+    llm_result: GraphifyResult,
+) -> list[str]:
+    """Wire ``constraint_fields`` into ``cst_`` nodes / CROSS edges (T11,
+    governance §5d — 考古断链闭合). Idempotent: ``apply_constraints``
+    skips ``cst_`` ids that already exist (e.g. created by the answers
+    channel), mirroring the confirmed-merge pattern in finalize."""
+    if not llm_result.constraint_fields:
+        return []
+    drs, warnings = _build_constraint_result_set(llm_result.constraint_fields)
+    apply_constraints(graph, drs, stage="A1")
+    return warnings
+
+
 def _assemble_assertions(
     session: A1Session,
     llm_result: GraphifyResult,
@@ -308,7 +397,7 @@ def _assemble_assertions(
 ) -> None:
     """Runtime assembly assertions (governance §5 invariant checks, log-only)."""
     if llm_result.constraint_fields and not any(
-        nid.startswith("cst:") for nid in nodes
+        nid.startswith("cst_") for nid in nodes
     ):
         log_event(
             session.session_id, "assemble_assertion",
@@ -420,9 +509,6 @@ def _build_graph(
             1 for e in edges[len(edges) - added:]
             if e.confidence == "semantic"
         ) if added else 0
-        _assemble_assertions(
-            session, llm_result, nodes, llm_semantic_added, input_edges,
-        )
 
     file_rec["dead_edges"] = dead_edges
     file_rec["assemble_warnings"] = llm_warnings
@@ -432,7 +518,15 @@ def _build_graph(
         nodes=nodes, edges=edges,
     )
     graph = apply_constraints(graph, _build_dimension_result_set(session), stage="A1")
-    return graph, set(nodes.keys())
+    if llm_result is not None:
+        # T11 cst channel: constraint_fields → cst_ nodes (before the
+        # runtime assertion so it counts real `cst_`-prefixed nodes).
+        llm_warnings.extend(_apply_constraint_fields(graph, llm_result))
+        file_rec["assemble_warnings"] = llm_warnings
+        _assemble_assertions(
+            session, llm_result, graph.nodes, llm_semantic_added, input_edges,
+        )
+    return graph, set(graph.nodes.keys())
 
 
 @router.get("/api/a1/seeds")

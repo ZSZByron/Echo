@@ -184,6 +184,27 @@ def test_c3_invariant_id_content_addressed() -> None:
 # =============================================================================
 
 
-@pytest.mark.xfail(strict=True, reason="T11: assemble_assertions 落日志断言（log_event capture）尚未接线")
-def test_c3_runtime_assertion_constraint_fields_without_cst_logs_event() -> None:
-    pytest.fail("T11 scope")
+def test_c3_runtime_assertion_constraint_fields_without_cst_logs_event(monkeypatch) -> None:
+    """T11 green: constraint_fields 非空时 cst 通道产出 cst_ 节点，
+    runtime assertion 不再触发 log_event。"""
+    from app.api import a1_routes
+
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        a1_routes, "log_event",
+        lambda sid, event, **kw: captured.append({"event": event, **kw}),
+    )
+
+    session = _make_session()
+    result = _llm_result()
+    result.constraint_fields = {"LAW.world_structure": "九层嵌套"}
+    graph, node_ids = _build_graph(session, {}, result)
+
+    # cst channel wired: node present in graph AND returned id set
+    assert any(nid.startswith("cst_") for nid in graph.nodes)
+    assert any(nid.startswith("cst_") for nid in node_ids)
+    # assertion stayed silent
+    assert not any(
+        c.get("kind") == "constraint_fields_without_cst_nodes"
+        for c in captured
+    )

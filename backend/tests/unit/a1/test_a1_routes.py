@@ -283,6 +283,12 @@ class TestA1Routes:
         client, payload = started
         session = self._inject_answers(payload)
 
+        # T11: tag=val fragment in one answer → answers channel produces a
+        # cst_ node (LAW.world_structure=TREE is a valid enum value).
+        session.answers["世界本体.origin"] = (
+            session.answers["世界本体.origin"] + "；LAW.world_structure=TREE"
+        )
+
         # Finalize to trigger graph building
         fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin.status_code == 200
@@ -379,6 +385,15 @@ class TestA1Routes:
         assert len(fen_tiao_mu_edges) == len(depth_nodes)
         expected_tree_edges = len(modules_with_answers) + total_entries + len(depth_nodes)
         assert len(tree_edges) == expected_tree_edges
+
+        # (f) T11: constraint channel closed — cst_ node + CROSS edge to bg
+        cst_nodes = [n for n in nodes_list if n["id"].startswith("cst_")]
+        assert len(cst_nodes) > 0
+        cross_edges = [e for e in graph["edges"] if e["edge_type"] == "cross"]
+        assert len(cross_edges) > 0
+        assert all(
+            e["to_node_id"] == graph["background_node_id"] for e in cross_edges
+        )
 
         # Verify module nodes only have label in description (not aggregated answers)
         for l2_node in level2_nodes:
@@ -822,8 +837,47 @@ def test_build_graph_none_result_keeps_legacy_behavior(started):
     assert not [e for e in tree if e.visual_description == "分条目"]
 
 
-def test_build_graph_children_warn_not_consumed(started):
-    """T7 Phase 1: non-empty children → warning only, single L4 node."""
+def test_build_graph_children_recursive_mount(started):
+    """T11: children mount recursively — child id reuses d:{anchor}:{title},
+    serial D{m}-{e}-{k}-{j}, TREE 分条目 edge parent→child."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import (
+        AnchorEntries,
+        EntryItem,
+        GraphifyResult,
+    )
+    from app.models.knowledge_graph import EdgeType
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    llm = GraphifyResult(entries=[AnchorEntries(anchor="世界本体.origin", items=[
+        EntryItem(title="命运之钟", content="钟声即存在", children=[
+            EntryItem(title="子钟", content="回声层"),
+            EntryItem(title="裂纹钟身", content="纹理层"),
+        ]),
+    ])])
+    graph, _ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    # parent + 2 children mounted (世界本体.origin is entry serial 2-1)
+    assert "d:世界本体.origin:命运之钟" in graph.nodes
+    assert "d:世界本体.origin:子钟" in graph.nodes
+    assert "d:世界本体.origin:裂纹钟身" in graph.nodes
+    assert graph.nodes["d:世界本体.origin:子钟"].serial_number == "D2-1-1-1"
+    assert graph.nodes["d:世界本体.origin:裂纹钟身"].serial_number == "D2-1-1-2"
+
+    # TREE chain: entry→item and item→child, both 分条目
+    fen = [e for e in graph.edges if e.visual_description == "分条目"]
+    assert len(fen) == 3
+    assert all(e.edge_type == EdgeType.TREE for e in fen)
+    chain = {(e.from_node_id, e.to_node_id) for e in fen}
+    assert ("世界本体.origin", "d:世界本体.origin:命运之钟") in chain
+    assert ("d:世界本体.origin:命运之钟", "d:世界本体.origin:子钟") in chain
+
+
+def test_build_graph_children_depth3_rejected(started):
+    """T11: children 的 children 拒收 + warning（深度上限 2 层）。"""
     from app.api import a1_routes
     from app.domains.creation.a1.graphify import (
         AnchorEntries,
@@ -837,29 +891,115 @@ def test_build_graph_children_warn_not_consumed(started):
 
     llm = GraphifyResult(entries=[AnchorEntries(anchor="世界本体.origin", items=[
         EntryItem(title="命运之钟", content="钟声即存在", children=[
-            EntryItem(title="子钟", content="不应存在"),
+            EntryItem(title="子钟", content="回声层", children=[
+                EntryItem(title="孙钟", content="超深层"),
+            ]),
         ]),
     ])])
     graph, _ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
 
-    d_nodes = [n for n in graph.nodes.values() if n.level == 4]
-    assert len(d_nodes) == 1  # children NOT consumed
-    assert any("children" in w for w in file_rec["assemble_warnings"])
+    assert "d:世界本体.origin:子钟" in graph.nodes
+    assert "d:世界本体.origin:孙钟" not in graph.nodes
+    assert any("深度超限" in w for w in file_rec["assemble_warnings"])
 
 
-def test_build_graph_constraint_fields_assertion_logged(started, caplog):
-    """T7: constraint_fields non-empty but no cst nodes → assemble_assertion log."""
+def test_build_graph_children_env_disabled(started, monkeypatch):
+    """T11: A1_DEPTH_CHILDREN=0 → children not mounted."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import (
+        AnchorEntries,
+        EntryItem,
+        GraphifyResult,
+    )
+
+    monkeypatch.setenv("A1_DEPTH_CHILDREN", "0")
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+    file_rec: dict = {}
+
+    llm = GraphifyResult(entries=[AnchorEntries(anchor="世界本体.origin", items=[
+        EntryItem(title="命运之钟", content="钟声即存在", children=[
+            EntryItem(title="子钟", content="回声层"),
+        ]),
+    ])])
+    graph, _ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    assert "d:世界本体.origin:命运之钟" in graph.nodes
+    assert "d:世界本体.origin:子钟" not in graph.nodes
+    assert any("已禁用" in w for w in file_rec["assemble_warnings"])
+
+
+def test_build_graph_constraint_fields_cst_channel(started, monkeypatch):
+    """T11: constraint_fields → cst_ node + CROSS edge (考古断链闭合);
+    assemble_assertion no longer fires."""
     from app.api import a1_routes
     from app.domains.creation.a1.graphify import GraphifyResult
+    from app.models.knowledge_graph import EdgeType
+
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        a1_routes, "log_event",
+        lambda sid, event, **kw: captured.append({"event": event, **kw}),
+    )
 
     client, payload = started
     session = _t7_session_and_answers(payload)
     file_rec: dict = {}
 
-    llm = GraphifyResult(constraint_fields={"LAW.world_structure": "层级世界"})
-    a1_routes._build_graph(session, file_rec, llm_result=llm)
-    # assertion is log-only (JSONL); smoke-check it didn't raise and warnings stored
-    assert file_rec["dead_edges"] == []
+    llm = GraphifyResult(constraint_fields={"LAW.world_structure": "九层嵌套"})
+    graph, ids = a1_routes._build_graph(session, file_rec, llm_result=llm)
+
+    # cst node exists (free-form value recorded verbatim despite enum validator)
+    assert "cst_LAW_world_structure" in graph.nodes
+    assert graph.nodes["cst_LAW_world_structure"].level == 0
+    assert "九层嵌套" in graph.nodes["cst_LAW_world_structure"].description
+    assert "cst_LAW_world_structure" in ids
+
+    # CROSS edge cst → background with RULE_* semantic label
+    cross = [
+        e for e in graph.edges
+        if e.edge_type == EdgeType.CROSS
+        and e.from_node_id == "cst_LAW_world_structure"
+    ]
+    assert len(cross) == 1
+    assert cross[0].to_node_id == graph.background_node_id
+    assert "RULE_" in cross[0].visual_description
+
+    # runtime assertion silent: cst channel closed the gap
+    assert not any(
+        c.get("kind") == "constraint_fields_without_cst_nodes"
+        for c in captured
+    )
+
+
+def test_build_graph_constraint_fields_idempotent(started):
+    """T11: same inputs assembled twice → cst node/edge counts unchanged
+    (apply_constraints idempotent merge)."""
+    from app.api import a1_routes
+    from app.domains.creation.a1.graphify import GraphifyResult
+    from app.models.knowledge_graph import EdgeType
+
+    client, payload = started
+    session = _t7_session_and_answers(payload)
+
+    llm = GraphifyResult(constraint_fields={
+        "LAW.world_structure": "九层嵌套",
+        "ACT.core_action": "以论证代替攻击",
+    })
+
+    def _counts() -> tuple[int, int]:
+        graph, _ids = a1_routes._build_graph(session, {}, llm_result=llm)
+        cst_nodes = sum(1 for n in graph.nodes if n.startswith("cst_"))
+        cross = sum(
+            1 for e in graph.edges
+            if e.edge_type == EdgeType.CROSS
+            and e.from_node_id.startswith("cst_")
+        )
+        return cst_nodes, cross
+
+    n1, e1 = _counts()
+    n2, e2 = _counts()
+    assert (n1, e1) == (n2, e2) == (2, 2)
 
 
 # ---- T8: finalize × graphify 串联（v0.5 §8.1 两阶段处置） ----

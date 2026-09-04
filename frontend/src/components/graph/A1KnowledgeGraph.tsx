@@ -102,7 +102,7 @@ const parseConstraintDescription = (description: string): { dimension: string; k
 /**
  * Calculate node position based on level-based layout algorithm
  */
-const calculateNodePosition = (
+export const calculateNodePosition = (
   level: number,
   indexInLevel: number,
   totalInLevel: number,
@@ -112,11 +112,14 @@ const calculateNodePosition = (
     0: -260,  // Constraints at top
     1: 0,     // Background root
     2: 240,   // Modules
-    3: 500    // Entries
+    3: 500,   // Entries
+    4: 840,   // Depth-tree entries (below concept-term row at y=760)
+    5: 1000   // Depth-tree grandchildren (two-layer trees)
   };
 
   const MODULE_SPACING = 280;
   const ENTRY_SPACING = 170;
+  const DEPTH_SPACING = 220;
 
   const y = LEVEL_Y_POSITIONS[level] ?? 0;
 
@@ -133,6 +136,10 @@ const calculateNodePosition = (
     // Entries: under their parent module
     const totalWidth = (totalInLevel - 1) * ENTRY_SPACING;
     x = parentX + (indexInLevel * ENTRY_SPACING) - (totalWidth / 2);
+  } else if ((level === 4 || level === 5) && parentX !== undefined) {
+    // Depth-tree nodes: under their parent entry (L4) / parent depth node (L5)
+    const totalWidth = (totalInLevel - 1) * DEPTH_SPACING;
+    x = parentX + (indexInLevel * DEPTH_SPACING) - (totalWidth / 2);
   } else if (level === 0) {
     // Constraints: evenly spaced at top
     const totalWidth = (totalInLevel - 1) * MODULE_SPACING;
@@ -589,19 +596,45 @@ export function A1KnowledgeGraph({
       });
     }
 
-    // v0.5 depth-tree nodes (d:, level 4): row below term nodes, wider spacing for entry text
+    // v0.5 depth-tree nodes (d:, level 4/5): banded rows below term nodes,
+    // grouped under their parent entry (L4) / parent depth node (L5) via tree edges
     const depthNodes = nodes.filter(n => isDepthNode(n.id));
     if (depthNodes.length > 0) {
-      const DEPTH_SPACING = 220;
-      const totalWidth = (depthNodes.length - 1) * DEPTH_SPACING;
-      depthNodes.forEach((node, index) => {
-        const rfNode = toReactFlowNode(node);
-        rfNode.position = {
-          x: (index * DEPTH_SPACING) - (totalWidth / 2),
-          y: 840
-        };
-        positionedNodes.push(rfNode);
+      const depthParent = new Map<string, string>();
+      edges.forEach(edge => {
+        if (edge.edge_type === 'tree') {
+          depthParent.set(edge.to_node_id, edge.from_node_id);
+        }
       });
+      const positionedXById = new Map<string, number>();
+      positionedNodes.forEach(n => positionedXById.set(n.id, n.position.x));
+
+      const placeDepthGroup = (groupNodes: GraphNode[], yLevel: number) => {
+        const byParent = groupNodes.reduce((acc, node) => {
+          const parentId = depthParent.get(node.id);
+          if (!parentId) return acc;
+          if (!acc[parentId]) {
+            acc[parentId] = [];
+          }
+          acc[parentId].push(node);
+          return acc;
+        }, {} as Record<string, GraphNode[]>);
+
+        Object.entries(byParent).forEach(([parentId, children]) => {
+          const parentX = positionedXById.get(parentId);
+          children.forEach((node, index) => {
+            const pos = calculateNodePosition(yLevel, index, children.length, parentX);
+            const rfNode = toReactFlowNode(node);
+            rfNode.position = pos;
+            positionedNodes.push(rfNode);
+            positionedXById.set(node.id, pos.x);
+          });
+        });
+      };
+
+      // L4 first (so L5 can align to L4 x), then grandchildren
+      placeDepthGroup(depthNodes.filter(n => n.level === 4), 4);
+      placeDepthGroup(depthNodes.filter(n => n.level === 5), 5);
     }
 
     return positionedNodes;
@@ -811,6 +844,13 @@ export function A1KnowledgeGraph({
             <span className="text-gray-400">◇</span>
             <span className="text-void-400">结构拆解</span>
           </div>
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block w-3 h-3 rounded-sm"
+              style={{ backgroundColor: 'transparent', border: `1px solid ${TERM_CLUSTER_COLORS[0]}` }}
+            />
+            <span className="text-void-400">分条目</span>
+          </div>
         </div>
       </div>
 
@@ -982,7 +1022,7 @@ export function A1KnowledgeGraph({
         edgesFocusable={true}
         panOnScroll
         zoomOnScroll
-        minZoom={0.2}
+        minZoom={0.15}
         maxZoom={1.5}
         onEdgeMouseEnter={(_, edge) => {
           setHoveredEdge(edge.id);
