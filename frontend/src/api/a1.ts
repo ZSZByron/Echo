@@ -15,6 +15,49 @@ const A1_BASE = "/api/a1";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 /**
+ * A dead edge (失效区条目): a previously confirmed edge whose endpoint nodes
+ * no longer appear in the graph after a re-finalize.
+ * Shape from backend: { key?, from, to, relation, confidence?, reason: "endpoint_missing" }
+ */
+export interface DeadEdge {
+  key?: string;
+  from: string;
+  to: string;
+  relation: string;
+  confidence?: string;
+  reason: "endpoint_missing";
+}
+
+/**
+ * Build the canonical edge key for a dead edge (`from/to/relation`),
+ * matching the backend `confirmed_edges` key format.
+ */
+export function getDeadEdgeKey(edge: DeadEdge): string {
+  return edge.key ?? `${edge.from}/${edge.to}/${edge.relation}`;
+}
+
+/**
+ * Discard (废弃) a dead edge: removes it from the backend confirmed_edges
+ * snapshot via the existing reject endpoint, so future re-finalizes no
+ * longer revive it into the dead zone.
+ * POST /api/a1/file/{fileId}/edge/{edgeKey}/reject
+ */
+export async function discardDeadEdge(
+  fileId: string,
+  edge: DeadEdge
+): Promise<{ rejected: boolean; key: string }> {
+  const key = getDeadEdgeKey(edge);
+  const res = await fetchWithTimeout(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/edge/${encodeURIComponent(key)}/reject`,
+    {
+      method: "POST",
+      headers: JSON_HEADERS,
+    }
+  );
+  return (await res.json()) as { rejected: boolean; key: string };
+}
+
+/**
  * Confirm a fill proposal in guided chat.
  * POST /api/a1/chat/confirm
  *

@@ -59,6 +59,44 @@ class StubLLMProvider(LLMProvider):
         return self.response
 
 
+@pytest.fixture(autouse=True)
+def _no_real_llm_provider(monkeypatch: pytest.MonkeyPatch):
+    """Autouse: neutralize real LLM HTTP calls from finalize (test-order pollution).
+
+    T8 wired finalize to call ``graphify_llm`` with the real provider built via
+    ``create_provider(load_provider_config())``; on machines whose .env has an
+    active provider (e.g. deepseek) tests triggering finalize without stubbing
+    made real nondeterministic HTTP calls that polluted
+    ``app.api.a1_routes._FILES`` and broke other tests' node-count assertions.
+
+    We therefore stub the *provider factory* (not ``graphify_llm`` itself) with
+    a raising ``StubLLMProvider``: graphify_llm internally catches any provider
+    error and degrades to ``GraphifyResult(success=False)`` (pure-TREE graph),
+    deterministically and with zero network.
+
+    Override semantics (both via pytest monkeypatch, last-write-wins — test
+    body runs after autouse fixture setup):
+    - tests patching ``load_provider_config``/``create_provider`` in the test
+      body (e.g. ``_t8_patch_provider``, ``_stub_finalize``) override this and
+      keep driving the REAL ``graphify_llm`` against their own stub provider;
+    - tests patching ``a1_routes.graphify_llm`` directly are unaffected.
+    """
+    from app.api import a1_routes
+
+    monkeypatch.setattr(
+        a1_routes,
+        "load_provider_config",
+        lambda: {"provider": "stub-offline"},
+    )
+    monkeypatch.setattr(
+        a1_routes,
+        "create_provider",
+        lambda cfg: StubLLMProvider(
+            raise_error=RuntimeError("no network in tests (autouse stub)")
+        ),
+    )
+
+
 @pytest.fixture()
 def stub_llm_provider() -> StubLLMProvider:
     """Default stub: empty response, no error, no delay."""

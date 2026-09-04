@@ -13,6 +13,7 @@ from app.domains.creation.a1.concept_edge_extractor import (
     ConceptEdgeV2,
     EdgesV2Result,
 )
+from app.domains.creation.a1.graphify import GraphifyResult
 
 
 @pytest.fixture()
@@ -51,9 +52,18 @@ _MOCK_TERMS = ["死亡转生", "业报", "轮回之门"]
 
 
 def _finalize_with_terms(client, payload, monkeypatch, terms=_MOCK_TERMS):
-    """Helper: finalize（graphify 在测试环境降级为纯 TREE 图）后，把阶段1
+    """Helper: finalize（graphify 强制降级为纯 TREE 图）后，把阶段1
     遗留状态（concept_terms + term: 节点）直接注入 rec，模拟 v0.4 产物。"""
     _inject_answers(payload)
+    # v0.5: finalize 内联 graphify_llm；测试环境存在真实 provider 配置时
+    # 会产生非确定性的 semantic 边，污染 edge_stats 断言。强制降级为
+    # 纯 TREE 图（warning 并入 finalize_warnings，属预期降级路径）。
+    monkeypatch.setattr(
+        "app.api.a1_routes.graphify_llm",
+        lambda *a, **kw: GraphifyResult(
+            success=False, warning="graphify degraded (test)"
+        ),
+    )
     fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
     assert fin.status_code == 200
 

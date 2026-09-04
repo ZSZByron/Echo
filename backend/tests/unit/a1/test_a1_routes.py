@@ -680,6 +680,48 @@ class TestA1Routes:
         assert stats.get("structure_total", 0) == 0
         assert stats.get("pending_review", 0) == 0
 
+    def test_get_file_has_dead_edges_default_empty(self, started):
+        """T15: GET file response carries dead_edges as a resident key (draft = [])."""
+        client, payload = started
+        resp = client.get(f"/api/a1/file/{payload['file_id']}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "dead_edges" in body
+        assert body["dead_edges"] == []
+
+    def test_get_file_dead_edges_after_refinalize(self, started):
+        """T15: re-finalize with a stale confirmed edge (endpoint missing from
+        new graph) → GET file returns the dead-edge entry (reason=endpoint_missing)."""
+        from app.api import a1_routes
+
+        client, payload = started
+        _fill_all_subs(client, payload)
+        assert client.post(f"/api/a1/file/{payload['file_id']}/finalize").status_code == 200
+
+        # Inject a stale confirmed edge whose endpoints do not exist in the graph
+        rec = a1_routes._FILES[payload["file_id"]]
+        stale_key = "term:幽灵A/term:幽灵B/衍生"
+        rec["confirmed_edges"][stale_key] = {
+            "from_node_id": "term:幽灵A",
+            "to_node_id": "term:幽灵B",
+            "relation": "衍生",
+            "confidence": "semantic",
+            "confirmed": True,
+        }
+
+        # Re-finalize → stale edge lands in the dead zone
+        assert client.post(f"/api/a1/file/{payload['file_id']}/finalize").status_code == 200
+
+        resp = client.get(f"/api/a1/file/{payload['file_id']}")
+        assert resp.status_code == 200
+        dead = resp.json()["dead_edges"]
+        assert isinstance(dead, list)
+        entry = next(d for d in dead if d["key"] == stale_key)
+        assert entry["from"] == "term:幽灵A"
+        assert entry["to"] == "term:幽灵B"
+        assert entry["relation"] == "衍生"
+        assert entry["reason"] == "endpoint_missing"
+
 
 # ---- T7: dual-tree assembly + dead-edge zone + assertions (_build_graph) ----
 

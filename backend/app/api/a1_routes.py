@@ -846,6 +846,8 @@ def get_file(file_id: str) -> dict:
         "proposed_relations": rec.get("proposed_relations", []),
         # v0.5: finalize warnings 常驻（draft/旧记录为空列表）
         "finalize_warnings": rec.get("finalize_warnings", []),
+        # v0.5 T15: 失效区常驻（draft/旧记录为空列表；条目见 finalize 死区追加）
+        "dead_edges": rec.get("dead_edges", []),
     }
 
 

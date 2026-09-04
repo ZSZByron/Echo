@@ -26,6 +26,19 @@ interface A1GraphSectionProps {
 
 const CONCEPT_GUIDE_KEY = 'a1_concept_guide_seen';
 
+/** T16: derive a Chinese domain label from the warning prefix ([entries]/[edges]/[constraint_fields]). */
+function warningDomainLabel(w: string): string | null {
+  if (w.startsWith('[entries]')) return '条目';
+  if (w.startsWith('[edges]')) return '边';
+  if (w.startsWith('[constraint_fields]')) return '约束';
+  return null;
+}
+
+/** T16: strip the machine prefix so the popover shows clean Chinese text. */
+function stripWarningPrefix(w: string): string {
+  return w.replace(/^\[(entries|edges|constraint_fields)\]\s*/, '');
+}
+
 /** Fixed fullscreen overlay shell (T-C): covers the entire workspace viewport. */
 function FullscreenShell({ children }: { children: ReactNode }) {
   return (
@@ -54,6 +67,10 @@ export function A1GraphSection({
   const [conceptTerms, setConceptTerms] = useState<ConceptTerm[]>([]);
   const [proposedRelations, setProposedRelations] = useState<ProposedRelation[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
+
+  // T16: degradation warnings from finalize (graphify degradation report)
+  const [finalizeWarnings, setFinalizeWarnings] = useState<string[]>([]);
+  const [showWarningsPopover, setShowWarningsPopover] = useState(false);
 
   // Fullscreen layout state (T-C)
   const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
@@ -104,9 +121,11 @@ export function A1GraphSection({
       const file = await fetchJson<{
         concept_terms?: ConceptTerm[];
         proposed_relations?: ProposedRelation[];
+        finalize_warnings?: string[];
       }>(`/api/a1/file/${fileId}`);
       setConceptTerms(file.concept_terms ?? []);
       setProposedRelations(file.proposed_relations ?? []);
+      setFinalizeWarnings(file.finalize_warnings ?? []);
     } catch (err) {
       console.error('Failed to load concept terms:', err);
     }
@@ -365,6 +384,48 @@ export function A1GraphSection({
             <span className="text-amber-400">待确认 <b>{stats.pending}</b></span>
             <span className="text-emerald-400">已确认 <b>{stats.confirmed}</b></span>
             <span className="text-blue-400">待问 <b>{openQuestions.length}</b></span>
+            {/* T16: degradation badge — only when finalize produced warnings */}
+            {finalizeWarnings.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowWarningsPopover(v => !v)}
+                  className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 text-xs whitespace-nowrap hover:bg-amber-500/25 transition-colors"
+                  data-testid="degradation-badge"
+                >
+                  本轮降级：{finalizeWarnings.length} 项
+                </button>
+                {showWarningsPopover && (
+                  <div
+                    className="absolute right-0 top-full mt-2 z-20 w-96 max-h-80 overflow-y-auto glass-panel p-4 bg-space-800/95 border-amber-500/30 text-left"
+                    data-testid="degradation-popover"
+                  >
+                    <h3 className="text-amber-400 text-sm font-medium mb-2">降级明细</h3>
+                    <ul className="space-y-1.5">
+                      {finalizeWarnings.map((w, i) => {
+                        const domain = warningDomainLabel(w);
+                        return (
+                          <li key={i} className="flex items-start gap-2 text-xs">
+                            <span className="text-amber-500 mt-0.5">•</span>
+                            {domain && (
+                              <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                                {domain}
+                              </span>
+                            )}
+                            <span className="text-gray-300 break-all">{stripWarningPrefix(w)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <button
+                      onClick={() => setShowWarningsPopover(false)}
+                      className="mt-3 text-xs text-void-300 hover:text-stardust-300 transition-colors"
+                    >
+                      收起
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {viewMode === 'concept' && (
             <button

@@ -17,6 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation } from '../../types/a1';
+import type { DeadEdge } from '../../api/a1';
+import { getDeadEdgeKey } from '../../api/a1';
 
 export interface EdgeReviewPanelProps {
   /** Concept edges to review (semantic/rule/structure) */
@@ -47,6 +49,10 @@ export interface EdgeReviewPanelProps {
   onExtractRelations?: () => void;
   /** True while extract-edges LLM call is in flight */
   isExtracting?: boolean;
+  /** Dead edges (失效区): previously confirmed edges whose endpoints vanished after re-finalize (T15) */
+  deadEdges?: DeadEdge[];
+  /** Discard a dead edge (废弃: removes it from backend confirmed_edges via existing reject endpoint) */
+  onDiscardDeadEdge?: (edge: DeadEdge) => void;
 }
 
 /** Canonical edge key: `from/to/relation` (slash-separated). */
@@ -115,9 +121,14 @@ export function EdgeReviewPanel({
   onConfirmAllTerms,
   onExtractRelations,
   isExtracting = false,
+  deadEdges,
+  onDiscardDeadEdge,
 }: EdgeReviewPanelProps) {
   // Rejected group collapsed by default
   const [showRejected, setShowRejected] = useState(false);
+  // T15: dead-edge zone — pending discard target (二次确认弹层) + retained (保留悬置) keys
+  const [discardCandidate, setDiscardCandidate] = useState<DeadEdge | null>(null);
+  const [retainedDeadKeys, setRetainedDeadKeys] = useState<Set<string>>(new Set());
   const itemRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   const confirmedTermCount = useMemo(
@@ -219,6 +230,142 @@ export function EdgeReviewPanel({
     );
   };
 
+  /**
+   * T15: 失效区 — previously confirmed edges whose endpoints no longer exist
+   * in the graph ("上轮已确认，本轮源节点未再出现").
+   * Actions: 废弃 (with 6.7-6 二次确认弹层) / 保留悬置 (frontend-only mark;
+   * the edge stays in confirmed_edges so the next re-finalize retries recovery).
+   */
+  const renderDeadZone = () => {
+    if (!deadEdges || deadEdges.length === 0) return null;
+
+    return (
+      <section className="mb-4" data-testid="dead-edge-zone">
+        <div className="text-xs font-medium text-stardust-300 mb-2">
+          失效区（{deadEdges.length}）
+        </div>
+        <ul className="space-y-1">
+          {deadEdges.map(dead => {
+            const key = getDeadEdgeKey(dead);
+            const fromLabel = nodeLabels[dead.from] || dead.from;
+            const toLabel = nodeLabels[dead.to] || dead.to;
+            const retained = retainedDeadKeys.has(key);
+            return (
+              <li
+                key={key}
+                data-testid="dead-edge-row"
+                data-dead-key={key}
+                className={`p-3 rounded-lg bg-space-900/70 border-l-4 border-rose-900/70 ${retained ? 'opacity-70' : ''}`}
+              >
+                <div className="text-sm text-gray-300 truncate">
+                  <span>{fromLabel}</span>
+                  <span className="text-void-400 mx-1">→</span>
+                  <span className="text-void-300 text-xs">[{dead.relation}]</span>
+                  <span className="ml-1">{toLabel}</span>
+                </div>
+                <div className="text-void-400 text-xs mt-1">上轮已确认，本轮源节点未再出现</div>
+                {!retained && (
+                  <div className="flex gap-1 mt-2">
+                    <button
+                      type="button"
+                      aria-label={`废弃失效边 ${key}`}
+                      data-testid="dead-edge-discard"
+                      onClick={() => setDiscardCandidate(dead)}
+                      className="px-2 py-0.5 rounded bg-rose-900/70 hover:bg-rose-800 text-rose-100 text-xs transition-colors"
+                    >
+                      废弃
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`保留悬置失效边 ${key}`}
+                      data-testid="dead-edge-retain"
+                      onClick={() =>
+                        setRetainedDeadKeys(prev => new Set(prev).add(key))
+                      }
+                      className="px-2 py-0.5 rounded bg-space-800/80 hover:bg-space-700 text-gray-300 text-xs transition-colors"
+                    >
+                      保留悬置
+                    </button>
+                  </div>
+                )}
+                {retained && (
+                  <span
+                    data-testid="dead-edge-retained-badge"
+                    className="inline-block mt-2 px-2 py-0.5 rounded bg-space-800/80 border border-gray-600/40 text-gray-400 text-xs whitespace-nowrap"
+                  >
+                    保留悬置（下轮定稿将尝试恢复）
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  };
+
+  /**
+   * T15: 6.7-6 二次确认弹层 — discard is destructive (removes the edge from
+   * confirmed_edges), so it requires explicit button confirmation.
+   * Zero text input: overlay contains only buttons, no input/textarea.
+   */
+  const renderDiscardDialog = () => {
+    if (!discardCandidate) return null;
+    const key = getDeadEdgeKey(discardCandidate);
+    const fromLabel = nodeLabels[discardCandidate.from] || discardCandidate.from;
+    const toLabel = nodeLabels[discardCandidate.to] || discardCandidate.to;
+
+    const confirmDiscard = () => {
+      onDiscardDeadEdge?.(discardCandidate);
+      setRetainedDeadKeys(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setDiscardCandidate(null);
+    };
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+        data-testid="dead-edge-discard-dialog"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="w-80 rounded-lg bg-space-800 border border-rose-800/50 p-4 shadow-xl">
+          <div className="text-stardust-300 text-sm font-medium mb-2">确认废弃该边？</div>
+          <div className="text-sm text-gray-300 truncate mb-2">
+            <span>{fromLabel}</span>
+            <span className="text-void-400 mx-1">→</span>
+            <span className="text-void-300 text-xs">[{discardCandidate.relation}]</span>
+            <span className="ml-1">{toLabel}</span>
+          </div>
+          <p className="text-void-400 text-xs leading-relaxed mb-3">
+            废弃后该边将从已确认清单中移除，后续重新定稿不再恢复。
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              data-testid="dead-edge-discard-cancel"
+              onClick={() => setDiscardCandidate(null)}
+              className="px-3 py-1.5 rounded bg-space-700 hover:bg-space-600 text-gray-200 text-xs transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              data-testid="dead-edge-discard-confirm"
+              onClick={confirmDiscard}
+              className="px-3 py-1.5 rounded bg-rose-800 hover:bg-rose-700 text-white text-xs transition-colors"
+            >
+              确认废弃
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (edges.length === 0) {
     return (
       <aside
@@ -227,6 +374,8 @@ export function EdgeReviewPanel({
       >
         <h3 className="text-stardust-300 text-sm font-medium mb-3">概念边审核</h3>
         {renderConceptGroup()}
+        {renderDeadZone()}
+        {renderDiscardDialog()}
         <p className="text-void-400 text-sm leading-relaxed">
           暂无概念边——定稿后 AI 将从你的设定中提取概念关联网
         </p>
@@ -317,6 +466,8 @@ export function EdgeReviewPanel({
     >
       <h3 className="text-stardust-300 text-sm font-medium mb-3">概念边审核</h3>
       {renderConceptGroup()}
+      {renderDeadZone()}
+      {renderDiscardDialog()}
       <ul className="space-y-2">
         {STATUS_GROUPS.map(group => {
           const items = grouped[group.status];

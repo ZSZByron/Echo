@@ -78,6 +78,70 @@ const termClusterColor = (id: string): string => {
 };
 
 /**
+ * Tier presentation bands (v0.5 governance doc §3): concept-mode module grouping.
+ * TIER_MAP semantics: 0 存在基座 / 1 动力学 / 2 显现 / 3 时间 / 4 表达 / 5 命题 / 6 治理.
+ * Nodes without a tier (tier undefined) fall into the "无分组" band.
+ */
+export const TIER_LEGEND: { tier: number; name: string; color: string }[] = [
+  { tier: 0, name: '存在基座', color: '#38bdf8' },
+  { tier: 1, name: '动力学', color: '#f472b6' },
+  { tier: 2, name: '显现', color: '#10b981' },
+  { tier: 3, name: '时间', color: '#fbbf24' },
+  { tier: 4, name: '表达', color: '#a78bfa' },
+  { tier: 5, name: '命题', color: '#60a5fa' },
+  { tier: 6, name: '治理', color: '#f87171' },
+];
+
+/** Sentinel band for module nodes whose tier is undefined. */
+export const TIER_UNGROUPED = -1;
+
+export const tierLegendColor = (tier: number | undefined): string => {
+  if (tier === undefined) return '#6b7280';
+  return TIER_LEGEND.find(t => t.tier === tier)?.color ?? '#6b7280';
+};
+
+/** Column / row spacing for concept-mode tier bands. */
+export const CONCEPT_TIER_COLUMN_SPACING = 340;
+export const CONCEPT_TIER_ROW_SPACING = 220;
+export const CONCEPT_MODULE_Y = 240;
+
+/**
+ * Pure tier-band layout for concept-mode module nodes (T14).
+ * Each tier occupies its own vertical column (ordered tier 0→6, ungrouped last);
+ * modules within a tier stack vertically. Returns id -> {x, y, tierBand}.
+ */
+export const layoutConceptModules = (
+  modules: { id: string; tier?: number }[]
+): Map<string, { x: number; y: number; tierBand: number }> => {
+  const byTier = new Map<number, { id: string; tier?: number }[]>();
+  modules.forEach(m => {
+    const band = typeof m.tier === 'number' ? m.tier : TIER_UNGROUPED;
+    if (!byTier.has(band)) byTier.set(band, []);
+    byTier.get(band)!.push(m);
+  });
+
+  const bandOrder = [...byTier.keys()].sort((a, b) => {
+    if (a === TIER_UNGROUPED) return 1;
+    if (b === TIER_UNGROUPED) return -1;
+    return a - b;
+  });
+  const totalWidth = (bandOrder.length - 1) * CONCEPT_TIER_COLUMN_SPACING;
+
+  const positions = new Map<string, { x: number; y: number; tierBand: number }>();
+  bandOrder.forEach((band, colIndex) => {
+    const columnX = colIndex * CONCEPT_TIER_COLUMN_SPACING - totalWidth / 2;
+    byTier.get(band)!.forEach((m, rowIndex) => {
+      positions.set(m.id, {
+        x: columnX,
+        y: CONCEPT_MODULE_Y + rowIndex * CONCEPT_TIER_ROW_SPACING,
+        tierBand: band,
+      });
+    });
+  });
+  return positions;
+};
+
+/**
  * Parse constraint description into display format
  * Format: "[A1] Constraint(LAW.world_structure=value)" -> "LAW.world_structure: value"
  */
@@ -500,7 +564,8 @@ export function A1KnowledgeGraph({
    */
   const layoutNodes = useCallback((
     nodes: GraphNode[],
-    edges: GraphEdge[]
+    edges: GraphEdge[],
+    mode: 'tree' | 'concept' = 'tree'
   ): Node[] => {
     // Group nodes by level
     const nodesByLevel = nodes.reduce((acc, node) => {
@@ -538,13 +603,27 @@ export function A1KnowledgeGraph({
     // Level 2: Modules
     const modulePositions = new Map<string, number>();
     if (nodesByLevel[2]) {
-      nodesByLevel[2].forEach((node, index) => {
-        const pos = calculateNodePosition(node.level, index, nodesByLevel[2].length);
-        const rfNode = toReactFlowNode(node);
-        rfNode.position = pos;
-        positionedNodes.push(rfNode);
-        modulePositions.set(node.id, pos.x);
-      });
+      if (mode === 'concept') {
+        // T14: tier-band columns (tier 0-6 + 无分组), grouped via pure layoutConceptModules
+        const positions = layoutConceptModules(nodesByLevel[2]);
+        nodesByLevel[2].forEach(node => {
+          const p = positions.get(node.id);
+          if (!p) return;
+          const rfNode = toReactFlowNode(node);
+          rfNode.position = { x: p.x, y: p.y };
+          rfNode.data = { ...rfNode.data, testId: `tier-group-${p.tierBand}` };
+          positionedNodes.push(rfNode);
+          modulePositions.set(node.id, p.x);
+        });
+      } else {
+        nodesByLevel[2].forEach((node, index) => {
+          const pos = calculateNodePosition(node.level, index, nodesByLevel[2].length);
+          const rfNode = toReactFlowNode(node);
+          rfNode.position = pos;
+          positionedNodes.push(rfNode);
+          modulePositions.set(node.id, pos.x);
+        });
+      }
     }
 
     // Level 3: Entries (grouped by parent module)
@@ -730,7 +809,7 @@ export function A1KnowledgeGraph({
     const graphNodes = Object.values(graph.nodes);
     const edgesToUse = viewMode === 'concept' ? filteredEdges : graph.edges;
     const flowEdges = edgesToUse.map(toReactFlowEdge);
-    const flowNodes = layoutNodes(graphNodes, edgesToUse);
+    const flowNodes = layoutNodes(graphNodes, edgesToUse, viewMode);
 
     return { flowNodes, flowEdges };
   }, [graph, toReactFlowEdge, layoutNodes, viewMode, filteredEdges]);
@@ -853,6 +932,32 @@ export function A1KnowledgeGraph({
           </div>
         </div>
       </div>
+
+      {/* Tier band legend (concept mode, T14): 7 tier colors + 无分组 */}
+      {viewMode === 'concept' && (
+        <div
+          className="absolute top-16 right-4 z-10 flex flex-col gap-1 p-3 bg-void-900/90 border border-void-700 rounded-md backdrop-blur-sm"
+          data-testid="tier-legend"
+        >
+          <div className="text-xs text-void-400 font-medium mb-1">层级带</div>
+          {TIER_LEGEND.map(({ tier, name, color }) => (
+            <div key={tier} className="flex items-center gap-2 text-xs">
+              <span
+                className="inline-block w-3 h-3 rounded-sm"
+                style={{ backgroundColor: 'transparent', border: `1.5px solid ${color}` }}
+              />
+              <span className="text-void-400">{`tier ${tier} · ${name}`}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className="inline-block w-3 h-3 rounded-sm"
+              style={{ backgroundColor: 'transparent', border: '1.5px dashed #6b7280' }}
+            />
+            <span className="text-void-400">无分组</span>
+          </div>
+        </div>
+      )}
 
       {/* Filter controls (concept mode only) */}
       {viewMode === 'concept' && (
