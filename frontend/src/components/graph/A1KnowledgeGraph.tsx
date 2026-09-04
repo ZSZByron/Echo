@@ -52,9 +52,12 @@ export interface A1KnowledgeGraphProps {
 export const conceptEdgeKey = (edge: Pick<GraphEdge, 'from_node_id' | 'to_node_id' | 'relation' | 'visual_description'>): string =>
   `${edge.from_node_id}/${edge.to_node_id}/${edge.relation || edge.visual_description}`;
 
-/** Detect concept-term node per backend contract: id prefix `term:` OR level===4 (defensive OR). */
-export const isConceptTermNode = (node: Pick<GraphNode, 'id' | 'level'>): boolean =>
-  node.id.startsWith('term:') || node.level === 4;
+/** Detect concept-term node (v0.4 legacy two-phase artifact): strict `term:` id prefix only. */
+export const isConceptTermNode = (node: { id: string }): boolean =>
+  node.id.startsWith('term:');
+
+/** Detect v0.5 depth-tree node: id prefix `d:` (form `d:{anchor}:{title}`, level=4). */
+export const isDepthNode = (id: string): boolean => id.startsWith('d:');
 
 /** Cluster palette for concept-term nodes (reuses existing module cluster colors). */
 const TERM_CLUSTER_COLORS = [
@@ -214,6 +217,7 @@ export function A1KnowledgeGraph({
   const toReactFlowNode = useCallback((node: GraphNode): Node => {
     const isConstraint = node.id.startsWith('cst_') || node.level === 0;
     const isTerm = isConceptTermNode(node);
+    const isDepth = isDepthNode(node.id);
 
     // T-D: unconfirmed concept term -> semi-transparent + dashed border
     const termMeta = conceptTerms?.find(t => node.id === `term:${t.term}`);
@@ -221,6 +225,10 @@ export function A1KnowledgeGraph({
 
     let nodeStyle: React.CSSProperties = {};
     let label = '';
+    /** Full text shown via title tooltip (LLM summaries / depth entries). */
+    let tooltip: string | undefined;
+    /** Extra style applied to the label wrapper (e.g. 2-line clamp for L2 summaries). */
+    let labelExtraStyle: React.CSSProperties = {};
 
     if (isTerm) {
       // Concept-term node: small circular dot + word label, clustered by module palette
@@ -237,6 +245,21 @@ export function A1KnowledgeGraph({
         boxShadow: `0 0 6px ${clusterColor}40`
       };
       label = `● ${node.description}`;
+    } else if (isDepth) {
+      // v0.5 depth-tree node (level 4): thin cluster-colored border, content = LLM entry description
+      const clusterColor = termClusterColor(node.id);
+      nodeStyle = {
+        border: `1px solid ${clusterColor}`,
+        backgroundColor: 'rgba(19, 19, 42, 0.7)',
+        borderRadius: '4px',
+        padding: '6px 8px',
+        minWidth: '140px',
+        maxWidth: '200px',
+        fontSize: '12px',
+        boxShadow: `0 0 4px ${clusterColor}30`
+      };
+      label = `▸ ${node.description}`;
+      tooltip = node.description;
     } else if (node.level === 1) {
       // Background root node: golden border
       nodeStyle = {
@@ -259,6 +282,14 @@ export function A1KnowledgeGraph({
         boxShadow: '0 0 8px rgba(139, 92, 246, 0.2)'
       };
       label = `▤ ${node.description}`;
+      tooltip = node.description;
+      // LLM summary: clamp to 2 lines, full text in tooltip
+      labelExtraStyle = {
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden'
+      };
     } else if (node.level === 3) {
       // Entry node: thin white border, parse description
       const parts = node.description.split(':');
@@ -307,12 +338,16 @@ export function A1KnowledgeGraph({
       className: isTerm ? 'concept-term-node' : undefined,
       data: {
         label: (
-          <div style={{
-            color: 'white',
-            fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word'
-          }}>
+          <div
+            title={tooltip}
+            style={{
+              color: 'white',
+              fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              ...labelExtraStyle
+            }}
+          >
             {label}
           </div>
         )
@@ -549,6 +584,21 @@ export function A1KnowledgeGraph({
         rfNode.position = {
           x: (index * TERM_SPACING) - (totalWidth / 2),
           y: 760
+        };
+        positionedNodes.push(rfNode);
+      });
+    }
+
+    // v0.5 depth-tree nodes (d:, level 4): row below term nodes, wider spacing for entry text
+    const depthNodes = nodes.filter(n => isDepthNode(n.id));
+    if (depthNodes.length > 0) {
+      const DEPTH_SPACING = 220;
+      const totalWidth = (depthNodes.length - 1) * DEPTH_SPACING;
+      depthNodes.forEach((node, index) => {
+        const rfNode = toReactFlowNode(node);
+        rfNode.position = {
+          x: (index * DEPTH_SPACING) - (totalWidth / 2),
+          y: 840
         };
         positionedNodes.push(rfNode);
       });
@@ -959,6 +1009,7 @@ export function A1KnowledgeGraph({
             if (nodeData.level === 1) return 'var(--color-stardust-400)';
             if (nodeData.level === 2) return 'var(--color-nebula-400)';
             if (isConceptTermNode(nodeData)) return termClusterColor(nodeData.id);
+            if (isDepthNode(nodeData.id)) return termClusterColor(nodeData.id);
             if (nodeData.level === 3 || nodeData.id.startsWith('cst_')) return '#ffffff';
             return '#a78bfa';
           }}

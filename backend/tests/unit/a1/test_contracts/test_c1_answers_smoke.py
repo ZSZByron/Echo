@@ -53,10 +53,44 @@ async def test_stub_chat_mode_returns_json_string(make_stub_llm) -> None:
 
 
 # =============================================================================
-# C1 contract smoke (placeholder — turned green after graphify.py lands)
+# C1 contract smoke: real interview answers consumed by the graphify prompt
 # =============================================================================
 
 
-@pytest.mark.xfail(strict=True, reason="C1: graphify prompt 消费 answers 尚未实现（T1）")
-async def test_c1_real_interview_answers_feed_graphify_prompt() -> None:
-    pytest.fail("C1 contract not implemented yet")
+def test_c1_real_interview_answers_feed_graphify_prompt(make_stub_llm) -> None:
+    from app.domains.creation.a1.graphify import build_graphify_prompt, graphify_llm
+
+    answers = {
+        "IP定位.name": "灰烬大陆",
+        "IP定位.concept": "燃烧的天空下寻找最后的绿洲；玩家是拾荒者",
+        "世界本体.origin": "创世火种爆炸后世界开始燃烧",
+    }
+    stub = make_stub_llm(response={
+        "module_summaries": {"IP定位": "燃烧大陆"},
+        "entries": [{
+            "anchor": "IP定位.name",
+            "items": [{"title": "灰烬大陆", "content": "天空燃烧", "children": []}],
+        }],
+        "edges": [],
+        "constraint_fields": {},
+        "open_questions": [],
+    })
+
+    session = type("S", (), {"session_id": "a1_c1test0001", "answers": answers})()
+    result = graphify_llm(session, stub)
+
+    # prompt carried the verbatim answers (C1: full text, no truncation)
+    system = stub.last_messages[0]["content"]
+    assert system == build_graphify_prompt(answers)
+    for value in answers.values():
+        assert value in system
+    # closed vocab + immutable block + reference rules present
+    assert "关系封闭词表" in system
+    assert "不可动清单" in system
+    assert "节点引用规则" in system
+    assert "d:{锚点}:{条目标题}" in system
+
+    # answers were actually graphified
+    assert result.success is True
+    assert result.module_summaries == {"IP定位": "燃烧大陆"}
+    assert stub.chat_json_calls == 1

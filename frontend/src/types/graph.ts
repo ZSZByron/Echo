@@ -32,6 +32,8 @@ export interface GraphNode {
   serial_number: string;
   /** Depth level (1-indexed by segment count) */
   level: number;
+  /** Tier index from backend TIER_MAP (module-level hierarchy); absent on legacy nodes */
+  tier?: number;
   /** Visual description of the asset */
   description: string;
   /** Current lifecycle status */

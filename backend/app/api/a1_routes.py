@@ -62,15 +62,14 @@ from app.models.dimension import (
 from app.domains.creation.a1.concept_edge_extractor import (
     ConceptTerm,
     EdgesV2Result,
-    TermsResult,
     extract_concept_relations,
-    extract_concept_terms,
 )
 from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
 from app.domains.creation.a1.graphify import (
     GraphifyResult,
     dedupe_items,
     depth_id,
+    graphify_llm,
     validate_anchors,
 )
 from app.domains.creation.a1.tier_map import TIER_MAP
@@ -751,6 +750,8 @@ def get_file(file_id: str) -> dict:
         # Task T-B: 常驻字段（draft 态为空）
         "concept_terms": rec.get("concept_terms", []),
         "proposed_relations": rec.get("proposed_relations", []),
+        # v0.5: finalize warnings 常驻（draft/旧记录为空列表）
+        "finalize_warnings": rec.get("finalize_warnings", []),
     }
 
 
@@ -879,78 +880,41 @@ def finalize(file_id: str) -> dict:
             {"diff_summary": f"{rec['graph_code']} -> {new_code}"},
         )
 
-    graph, valid_node_ids = _build_graph(session, rec)
+    # Provider 获取（与 extract-edges 端点一致的注入范式）；失败降级 None，
+    # graphify_llm 内部对 None provider / 任何异常降级，永不抛出。
+    try:
+        provider = create_provider(load_provider_config())
+    except Exception:  # noqa: BLE001
+        provider = None
+
+    llm_result = graphify_llm(session, provider)
+    graph, valid_node_ids = _build_graph(session, rec, llm_result)
     warnings: list[str] = []
 
-    # Task T-B 阶段1: 抽概念词节点入图（TREE 结构不动；概念边本阶段不抽，
-    # 节点确认后经 POST /concept/extract-edges 阶段2抽取）
-    try:
-        try:
-            provider = create_provider(load_provider_config())
-        except Exception:  # noqa: BLE001
-            provider = None
-        terms_result = extract_concept_terms(session, provider=provider)
-    except Exception as exc:  # noqa: BLE001 — degrade on any extraction error
-        terms_result = TermsResult(
-            success=False,
-            warning=f"concept_term extraction failed: {str(exc)[:200]}",
-        )
+    # v0.5 (§8.1 两阶段): graphify 降级 warning 并入 finalize_warnings
+    if not llm_result.success:
+        warnings.append(llm_result.warning or "graphify failed")
 
-    if terms_result.success:
-        # Re-finalize: 恢复此前概念词的 confirmed 态（同词保留，新词默认 False）
-        prev_terms = {t["term"]: t for t in rec.get("concept_terms", [])}
-        merged: list[dict] = []
-        for ct in terms_result.terms:
-            p = prev_terms.get(ct.term)
-            merged.append({
-                "term": ct.term,
-                "field_key": ct.field_key,
-                "gloss": ct.gloss,
-                "confirmed": bool(p["confirmed"]) if p else False,
+    # v0.5 两阶段退役: finalize 不再调用 extract_concept_terms；
+    # 概念词恢复/入图由 SIR entries + dead_edges 取代。
+    # 旧 confirmed_edges 快照中端点已不在新图的边落入死区（不重入图）。
+    confirmed_prev = rec.get("confirmed_edges", {})
+    rejected_prev = rec.get("rejected_edges", {})
+    for key, snap in confirmed_prev.items():
+        if key in rejected_prev:
+            continue
+        fid = snap.get("from_node_id", "")
+        tid = snap.get("to_node_id", "")
+        if fid not in graph.nodes or tid not in graph.nodes:
+            # Dead zone (T7): persist instead of silent drop; the
+            # list itself was (re)initialized by _build_graph.
+            rec.setdefault("dead_edges", []).append({
+                "key": key, "from": fid, "to": tid,
+                "relation": snap.get("relation", ""),
+                "reason": "endpoint_missing",
             })
-        rec["concept_terms"] = merged
 
-        # 概念词节点入图：id 前缀 term: + level=4 双标识；同词去重
-        for t in merged:
-            nid = f"term:{t['term']}"
-            if nid not in graph.nodes:
-                graph.nodes[nid] = GraphNode(
-                    id=nid, serial_number="", level=4,
-                    description=t["term"], status=NodeStatus.COMPLETED,
-                )
-            valid_node_ids.add(nid)
-
-        # 重定稿恢复：已确认/未确认概念边按 confirmed_edges 快照重入图
-        #（键格式 term:A/term:B/relation）；已拒绝边不重现；引用失效的边丢弃
-        confirmed = rec.get("confirmed_edges", {})
-        rejected = rec.get("rejected_edges", {})
-        for key, snap in confirmed.items():
-            if key in rejected:
-                continue
-            fid = snap.get("from_node_id", "")
-            tid = snap.get("to_node_id", "")
-            if fid not in graph.nodes or tid not in graph.nodes:
-                # Dead zone (T7): persist instead of silent drop; the
-                # list itself was (re)initialized by _build_graph.
-                rec.setdefault("dead_edges", []).append({
-                    "key": key, "from": fid, "to": tid,
-                    "relation": snap.get("relation", ""),
-                    "reason": "endpoint_missing",
-                })
-                continue
-            confidence = snap.get("confidence", "semantic")
-            graph.edges.append(GraphEdge(
-                from_node_id=fid, to_node_id=tid,
-                edge_type=_CONFIDENCE_TO_EDGETYPE.get(confidence, EdgeType.SEMANTIC),
-                visual_description=snap.get("relation", ""),
-                relation=snap.get("relation", ""),
-                confidence=confidence,
-                confirmed=bool(snap.get("confirmed", False)),
-            ))
-    else:
-        # Degradation: 纯 TREE 图 + 无概念节点，warnings 含 "concept_term"
-        warnings.append(terms_result.warning or "concept_term extraction failed")
-        rec["concept_terms"] = rec.get("concept_terms", [])
+    rec["concept_terms"] = rec.get("concept_terms", [])
 
     # 旧槽位级概念边抽取已停用（两阶段编排取代）；open_questions 字段保留常驻
     rec["open_questions"] = rec.get("open_questions", [])
@@ -965,7 +929,8 @@ def finalize(file_id: str) -> dict:
     )
 
     rec.update({"status": "finalized", "graph_code": new_code,
-                "graph_json": graph.model_dump(mode="json"), "graph_id": graph_id})
+                "graph_json": graph.model_dump(mode="json"), "graph_id": graph_id,
+                "finalize_warnings": warnings})
     log_event(
         session.session_id,
         "finalize",
@@ -1595,9 +1560,16 @@ def confirm_terms(file_id: str, req: TermsConfirmRequest) -> dict:
     return {"concept_terms": terms}
 
 
-@router.post("/api/a1/file/{file_id}/concept/extract-edges")
+@router.post(
+    "/api/a1/file/{file_id}/concept/extract-edges",
+    deprecated=True,
+)
 def extract_concept_edges_v2(file_id: str) -> dict:
-    """阶段2：在已确认概念词之间抽边（提议制）。失败降级 200+success=false."""
+    """阶段2：在已确认概念词之间抽边（提议制）。失败降级 200+success=false.
+
+    Deprecated (v0.5 两阶段退役, 治理文档 §8.1): finalize 不再产出 term:
+    概念词节点，本端点仅作向后兼容保留；行为不变，计划 v0.5 末退役。
+    """
     rec = _get_file(file_id)
     if rec["status"] != "finalized" or not rec.get("graph_json"):
         raise HTTPException(status_code=409, detail="pending_finalize")

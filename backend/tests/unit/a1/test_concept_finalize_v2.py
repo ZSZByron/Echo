@@ -1,15 +1,14 @@
-"""Tests for Task T-B: finalize两阶段编排.
+"""Tests for Task T-B → v0.5: 两阶段编排（阶段1 已退役）.
 
-Covers:
-1. finalize 后 graph 含 term: 节点（阶段1 mock 5词）+ TREE 不动 + 零概念边
-2. 阶段1 降级：extract_concept_terms 抛异常 → 200 + warnings 含 concept_term + 无 term 节点
+Covers (v0.5 §8.1 两阶段处置后):
+1. finalize 后 graph 不再产出 term: 节点（fixture 注入遗留数据供阶段2用）+ 零概念边
+2. graphify 降级：provider 抛异常 → 200 + warnings 含 graphify + 无 term 节点
 3. terms/confirm 端点：批量确认 → concept_terms.confirmed 更新
 4. extract-edges 前置校验：confirmed < 2 → 400
 5. extract-edges 成功：mock 3 边（含 1 is_new_relation）→ graph 边含 term: 引用 +
    confirmed=False；proposed_relations 有 1 条
 6. 确认新词边 → registry 入典（_FILES.relation_registry 增加该词）+ proposed_relations 移除该条
-7. 重定稿恢复：finalize→确认词→抽边→确认1边拒1边→改答案→re-finalize→
-   词节点在 + confirmed 保留 + 边状态保留
+7. 重定稿：词节点不再恢复，旧概念边落入 dead_edges，词确认态快照保留
 8. GET file 常驻字段 concept_terms / proposed_relations
 """
 import pytest
@@ -18,9 +17,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.domains.creation.a1.concept_edge_extractor import (
     ConceptEdgeV2,
-    ConceptTerm,
     EdgesV2Result,
-    TermsResult,
 )
 
 
@@ -49,14 +46,6 @@ def _inject_answers(payload):
     return session
 
 
-def _terms_result(terms, success=True, warning=""):
-    return TermsResult(
-        terms=[ConceptTerm(term=t, field_key="模块.字段") for t in terms],
-        success=success,
-        warning=warning,
-    )
-
-
 def _edges_v2_result(edges, success=True, warning=""):
     return EdgesV2Result(
         edges=[ConceptEdgeV2(**e) for e in edges],
@@ -78,13 +67,23 @@ _MOCK_EDGES = [
 
 
 def _finalize_with_terms(client, payload, monkeypatch, terms=_MOCK_TERMS):
+    """finalize（graphify 测试环境降级）后把阶段1遗留状态直接注入 rec。"""
     _inject_answers(payload)
-    monkeypatch.setattr(
-        "app.api.a1_routes.extract_concept_terms",
-        lambda *a, **kw: _terms_result(terms),
-    )
     fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
     assert fin.status_code == 200
+
+    from app.api import a1_routes
+    rec = a1_routes._FILES[payload["file_id"]]
+    rec["concept_terms"] = [
+        {"term": t, "field_key": "模块.字段", "gloss": "", "confirmed": False}
+        for t in terms
+    ]
+    for t in terms:
+        nid = f"term:{t}"
+        rec["graph_json"]["nodes"].setdefault(nid, {
+            "id": nid, "serial_number": "", "level": 4,
+            "description": t, "status": "completed",
+        })
     return fin.json()
 
 
@@ -105,14 +104,14 @@ def _extract_edges(client, payload, monkeypatch, edges=_MOCK_EDGES):
 
 
 class TestFinalizeStage1:
-    """Test 1: finalize 阶段1——概念词节点入图，零概念边."""
+    """Test 1: v0.5 后 finalize 不再产出概念词；term 节点为 fixture 注入的遗留数据."""
 
     def test_finalize_adds_term_nodes_no_concept_edges(self, started, monkeypatch):
         client, payload = started
         body = _finalize_with_terms(client, payload, monkeypatch)
 
-        # concept_terms_count in finalize response
-        assert body.get("concept_terms_count") == 5
+        # v0.5: finalize 自身不再产出概念词
+        assert body.get("concept_terms_count") == 0
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
 
@@ -145,21 +144,21 @@ class TestFinalizeStage1:
 
 
 class TestFinalizeStage1Degradation:
-    """Test 2: 阶段1 降级."""
+    """Test 2: graphify 降级（v0.5 取代阶段1降级）."""
 
     def test_stage1_exception_degrades(self, started, monkeypatch):
         client, payload = started
         _inject_answers(payload)
 
-        def _raise(*a, **kw):
+        def _raise(cfg):
             raise RuntimeError("LLM unavailable")
 
-        monkeypatch.setattr("app.api.a1_routes.extract_concept_terms", _raise)
+        monkeypatch.setattr("app.api.a1_routes.create_provider", _raise)
 
         fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin.status_code == 200
         body = fin.json()
-        assert any("concept_term" in w for w in body.get("warnings", []))
+        assert any("graphify" in w for w in body.get("warnings", []))
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         term_nodes = [nid for nid in graph["nodes"] if nid.startswith("term:")]
@@ -272,7 +271,7 @@ class TestNewRelationInduction:
 
 
 class TestRefinalizeRestore:
-    """Test 7: 重定稿恢复——词节点 + confirmed 态 + 边状态."""
+    """Test 7: 重定稿——词节点不再恢复，旧概念边落 dead_edges，词确认态快照保留."""
 
     def test_full_cycle_restore(self, started, monkeypatch):
         client, payload = started
@@ -286,37 +285,36 @@ class TestRefinalizeRestore:
         client.post("/api/a1/file/{}/edge/{}/reject".format(
             payload["file_id"], "term:业报/term:轮回之门/依赖"))
 
-        # change answers then re-finalize (stage1 mocked again, returns same terms)
+        # change answers then re-finalize（v0.5: 无阶段1，词节点不再恢复）
         from app.api import a1_routes
         session = a1_routes._SESSIONS[payload["session_id"]]
         first_key = next(iter(session.answers))
         session.answers[first_key] = "修改后的答案"
 
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result(_MOCK_TERMS),
-        )
         fin2 = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin2.status_code == 200
 
+        rec = a1_routes._FILES[payload["file_id"]]
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
 
-        # term nodes restored
+        # v0.5: 词节点不再恢复
         term_nodes = {nid for nid in graph["nodes"] if nid.startswith("term:")}
-        assert term_nodes == {f"term:{t}" for t in _MOCK_TERMS}
+        assert term_nodes == set()
 
-        # term confirmed state preserved
-        persisted = {t["term"]: t for t in a1_routes._FILES[payload["file_id"]]["concept_terms"]}
+        # 词确认态快照保留（常驻字段不清空）
+        persisted = {t["term"]: t for t in rec["concept_terms"]}
         assert all(t["confirmed"] is True for t in persisted.values())
 
-        # confirmed edge restored with confirmed=True
+        # confirmed edge → dead_edges（端点缺失死区），不回图
+        dead_keys = {d["key"] for d in rec["dead_edges"]}
+        assert "term:死亡转生/term:业报/引发" in dead_keys
+        assert "term:业报/term:轮回之门/依赖" not in dead_keys  # rejected 不入死区
+
         edges_by_key = {
             f"{e['from_node_id']}/{e['to_node_id']}/{e.get('relation', '')}": e
             for e in graph["edges"]
         }
-        assert edges_by_key["term:死亡转生/term:业报/引发"]["confirmed"] is True
-
-        # rejected edge does not reappear
+        assert "term:死亡转生/term:业报/引发" not in edges_by_key
         assert "term:业报/term:轮回之门/依赖" not in edges_by_key
 
 
@@ -334,26 +332,12 @@ class TestGetFileResidentFields:
         assert body["concept_terms"] == []
         assert body["proposed_relations"] == []
 
-        # after finalize + extract
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result(["死亡转生", "业报"]),
-        )
-        client.post(f"/api/a1/file/{payload['file_id']}/finalize")
-        client.post(
-            f"/api/a1/file/{payload['file_id']}/terms/confirm", json={"all": True}
-        )
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_relations",
-            lambda *a, **kw: _edges_v2_result([
-                {"from_term": "死亡转生", "to_term": "业报", "relation": "反噬",
-                 "is_new_relation": True, "rationale": "", "confidence": "semantic"},
-            ]),
-        )
-        client.post(f"/api/a1/file/{payload['file_id']}/concept/extract-edges")
+        # after finalize（v0.5: finalize 不再产出概念词，字段仍常驻）
+        fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
+        assert fin.status_code == 200
 
         resp = client.get(f"/api/a1/file/{payload['file_id']}")
         body = resp.json()
-        assert len(body["concept_terms"]) == 2
-        assert len(body["proposed_relations"]) == 1
-        assert body["proposed_relations"][0]["name"] == "反噬"
+        assert body["concept_terms"] == []
+        assert body["proposed_relations"] == []
+        assert "finalize_warnings" in body  # v0.5 常驻键

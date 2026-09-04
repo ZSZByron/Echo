@@ -1,19 +1,17 @@
-"""Tests for Task 7 / T-B: finalize两阶段编排 + 确认态持久化 + edge审核API.
+"""Tests for Task 7 / T-B → v0.5: 两阶段概念边 + 确认态持久化 + edge审核API.
 
-语义迁移说明 (Task T-B): finalize 不再抽取槽位级概念边，改为两阶段编排：
-- 阶段1: finalize 时 extract_concept_terms → 概念词节点（term: 前缀, level=4）入图
-- 阶段2: 节点确认后 POST /concept/extract-edges → 概念边逐条确认
-旧槽位边测试已按新语义迁移（finalize 无概念边/只有 term 节点）。
-edge confirm/reject API 端点不变，测试保留（改用新流程造边）。
+语义迁移说明 (v0.5 §8.1 两阶段退役): finalize 不再调用 extract_concept_terms
+（内容图谱化由 graphify SIR entries + dead_edges 取代）。本文件的阶段1状态
+（concept_terms + term: 节点）改为 fixture 直接注入 rec 模拟遗留数据，
+用于继续验证阶段2（POST /concept/extract-edges，deprecated 但保留）
+与 edge confirm/reject API 的行为不变。重定稿时旧概念边落入 dead_edges。
 """
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.domains.creation.a1.concept_edge_extractor import (
     ConceptEdgeV2,
-    ConceptTerm,
     EdgesV2Result,
-    TermsResult,
 )
 
 
@@ -42,13 +40,6 @@ def _inject_answers(payload, per_module_need=None):
     return session
 
 
-def _terms_result(terms, success=True, warning=""):
-    return TermsResult(
-        terms=[ConceptTerm(term=t, field_key="模块.字段") for t in terms],
-        success=success, warning=warning,
-    )
-
-
 def _edges_v2_result(edges, success=True, warning=""):
     return EdgesV2Result(
         edges=[ConceptEdgeV2(**e) for e in edges],
@@ -60,14 +51,24 @@ _MOCK_TERMS = ["死亡转生", "业报", "轮回之门"]
 
 
 def _finalize_with_terms(client, payload, monkeypatch, terms=_MOCK_TERMS):
-    """Helper: inject answers, mock stage-1 terms extraction, finalize."""
+    """Helper: finalize（graphify 在测试环境降级为纯 TREE 图）后，把阶段1
+    遗留状态（concept_terms + term: 节点）直接注入 rec，模拟 v0.4 产物。"""
     _inject_answers(payload)
-    monkeypatch.setattr(
-        "app.api.a1_routes.extract_concept_terms",
-        lambda *a, **kw: _terms_result(terms),
-    )
     fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
     assert fin.status_code == 200
+
+    from app.api import a1_routes
+    rec = a1_routes._FILES[payload["file_id"]]
+    rec["concept_terms"] = [
+        {"term": t, "field_key": "模块.字段", "gloss": "", "confirmed": False}
+        for t in terms
+    ]
+    for t in terms:
+        nid = f"term:{t}"
+        rec["graph_json"]["nodes"].setdefault(nid, {
+            "id": nid, "serial_number": "", "level": 4,
+            "description": t, "status": "completed",
+        })
     return fin.json()
 
 
@@ -201,11 +202,12 @@ class TestFinalizeConceptTerms:
     """T-B 新语义: finalize 只入概念词节点，零概念边."""
 
     def test_finalize_adds_term_nodes_zero_concept_edges(self, started, monkeypatch):
-        """finalize后graph含term:节点（level=4）+ TREE不动 + 零概念边."""
+        """finalize后graph含term:节点（fixture 注入的遗留数据）+ TREE不动 + 零概念边."""
         client, payload = started
         body = _finalize_with_terms(client, payload, monkeypatch)
 
-        assert body.get("concept_terms_count") == 3
+        # v0.5: finalize 自身不再产出概念词
+        assert body.get("concept_terms_count") == 0
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         tree_edges = [e for e in graph["edges"] if e["edge_type"] == "tree"]
@@ -233,11 +235,7 @@ class TestFinalizeConceptTerms:
         graph_plain = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         tree_count_plain = len([e for e in graph_plain["edges"] if e["edge_type"] == "tree"])
 
-        # re-finalize with terms mocked
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result(_MOCK_TERMS),
-        )
+        # re-finalize（v0.5: 无阶段1 mock，graphify 降级为纯 TREE）
         fin2 = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin2.status_code == 200
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
@@ -254,7 +252,7 @@ class TestConfirmStatePersistence:
         _extract_edges(client, payload, monkeypatch, _stage2_edges())
 
     def test_confirm_state_persists_across_refinalize(self, started, monkeypatch):
-        """confirm边 → re-finalize → confirmed状态保留."""
+        """confirm边 → re-finalize → 边落 dead_edges 死区，确认态快照保留."""
         client, payload = started
         self._setup(client, payload, monkeypatch)
 
@@ -263,23 +261,28 @@ class TestConfirmStatePersistence:
         )
         assert resp.status_code == 200
 
-        # Re-finalize (stage1 mocked)
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result(_MOCK_TERMS),
-        )
+        # Re-finalize（v0.5: 词节点不再恢复，旧概念边落入死区）
         fin2 = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin2.status_code == 200
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
-        e = [
+        assert not [
             e for e in graph["edges"]
             if e["from_node_id"] == "term:死亡转生" and e["relation"] == "引发"
-        ][0]
-        assert e["confirmed"] is True
+        ]
+
+        from app.api import a1_routes
+        rec = a1_routes._FILES[payload["file_id"]]
+        dead = [d for d in rec["dead_edges"]
+                if d["key"] == "term:死亡转生/term:业报/引发"]
+        assert len(dead) == 1
+        assert dead[0]["reason"] == "endpoint_missing"
+
+        # 确认态快照仍保留（v0.4 数据不丢）
+        assert rec["confirmed_edges"]["term:死亡转生/term:业报/引发"]["confirmed"] is True
 
     def test_rejected_edges_not_re_appearing(self, started, monkeypatch):
-        """rejected_edges中的边在re-finalize时不再出现."""
+        """rejected_edges中的边在re-finalize时不再出现（含死区）."""
         client, payload = started
         self._setup(client, payload, monkeypatch)
 
@@ -289,13 +292,11 @@ class TestConfirmStatePersistence:
         resp = client.post(f"/api/a1/file/{payload['file_id']}/edge/{key}/reject")
         assert resp.status_code == 200
 
-        monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result(_MOCK_TERMS),
-        )
         fin2 = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin2.status_code == 200
 
+        rec = a1_routes._FILES[payload["file_id"]]
+        assert key not in [d["key"] for d in rec["dead_edges"]]
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         for edge in graph["edges"]:
             edge_key = f"{edge.get('from_node_id')}/{edge.get('to_node_id')}/{edge.get('relation', '')}"
@@ -303,22 +304,22 @@ class TestConfirmStatePersistence:
 
 
 class TestDegradation:
-    """Metis AC-M7: 降级——阶段1失败 → finalize仍200，纯TREE图，warnings含concept_term."""
+    """v0.5: graphify 降级——provider 失败 → finalize仍200，纯TREE图，warnings含graphify."""
 
-    def test_stage1_exception_degrades(self, started, monkeypatch):
-        """mock 阶段1抛异常 → finalize仍200，graph纯TREE，warnings含concept_term."""
+    def test_graphify_provider_raise_degrades(self, started, monkeypatch):
+        """provider 工厂抛异常 → finalize仍200，graph纯TREE，warnings含graphify."""
         client, payload = started
         _inject_answers(payload)
 
-        def _raise(*a, **kw):
+        def _raise(cfg):
             raise RuntimeError("LLM unavailable")
 
-        monkeypatch.setattr("app.api.a1_routes.extract_concept_terms", _raise)
+        monkeypatch.setattr("app.api.a1_routes.create_provider", _raise)
 
         fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin.status_code == 200
         body = fin.json()
-        assert any("concept_term" in w for w in body.get("warnings", []))
+        assert any("graphify" in w for w in body.get("warnings", []))
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         term_nodes = [nid for nid in graph["nodes"] if nid.startswith("term:")]
@@ -326,21 +327,21 @@ class TestDegradation:
         non_tree = [e for e in graph["edges"] if e.get("edge_type") not in ("tree", "cross")]
         assert len(non_tree) == 0
 
-    def test_stage1_success_false_degrades(self, started, monkeypatch):
-        """阶段1返回success=False → finalize仍200，warnings含concept_term."""
+    def test_graphify_invalid_output_degrades(self, started, make_stub_llm, monkeypatch):
+        """graphify 输出非法 JSON 结构 → 降级 200，warnings含graphify."""
         client, payload = started
         _inject_answers(payload)
-
+        monkeypatch.setattr("app.api.a1_routes.load_provider_config", lambda: {})
         monkeypatch.setattr(
-            "app.api.a1_routes.extract_concept_terms",
-            lambda *a, **kw: _terms_result([], success=False,
-                                           warning="concept_term extraction failed: timeout"),
+            "app.api.a1_routes.create_provider",
+            # wrong container type (list where dict expected) → parse raises → degrade
+            lambda cfg: make_stub_llm(response={"module_summaries": ["not-a-dict"]}),
         )
 
         fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
         assert fin.status_code == 200
         body = fin.json()
-        assert any("concept_term" in w for w in body.get("warnings", []))
+        assert any("graphify" in w for w in body.get("warnings", []))
 
         graph = client.get(f"/api/a1/file/{payload['file_id']}/graph").json()
         non_tree = [e for e in graph["edges"] if e.get("edge_type") not in ("tree", "cross")]
@@ -534,7 +535,7 @@ class TestFinalizeSignature:
 
         The fix: changing from 'async def finalize' to 'def finalize' allows FastAPI to run
         the endpoint in a thread pool (no event loop), making asyncio.run() legal inside
-        extract_concept_terms().
+        graphify_llm().
         """
         import inspect
         from app.api.a1_routes import finalize

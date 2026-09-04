@@ -860,3 +860,109 @@ def test_build_graph_constraint_fields_assertion_logged(started, caplog):
     a1_routes._build_graph(session, file_rec, llm_result=llm)
     # assertion is log-only (JSONL); smoke-check it didn't raise and warnings stored
     assert file_rec["dead_edges"] == []
+
+
+# ---- T8: finalize × graphify 串联（v0.5 §8.1 两阶段处置） ----
+
+def _t8_seed_answers(payload):
+    """Fill over-half of each module (finalize gate) + depth-tree anchors."""
+    from app.api import a1_routes
+    from app.domains.creation.seed.a1_question_tree import MODULES
+    session = a1_routes._SESSIONS[payload["session_id"]]
+    for m in MODULES:
+        need = len(m["fields"]) // 2 + 1
+        for f in m["fields"][:need]:
+            session.answers[f"{m['id']}.{f['id']}"] = "测试内容"
+    # anchors used by the graphify stub response
+    session.answers["世界本体.origin"] = "世界起源于一声钟响"
+    session.answers["世界本体.existence"] = "万物以概念形式存在"
+    return session
+
+
+def _t8_patch_provider(monkeypatch, stub):
+    """Inject a stub LLM provider into a1_routes' provider factory."""
+    import app.api.a1_routes as a1_routes
+    monkeypatch.setattr(a1_routes, "load_provider_config", lambda: {})
+    monkeypatch.setattr(a1_routes, "create_provider", lambda cfg: stub)
+
+
+_GraphifyOK_RESPONSE = {
+    "module_summaries": {"世界本体": "存在的根基与世界法则"},
+    "entries": [
+        {"anchor": "世界本体.origin",
+         "items": [{"title": "命运之钟", "content": "钟声即存在"}]},
+        {"anchor": "世界本体.existence",
+         "items": [{"title": "概念之海", "content": "万物以概念形式存在"}]},
+    ],
+    "edges": [
+        {"from": "世界本体.origin", "to": "d:世界本体.origin:命运之钟",
+         "relation": "存在塑力", "confidence": "semantic"},
+    ],
+    "constraint_fields": {},
+    "open_questions": [],
+}
+
+
+def test_finalize_graphify_degrade_e2e(started, make_stub_llm, monkeypatch):
+    """T8 测试1: stub provider raise_error → finalize 仍 200；
+    finalize_warnings 含 'graphify'；graph 仅 TREE 节点（无 d:/term:）。"""
+    from app.api import a1_routes
+
+    client, payload = started
+    _t8_seed_answers(payload)
+    _t8_patch_provider(monkeypatch, make_stub_llm(raise_error=RuntimeError("boom")))
+
+    fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
+    assert fin.status_code == 200
+    body = fin.json()
+    assert any("graphify" in w for w in body["warnings"])
+
+    rec = a1_routes._FILES[payload["file_id"]]
+    assert any("graphify" in w for w in rec["finalize_warnings"])
+
+    node_ids = set(rec["graph_json"]["nodes"].keys())
+    assert node_ids
+    assert not [nid for nid in node_ids if nid.startswith("d:")]
+    assert not [nid for nid in node_ids if nid.startswith("term:")]
+
+
+def test_finalize_graphify_success_e2e(started, make_stub_llm, monkeypatch):
+    """T8 测试2: stub 成功返回 graphify JSON → finalize 200；
+    graph_json 含 d: 深度节点 + 语义边；finalize_warnings 键存在。"""
+    from app.api import a1_routes
+
+    client, payload = started
+    _t8_seed_answers(payload)
+    _t8_patch_provider(monkeypatch, make_stub_llm(response=dict(_GraphifyOK_RESPONSE)))
+
+    fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
+    assert fin.status_code == 200
+
+    rec = a1_routes._FILES[payload["file_id"]]
+    assert "finalize_warnings" in rec
+
+    graph_json = rec["graph_json"]
+    d_nodes = [nid for nid in graph_json["nodes"] if nid.startswith("d:")]
+    assert "d:世界本体.origin:命运之钟" in d_nodes
+    sem_edges = [e for e in graph_json["edges"]
+                 if e.get("relation") == "存在塑力"]
+    assert len(sem_edges) == 1
+    assert sem_edges[0]["from_node_id"] == "世界本体.origin"
+    assert sem_edges[0]["to_node_id"] == "d:世界本体.origin:命运之钟"
+
+
+def test_extract_edges_endpoint_still_callable_after_finalize(started):
+    """T8 测试3: extract-edges 端点保留且行为不变——
+    定稿后（降级图，无概念词）调用仍走原有 400 校验分支。"""
+    from app.api import a1_routes
+
+    client, payload = started
+    _t8_seed_answers(payload)
+    assert client.post(
+        f"/api/a1/file/{payload['file_id']}/finalize"
+    ).status_code == 200
+
+    resp = client.post(f"/api/a1/file/{payload['file_id']}/concept/extract-edges")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "需先确认至少2个概念词"
+    assert a1_routes is not None  # import sanity

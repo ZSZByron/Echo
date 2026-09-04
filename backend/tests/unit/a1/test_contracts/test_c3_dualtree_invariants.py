@@ -1,39 +1,189 @@
 """C3 contract: graph_json 双树结构五条不变量。
 
 治理文档 §6 C3（不变量 5 条）：
-1. TREE 计数不变量（节点/边计数一致）
-2. 序号同构（tree 与 concept 双树序号同构）
-3. d: 可解析（节点 id 的 d: 前缀深度编码可解析）
-4. 引用存在（所有边引用的节点均存在）
-5. id 无顺序成分（re-finalize 同 answers 同 id，内容寻址非顺序）
-
-实现依赖 T1 graphify.py —— 未就绪前 xfail(strict) 占位。
+1. TREE 计数不变量（模块+条目+分条目节点数 == TREE 边数）
+2. 序号同构（module→entry→depth 序号前缀同构）
+3. d: 可解析（节点 id 的 d: 前缀深度编码可 round-trip 解析）
+4. 引用存在（所有边端点均在节点集内）
+5. id 无顺序成分（深度 id 内容寻址，不含 k 序号；同 answers 重装配 id 稳定）
 """
 from __future__ import annotations
 
 import pytest
 
+from app.api.a1_routes import A1Session, _build_graph
+from app.models.knowledge_graph import EdgeType
+from app.domains.creation.a1.graphify import depth_id, parse_depth_id
 
-@pytest.mark.xfail(strict=True, reason="C3 不变量1: TREE 计数校验尚未实现")
+ANSWERS = {
+    "IP定位.name": "灰烬大陆",
+    "IP定位.concept": "燃烧的天空下寻找最后的绿洲",
+    "世界本体.origin": "创世火种爆炸",
+}
+
+
+def _make_session() -> A1Session:
+    return A1Session(
+        session_id="decaytest",
+        user_id="u_c3",
+        ip_code="IP0001",
+        answers=dict(ANSWERS),
+    )
+
+
+def _llm_result():
+    from app.domains.creation.a1.graphify import EntryItem, GraphifyResult
+
+    return GraphifyResult(
+        module_summaries={"IP定位": "燃烧大陆", "世界本体": "火种创世"},
+        entries=[
+            {
+                "anchor": "IP定位.name",
+                "items": [
+                    {"title": "灰烬大陆", "content": "天空燃烧", "children": []},
+                    {"title": "绿洲残响", "content": "最后的绿地", "children": []},
+                ],
+            },
+            {
+                "anchor": "世界本体.origin",
+                "items": [
+                    {"title": "创世火种", "content": "一切开始", "children": []},
+                ],
+            },
+        ],
+        edges=[
+            {
+                "from": "IP定位.name",
+                "to": "d:IP定位.name:灰烬大陆",
+                "relation": "DERIVES→IP.类型",
+                "rationale": "",
+                "confidence": "semantic",
+            },
+        ],
+    )
+
+
+def _build() -> tuple:
+    session = _make_session()
+    return _build_graph(session, {}, _llm_result())
+
+
+# =============================================================================
+# Invariant 1: TREE count (module + entry + depth nodes == TREE edges)
+# =============================================================================
+
+
 def test_c3_invariant_tree_count() -> None:
-    pytest.fail("C3 invariant not implemented yet")
+    graph, node_ids = _build()
+    tree_edges = [e for e in graph.edges if e.edge_type == EdgeType.TREE]
+    # module(2) + entry(3) + depth(3) nodes, all reached by exactly one TREE edge
+    structured = [n for n in graph.nodes.values() if n.level >= 2]
+    assert len(structured) == 8
+    assert len(tree_edges) == 8  # bg→module×2, module→entry×3, entry→depth×3
+    # every non-background node is the target of exactly one TREE edge
+    targets = [e.to_node_id for e in tree_edges]
+    assert sorted(targets) == sorted(n.id for n in structured)
+    # background is the only node without an incoming TREE edge
+    roots = {e.from_node_id for e in tree_edges} - set(targets)
+    assert roots == {graph.background_node_id}
 
 
-@pytest.mark.xfail(strict=True, reason="C3 不变量2: 序号同构校验尚未实现")
+# =============================================================================
+# Invariant 2: serial number isomorphism (module → entry → depth prefixes)
+# =============================================================================
+
+
 def test_c3_invariant_index_isomorphism() -> None:
-    pytest.fail("C3 invariant not implemented yet")
+    graph, _ = _build()
+    nodes = graph.nodes
+    modules = {n.id: n for n in nodes.values() if n.level == 2}
+    entries = {n.id: n for n in nodes.values() if n.level == 3}
+    depths = {n.id: n for n in nodes.values() if n.level == 4}
+
+    assert set(modules) == {"IP定位", "世界本体"}
+    module_serials = sorted(n.serial_number for n in modules.values())
+    assert module_serials == ["1", "2"]  # dense 1..n, order = answer order
+
+    # entry serial = "{module_serial}-{entry_serial}"
+    for eid, entry in entries.items():
+        m_serial = modules[eid.split(".")[0]].serial_number
+        assert entry.serial_number.startswith(f"{m_serial}-")
+
+    # depth serial = "D{module_serial}-{entry_serial}-{k}"
+    for did, depth in depths.items():
+        anchor, _title = parse_depth_id(did)
+        e_serial = entries[anchor].serial_number
+        assert depth.serial_number.startswith(f"D{e_serial}-")
+        k = depth.serial_number[len(f"D{e_serial}-"):]
+        assert k.isdigit() and int(k) >= 1
 
 
-@pytest.mark.xfail(strict=True, reason="C3 不变量3: d: 深度编码可解析校验尚未实现")
+# =============================================================================
+# Invariant 3: d: ids round-trip via parse_depth_id
+# =============================================================================
+
+
 def test_c3_invariant_depth_prefix_parseable() -> None:
-    pytest.fail("C3 invariant not implemented yet")
+    graph, node_ids = _build()
+    depth_ids = [nid for nid in node_ids if nid.startswith("d:")]
+    assert len(depth_ids) == 3
+    for nid in depth_ids:
+        anchor, title = parse_depth_id(nid)
+        assert "." in anchor  # anchor is a module.subfield key
+        assert depth_id(anchor, title) == nid  # round-trip stable
+    # non-depth ids rejected
+    try:
+        parse_depth_id("IP定位.name")
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
 
 
-@pytest.mark.xfail(strict=True, reason="C3 不变量4: 边引用节点存在性校验尚未实现")
+# =============================================================================
+# Invariant 4: every edge endpoint exists in the node set
+# =============================================================================
+
+
 def test_c3_invariant_references_exist() -> None:
-    pytest.fail("C3 invariant not implemented yet")
+    graph, node_ids = _build()
+    for edge in graph.edges:
+        assert edge.from_node_id in node_ids, edge
+        assert edge.to_node_id in node_ids, edge
 
 
-@pytest.mark.xfail(strict=True, reason="C3 不变量5: id 内容寻址（无顺序成分）校验尚未实现")
+# =============================================================================
+# Invariant 5: ids carry no ordering component (content-addressed)
+# =============================================================================
+
+
 def test_c3_invariant_id_content_addressed() -> None:
-    pytest.fail("C3 invariant not implemented yet")
+    graph, node_ids = _build()
+    # depth ids contain the title, never the k ordinal — no digits at all
+    for nid in node_ids:
+        assert not any(ch.isdigit() for ch in nid), f"id 含顺序成分: {nid}"
+
+    # same answers → same ids (re-finalize idempotence), independent of
+    # insertion order: build a second graph from a fresh session
+    graph2, node_ids2 = _build()
+    assert node_ids == node_ids2
+
+    # adding an entry does NOT shift existing ids (no positional encoding)
+    from app.domains.creation.a1.graphify import EntryItem, GraphifyResult
+
+    session = _make_session()
+    result = _llm_result()
+    result.entries[0].items.append(
+        EntryItem(title="新增条目", content="")
+    )
+    _, node_ids3 = _build_graph(session, {}, result)
+    assert node_ids <= node_ids3  # all original ids unchanged
+
+# =============================================================================
+# Runtime assembly assertion (governance §5, log-only) — T11 green scope.
+# =============================================================================
+
+
+@pytest.mark.xfail(strict=True, reason="T11: assemble_assertions 落日志断言（log_event capture）尚未接线")
+def test_c3_runtime_assertion_constraint_fields_without_cst_logs_event() -> None:
+    pytest.fail("T11 scope")
