@@ -23,6 +23,12 @@ export interface Message {
   diceRecommendation?: DiceRecommendationResponse;
 }
 
+/** C7: 待问开放问题提示卡数据 */
+export interface PendingQuestion {
+  id: string;
+  question: string;
+}
+
 export interface GuidedChatProps {
   messages: Message[];
   onSend: (text: string) => void;
@@ -33,6 +39,12 @@ export interface GuidedChatProps {
   sessionId?: string;
   /** Callback when proposal is resolved */
   onProposalResolved?: (key: string) => void;
+  /** C7: 最老的一条待问开放问题（提案在场时后端挂起为 null） */
+  pendingQuestion?: PendingQuestion | null;
+  /** C7: 待问总数（状态角标「待问 N」） */
+  pendingQuestionsCount?: number;
+  /** C7: 跳过当前待问问题 */
+  onSkipQuestion?: (id: string) => void;
 }
 
 function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
@@ -65,13 +77,16 @@ function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecomm
   );
 }
 
-export function GuidedChat({ 
-  messages, 
-  onSend, 
-  disabled = false, 
-  proposals = [], 
-  sessionId = '', 
-  onProposalResolved 
+export function GuidedChat({
+  messages,
+  onSend,
+  disabled = false,
+  proposals = [],
+  sessionId = '',
+  onProposalResolved,
+  pendingQuestion = null,
+  pendingQuestionsCount = 0,
+  onSkipQuestion
 }: GuidedChatProps) {
   const [input, setInput] = useState('');
   const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
@@ -179,12 +194,46 @@ export function GuidedChat({
           </div>
         )}
 
+        {/* C7: 待问开放问题提示卡（提案在场时挂起——单问句铁律） */}
+        {pendingQuestion && !showSuspendedMessage && (
+          <div className="flex justify-start">
+            <div
+              data-testid="pending-question-card"
+              className="max-w-2xl rounded-lg px-4 py-3 bg-slate-800 border border-nebula-400/40"
+            >
+              <div className="text-nebula-400 text-xs font-medium mb-1">
+                ✦ 待问开放问题
+              </div>
+              <div className="text-slate-100 text-sm">{pendingQuestion.question}</div>
+              <button
+                type="button"
+                data-testid="skip-question-btn"
+                onClick={() => onSkipQuestion?.(pendingQuestion.id)}
+                disabled={disabled}
+                className="mt-2 text-void-400 hover:text-stardust-300 text-xs transition-colors disabled:opacity-50"
+              >
+                跳过这个问题
+              </button>
+            </div>
+          </div>
+        )}
+
         {disabled && (
           <div className="text-center text-slate-500 text-sm py-2">
             Processing...
           </div>
         )}
       </div>
+
+      {/* C7: 待问状态角标 */}
+      {pendingQuestionsCount > 0 && (
+        <div
+          data-testid="pending-question-badge"
+          className="absolute top-3 right-3 glass-panel px-3 py-1 rounded-full border border-nebula-400/30 text-nebula-400 text-xs"
+        >
+          待问 {pendingQuestionsCount}
+        </div>
+      )}
 
       {/* Input area */}
       <form onSubmit={handleSubmit} className="border-t border-slate-800 p-4">

@@ -93,6 +93,10 @@ interface ChatResponse {
   proposals?: A1Proposal[];
   divergent_question?: string;
   needs_clarification?: boolean;
+  /** C7: 最老的一条待问开放问题（提案在场时挂起为 null） */
+  pending_question?: { id: string; question: string } | null;
+  /** C7: 待问总数（状态角标「待问 N」） */
+  pending_questions_count?: number;
 }
 
 interface FileData {
@@ -285,6 +289,9 @@ export function A1Workspace() {
   }>>([]);
   const [finalizable, setFinalizable] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  // C7: 待问开放问题提示卡 + 状态角标
+  const [pendingQuestion, setPendingQuestion] = useState<{ id: string; question: string } | null>(null);
+  const [pendingQuestionsCount, setPendingQuestionsCount] = useState(0);
   const [pendingProposals, setPendingProposals] = useState<A1Proposal[]>([]);
   
   // Graph State
@@ -549,6 +556,9 @@ export function A1Workspace() {
       setProgressSections(response.progress.sections);
       setFinalizable(response.progress.finalizable ?? false);
 
+      // C7: 待问提示卡 + 角标
+      setPendingQuestion(response.pending_question ?? null);
+      setPendingQuestionsCount(response.pending_questions_count ?? 0);
 
       // Handle classification proposal
       if (response.classification_proposal) {
@@ -560,6 +570,37 @@ export function A1Workspace() {
       setError('Failed to send message. Please try again.');
       // Remove user message on error
       setMessages(prev => prev.slice(0, -1));
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  // C7: 跳过当前待问开放问题（status=skipped 持久，不再问）
+  const skipPendingQuestion = async (questionId: string) => {
+    if (!sessionId || isChatLoading) return;
+    setIsChatLoading(true);
+    setError(null);
+    try {
+      const response = await fetchJson<ChatResponse>('/api/a1/chat', {
+        method: 'POST',
+        timeoutMs: 120_000,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          message: '',
+          skip_question_id: questionId,
+        }),
+      });
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        type: 'assistant',
+        text: response.reply,
+      }]);
+      setPendingQuestion(response.pending_question ?? null);
+      setPendingQuestionsCount(response.pending_questions_count ?? 0);
+    } catch (err) {
+      console.error('Failed to skip question:', err);
+      setError('Failed to skip question. Please try again.');
     } finally {
       setIsChatLoading(false);
     }
@@ -968,6 +1009,9 @@ export function A1Workspace() {
             proposals={pendingProposals}
             sessionId={sessionId || ''}
             onProposalResolved={handleProposalResolved}
+            pendingQuestion={pendingQuestion}
+            pendingQuestionsCount={pendingQuestionsCount}
+            onSkipQuestion={skipPendingQuestion}
           />
         </div>
         

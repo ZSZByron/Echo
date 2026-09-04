@@ -67,6 +67,8 @@ class InterviewResult(BaseModel):
     innovative_category: str | None = None
     divergent_question: str | None = None
     proposals: list[Proposal] = Field(default_factory=list)
+    # C7: 用户本轮回答了待问开放问题 → {"id": "...", "answer": "..."}
+    open_question_answered: dict | None = None
 
 
 class Interviewer(Protocol):
@@ -97,6 +99,7 @@ class FakeInterviewer:
         examples: list[str] | None = None,
         forced_allocate_result: InterviewResult | None = None,
         proposals: list[Proposal] | None = None,
+        open_question_answered: dict | None = None,
     ) -> None:
         self.fills = fills or []
         self.guidance_reply = guidance_reply
@@ -106,9 +109,21 @@ class FakeInterviewer:
         self._examples = examples
         self._forced_allocate_result = forced_allocate_result
         self._proposals = proposals or []
+        self._open_question_answered = open_question_answered
+        self._pending_open_question: dict | None = None
         self.calls = 0
         self.suggest_calls = 0
         self.forced_calls = 0
+
+    def set_pending_open_question(self, question: dict) -> None:
+        """C7: 系统注入的待问开放问题（一次一条）。"""
+        self._pending_open_question = question
+
+    def take_open_question_answered(self) -> dict | None:
+        """C7: 取走本轮 LLM 识别到的待问回答（取后清空）。"""
+        answered = self._open_question_answered
+        self._open_question_answered = None
+        return answered
 
     def interview(self, session: Any, text: str) -> InterviewResult:
         self.calls += 1
@@ -120,6 +135,7 @@ class FakeInterviewer:
             is_innovative=self.is_innovative,
             innovative_category=self.innovative_category,
             proposals=list(self._proposals),
+            open_question_answered=self._open_question_answered,
         )
 
     def suggest_examples(
@@ -197,6 +213,19 @@ class RealLLMInterviewer:
     def __init__(self, provider: LLMProvider | None) -> None:
         self._provider = provider
         self._catalog = _field_catalog()
+        # C7: 系统注入的待问开放问题（一次一条）+ 本轮 LLM 识别到的回答
+        self._pending_open_question: dict | None = None
+        self._open_question_answered: dict | None = None
+
+    def set_pending_open_question(self, question: dict) -> None:
+        """C7: chat 端点注入最老的一条 pending 开放问题。"""
+        self._pending_open_question = question
+
+    def take_open_question_answered(self) -> dict | None:
+        """C7: 取走本轮 LLM 识别到的待问回答（取后清空）。"""
+        answered = self._open_question_answered
+        self._open_question_answered = None
+        return answered
 
     def interview(self, session: Any, text: str) -> InterviewResult:
         module = get_module(session.current_module) or {}
@@ -260,6 +289,7 @@ class RealLLMInterviewer:
                         )
 
         result = self._parse(raw, text)
+        self._open_question_answered = result.open_question_answered
         log_event(
             session.session_id,
             "llm_parsed",
@@ -363,15 +393,40 @@ class RealLLMInterviewer:
                 "d) 第6条（提问/闲聊/无关）或第7条（用户困惑）场景下不做发散，"
                 "divergent_question 为 null。",
                 "",
+                *self._pending_question_block(),
                 "【可填字段清单】",
                 self._catalog,
                 "",
                 "返回严格JSON（不要输出其他内容）：",
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
-                ' "user_confused": false, "search_query": null, "divergent_question": null}',
+                ' "user_confused": false, "search_query": null, "divergent_question": null,',
+                ' "open_question_answered": null}',
             ]
         )
+
+    def _pending_question_block(self) -> list[str]:
+        """C7: 待问开放问题规则块（无待问时返回空）。
+
+        单问句铁律：一次只问一条（最老优先）；提案卡片在场时由
+        chat 端点直接不注入本块（挂起）。
+        """
+        if not self._pending_open_question:
+            return []
+        return [
+            "8.5 待问开放问题（系统指定，最老优先，一次只问一条）：存在一条"
+            "悬而未决的开放问题待你向用户问出：",
+            f"【待问】id={self._pending_open_question.get('id', '')}，"
+            f"问句：{self._pending_open_question.get('question', '')}",
+            "　　a) 在 guidance_reply 结尾用邀请口吻自然问出这一条（只此一条，"
+            "严禁追加任何其他疑问句——单问句铁律）；",
+            "　　b) 若用户本轮输入正是对该问题的回答，把提取的答案写入 "
+            'open_question_answered 字段（{"id": 问题id, "answer": 用户原话要点}）；',
+            "　　c) 若判断本轮应先处理其他事项（如用户困惑、话题未完），本轮挂起"
+            "不问，该字段保持原样等待下一轮；",
+            "　　d) 问出后不自行追问，等待用户回答。",
+            "",
+        ]
 
     def suggest_examples(
         self, session: Any, module_id: str, subfield_id: str
@@ -539,6 +594,20 @@ class RealLLMInterviewer:
         category = raw.get("innovative_category")
         divergent = raw.get("divergent_question")
 
+        # C7: open_question_answered 解析（{"id","answer"}）
+        oqa_raw = raw.get("open_question_answered")
+        open_question_answered: dict | None = None
+        if isinstance(oqa_raw, dict):
+            qid = oqa_raw.get("id")
+            ans = oqa_raw.get("answer")
+            if (
+                isinstance(qid, str)
+                and qid.strip()
+                and isinstance(ans, str)
+                and ans.strip()
+            ):
+                open_question_answered = {"id": qid.strip(), "answer": ans.strip()}
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -549,6 +618,7 @@ class RealLLMInterviewer:
                 if isinstance(divergent, str) and divergent.strip()
                 else None
             ),
+            open_question_answered=open_question_answered,
         )
 
 
@@ -593,3 +663,14 @@ class DegradingInterviewer:
             return self._inner.suggest_examples(session, module_id, subfield_id)
         except Exception:  # noqa: BLE001
             return []
+
+    # ---- C7: 待问开放问题（委托 inner；inner 不支持时静默降级） ----
+
+    def set_pending_open_question(self, question: dict) -> None:
+        setter = getattr(self._inner, "set_pending_open_question", None)
+        if setter is not None:
+            setter(question)
+
+    def take_open_question_answered(self) -> dict | None:
+        getter = getattr(self._inner, "take_open_question_answered", None)
+        return getter() if getter is not None else None

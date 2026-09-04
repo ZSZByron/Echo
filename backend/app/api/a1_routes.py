@@ -23,6 +23,7 @@ from app.config.paths import ASSETS_DIR
 from app.domains.creation.a1.guide_engine import (
     A1Session,
     handle_message,
+    progress,
     sync_position,
 )
 from app.domains.creation.a1.innovation_capture import (
@@ -35,6 +36,7 @@ from app.domains.creation.a1.interviewer import (
     RealLLMInterviewer,
 )
 from app.domains.creation.a1.ip_poster import build_poster
+from app.domains.creation.a1.open_questions import OpenQuestion, OpenQuestionLog
 from app.domains.creation.a1.semantic_compiler import (
     derive_dice_recommendation,
 )
@@ -139,6 +141,8 @@ class StartRequest(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    # C7: 跳过某条待问开放问题（status=skipped 持久，upsert 不复活）
+    skip_question_id: str | None = None
 
 
 class ConfirmRequest(BaseModel):
@@ -172,6 +176,24 @@ def _question_payload(session: A1Session) -> dict | None:
         "question": subfield["question"],
         "hint": subfield["hint"],
         "example": subfield.get("example", ""),
+    }
+
+
+def _open_question_payload(oq_log: OpenQuestionLog, session: A1Session) -> dict:
+    """C7: 待问提示卡 + 状态角标数据。
+
+    pending_question: 最老的一条 pending（一次一条）；提案卡片在场时挂起
+    （None），前端以此实现单问句铁律。pending_questions_count 供"待问 N"角标。
+    """
+    count = sum(1 for q in oq_log.items if q.status == "pending")
+    if session.pending_proposals:
+        return {"pending_question": None, "pending_questions_count": count}
+    q = oq_log.next_pending()
+    return {
+        "pending_question": (
+            {"id": q.id, "question": q.question} if q is not None else None
+        ),
+        "pending_questions_count": count,
     }
 
 
@@ -317,6 +339,9 @@ def _merge_llm_edges(
     Returns the number of edges actually added to the graph.
     """
     confirmed = file_rec.get("confirmed_edges", {})
+    # C7: rationale 不入 GraphEdge（模型无此字段），持久化到 file 记录，
+    # 供前端/审计验证「转正边 rationale 引用用户回答」。
+    rationales = file_rec.setdefault("edge_rationales", {})
     added = 0
     for spec in llm_result.edges:
         fid, tid = spec.from_, spec.to
@@ -327,6 +352,7 @@ def _merge_llm_edges(
             })
             continue
         key = _make_edge_key(fid, tid, spec.relation)
+        rationales[key] = spec.rationale
         edges.append(GraphEdge(
             from_node_id=fid,
             to_node_id=tid,
@@ -620,8 +646,41 @@ async def chat(req: ChatRequest) -> dict:
         text=req.message[:300],
         position=f"{session.current_module}.{session.current_subfield}",
     )
+
+    # ---- C7: 待问开放问题（提案在场时挂起——单问句铁律） ----
+    rec_for_oq = next(
+        (r for r in _FILES.values() if r["session_id"] == req.session_id), None
+    )
+    oq_log = (
+        OpenQuestionLog.load(rec_for_oq.get("open_questions") or [])
+        if rec_for_oq is not None
+        else OpenQuestionLog()
+    )
+
+    # ---- C7: 跳过待问（status=skipped 持久，upsert 不复活） ----
+    if req.skip_question_id:
+        skipped = oq_log.mark_skipped(req.skip_question_id)
+        if skipped and rec_for_oq is not None:
+            rec_for_oq["open_questions"] = oq_log.dump()
+        out: dict[str, Any] = {
+            "reply": "好的，这个问题先跳过，我们继续。",
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+            "proposals": [],
+            "divergent_question": None,
+        }
+        out.update(_open_question_payload(oq_log, session))
+        return out
+
+    interviewer = _get_interviewer()
+    pending_oq = None if session.pending_proposals else oq_log.next_pending()
+    if pending_oq is not None:
+        interviewer.set_pending_open_question(pending_oq.model_dump())
+
     out = await asyncio.to_thread(
-        handle_message, session, req.message, _get_interviewer()
+        handle_message, session, req.message, interviewer
     )
     nq = out.get("next_question") or {}
     log_event(
@@ -660,6 +719,19 @@ async def chat(req: ChatRequest) -> dict:
     # Ensure divergent_question is present (Task 6: field always present, None when not provided)
     if "divergent_question" not in out:
         out["divergent_question"] = None
+
+    # ---- C7: 回收本轮待问回答 → mark_answered 持久化 + 待问角标 ----
+    answered = interviewer.take_open_question_answered()
+    if answered and rec_for_oq is not None:
+        if oq_log.mark_answered(answered["id"], answered["answer"]):
+            rec_for_oq["open_questions"] = oq_log.dump()
+            log_event(
+                session.session_id,
+                "open_question_answered",
+                question_id=answered["id"],
+                answer=answered["answer"][:200],
+            )
+    out.update(_open_question_payload(oq_log, session))
 
     # Add dice recommendation when on 骰子设定 module and first subfield
     if session.current_module == "骰子设定":
@@ -983,7 +1055,18 @@ def finalize(file_id: str) -> dict:
     except Exception:  # noqa: BLE001
         provider = None
 
-    llm_result = graphify_llm(session, provider)
+    # C7: 上一轮已回答的开放问题 → 转正证据注入 graphify prompt。
+    # 证据在 graphify 前从旧记录导出；upsert 在 graphify 后合并新问句。
+    oq_log = OpenQuestionLog.load(rec.get("open_questions") or [])
+    answered_evidence = [
+        f"用户已确认：{q.question}→{q.answer}"
+        for q in oq_log.items
+        if q.status == "answered" and q.question and q.answer
+    ]
+
+    llm_result = graphify_llm(
+        session, provider, answered_evidence=answered_evidence or None
+    )
     graph, valid_node_ids = _build_graph(session, rec, llm_result)
     warnings: list[str] = []
 
@@ -1012,8 +1095,23 @@ def finalize(file_id: str) -> dict:
 
     rec["concept_terms"] = rec.get("concept_terms", [])
 
-    # 旧槽位级概念边抽取已停用（两阶段编排取代）；open_questions 字段保留常驻
-    rec["open_questions"] = rec.get("open_questions", [])
+    # C6/C7: open_questions upsert 持久化——结构化 list[dict]（铁律：禁裸
+    # list[str]）；已有 answered/skipped 条目不复活（upsert 保留语义）。
+    existing_ids = {q.id for q in oq_log.items}
+    existing_questions = {q.question for q in oq_log.items}
+    seq = len(oq_log.items)
+    for oq in llm_result.open_questions:
+        qtext = oq.question.strip()
+        if not qtext or qtext in existing_questions:
+            continue
+        seq += 1
+        while f"oq-{seq:03d}" in existing_ids:
+            seq += 1
+        qid = f"oq-{seq:03d}"
+        existing_ids.add(qid)
+        existing_questions.add(qtext)
+        oq_log.upsert(OpenQuestion(id=qid, question=qtext))
+    rec["open_questions"] = oq_log.dump()
 
     # Compute edge_stats from all edges in the graph
     rec["edge_stats"] = _compute_edge_stats(graph.edges)
