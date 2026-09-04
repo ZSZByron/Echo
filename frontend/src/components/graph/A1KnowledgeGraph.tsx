@@ -106,6 +106,64 @@ export const CONCEPT_TIER_ROW_SPACING = 220;
 export const CONCEPT_MODULE_Y = 240;
 
 /**
+ * Vertical band Y for each node tier (occlusion fix R1).
+ * Adjacent bands keep >=100px clear height given conservative node heights
+ * (L2 ~84, L3 ~64, term ~46, L4/L5 ~76 — see NODE_SIZE_ESTIMATES).
+ */
+export const BAND_Y = {
+  L0: -260, // constraints (top)
+  L1: 0,    // background root
+  L2: 240,  // modules
+  L3: 520,  // entries
+  TERM: 800, // concept-term row
+  L4: 1000, // depth-tree entries
+  L5: 1200, // depth-tree grandchildren
+} as const;
+
+/** Horizontal spacing constants (occlusion fix R1/R2). */
+export const MODULE_SPACING = 280;
+export const MODULE_GAP = 40;
+export const ENTRY_SPACING = 200; // > L3 maxWidth (180) so entry bboxes never touch
+export const ENTRY_HALF_WIDTH = 100; // conservative half width of an entry node
+export const DEPTH_SPACING = 220;
+export const DEPTH_SLOT = 200;
+export const TERM_SPACING = 190; // > term node width estimate (170)
+
+/** Conservative bounding boxes per node kind (occlusion fix R6, pure layout tests). */
+export const NODE_SIZE_ESTIMATES = {
+  L0: { width: 180, height: 56 },
+  L1: { width: 220, height: 64 },
+  L2: { width: 200, height: 84 },
+  L3: { width: 180, height: 64 },
+  term: { width: 170, height: 46 },
+  L4: { width: 200, height: 76 },
+  L5: { width: 200, height: 76 },
+} as const;
+
+/** Deterministic stacking order (occlusion fix R5): later levels above earlier ones. */
+export const NODE_Z_INDEX = {
+  L1: 0,
+  L2: 1,
+  L3: 2,
+  term: 3,
+  L4: 4,
+  L5: 5,
+  L0: 6, // constraints render on top (fixes DOM-order overlap despite top canvas position)
+} as const;
+
+/** Layout kind of a graph node (drives band / size / zIndex selection). */
+export type NodeLayoutKind = keyof typeof NODE_SIZE_ESTIMATES;
+
+export const nodeLayoutKind = (node: Pick<GraphNode, 'id' | 'level'>): NodeLayoutKind => {
+  if (isConceptTermNode(node)) return 'term';
+  if (isDepthNode(node.id)) return node.level === 5 ? 'L5' : 'L4';
+  if (node.level <= 0) return 'L0';
+  if (node.level === 1) return 'L1';
+  if (node.level === 2) return 'L2';
+  return 'L3';
+};
+
+/**
  * Pure tier-band layout for concept-mode module nodes (T14).
  * Each tier occupies its own vertical column (ordered tier 0→6, ungrouped last);
  * modules within a tier stack vertically. Returns id -> {x, y, tierBand}.
@@ -164,7 +222,9 @@ const parseConstraintDescription = (description: string): { dimension: string; k
 };
 
 /**
- * Calculate node position based on level-based layout algorithm
+ * Calculate node position based on level-based layout algorithm.
+ * Y bands come from BAND_Y (R1); legacy fallback for simple/degenerate graphs
+ * and direct test consumption — full overlap-free layout lives in computeNodeLayout.
  */
 export const calculateNodePosition = (
   level: number,
@@ -172,20 +232,16 @@ export const calculateNodePosition = (
   totalInLevel: number,
   parentX?: number
 ): { x: number; y: number } => {
-  const LEVEL_Y_POSITIONS: Record<number, number> = {
-    0: -260,  // Constraints at top
-    1: 0,     // Background root
-    2: 240,   // Modules
-    3: 500,   // Entries
-    4: 840,   // Depth-tree entries (below concept-term row at y=760)
-    5: 1000   // Depth-tree grandchildren (two-layer trees)
+  const LEVEL_TO_BAND_Y: Record<number, number> = {
+    0: BAND_Y.L0,
+    1: BAND_Y.L1,
+    2: BAND_Y.L2,
+    3: BAND_Y.L3,
+    4: BAND_Y.L4,
+    5: BAND_Y.L5
   };
 
-  const MODULE_SPACING = 280;
-  const ENTRY_SPACING = 170;
-  const DEPTH_SPACING = 220;
-
-  const y = LEVEL_Y_POSITIONS[level] ?? 0;
+  const y = LEVEL_TO_BAND_Y[level] ?? 0;
 
   let x = 0;
 
@@ -211,6 +267,265 @@ export const calculateNodePosition = (
   }
 
   return { x, y };
+};
+
+/**
+ * Pure overlap-free layout (occlusion fix R6).
+ * Computes deterministic positions for every node kind; React Flow node
+ * assembly (styles/labels) stays in layoutNodes — this function is the
+ * testable coordinate core.
+ *
+ * Guarantees:
+ * - R2: tree-mode module spacing adapts to each module's entry-band + depth width
+ * - R3: depth groups are assigned horizontal slots per module (no cross-entry overlap)
+ * - R4: concept-mode detail bands shift below the deepest tier column
+ * - R5: deterministic zIndex per kind
+ */
+export interface NodeLayoutBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+  /** Concept-mode tier band (modules only, mode='concept'). */
+  tierBand?: number;
+}
+
+/** Sequential x layout, centred on 0, for items with individual half-widths. */
+const sequentialCentredXs = (halfWidths: number[], minGap: number): number[] => {
+  if (halfWidths.length === 0) return [];
+  const xs: number[] = [0];
+  for (let i = 1; i < halfWidths.length; i++) {
+    xs.push(xs[i - 1] + Math.max(minGap, halfWidths[i - 1] + halfWidths[i] + MODULE_GAP));
+  }
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return xs.map(x => x - mean);
+};
+
+export const computeNodeLayout = (
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  mode: 'tree' | 'concept' = 'tree'
+): Map<string, NodeLayoutBox> => {
+  const boxes = new Map<string, NodeLayoutBox>();
+
+  const byLevel: Record<number, GraphNode[]> = {};
+  nodes.forEach(n => {
+    if (!byLevel[n.level]) byLevel[n.level] = [];
+    byLevel[n.level].push(n);
+  });
+
+  // Parent map from tree edges (entries + depth nodes)
+  const parentOf = new Map<string, string>();
+  edges.forEach(e => {
+    if (e.edge_type === 'tree') parentOf.set(e.to_node_id, e.from_node_id);
+  });
+
+  const modules = byLevel[2] ?? [];
+  const entries = byLevel[3] ?? [];
+
+  // --- R3: per-entry depth slot plans (L4 centers inside an entry slot) ---
+  const l4ByEntry = new Map<string, GraphNode[]>();
+  const l5ByL4 = new Map<string, GraphNode[]>();
+  nodes.forEach(n => {
+    const kind = nodeLayoutKind(n);
+    if (kind !== 'L4' && kind !== 'L5') return;
+    const p = parentOf.get(n.id);
+    if (!p) return;
+    if (kind === 'L4') {
+      if (!l4ByEntry.has(p)) l4ByEntry.set(p, []);
+      l4ByEntry.get(p)!.push(n);
+    } else {
+      if (!l5ByL4.has(p)) l5ByL4.set(p, []);
+      l5ByL4.get(p)!.push(n);
+    }
+  });
+
+  // Width each L4 node needs so its L5 row fits beneath it
+  const l4RequiredWidth = (l4Id: string): number => {
+    const l5Count = l5ByL4.get(l4Id)?.length ?? 0;
+    return Math.max(DEPTH_SLOT, (l5Count - 1) * DEPTH_SPACING + DEPTH_SLOT + MODULE_GAP / 2);
+  };
+
+  const entryDepthPlan = new Map<string, { width: number; centers: number[] }>();
+  l4ByEntry.forEach((children, entryId) => {
+    const reqs = children.map(c => l4RequiredWidth(c.id));
+    const chainWidth = reqs.reduce((a, b) => a + b, 0);
+    const width = Math.max(DEPTH_SPACING, chainWidth + MODULE_GAP / 2);
+    const centers: number[] = [];
+    let acc = (width - chainWidth) / 2;
+    children.forEach((_, i) => {
+      centers.push(acc + reqs[i] / 2);
+      acc += reqs[i];
+    });
+    entryDepthPlan.set(entryId, { width, centers });
+  });
+
+  const entryHalfWidth = (entryId: string): number => {
+    const plan = entryDepthPlan.get(entryId);
+    return Math.max(ENTRY_HALF_WIDTH, plan ? plan.width / 2 : 0);
+  };
+
+  // Entries grouped by module (orphans treated as one pseudo-module at x=0)
+  const entriesByModule = new Map<string, GraphNode[]>();
+  entries.forEach(e => {
+    const p = parentOf.get(e.id) ?? '__orphans__';
+    if (!entriesByModule.has(p)) entriesByModule.set(p, []);
+    entriesByModule.get(p)!.push(e);
+  });
+
+  // Relative (module-centred) entry xs + each module's required half width
+  const relEntryXs = new Map<string, number[]>(); // moduleId -> per-entry relative x
+  const moduleHalfWidth = new Map<string, number>();
+  entriesByModule.forEach((children, moduleId) => {
+    const halfs = children.map(c => entryHalfWidth(c.id));
+    const xs = sequentialCentredXs(halfs, ENTRY_SPACING);
+    relEntryXs.set(moduleId, xs);
+    const spanHalf = xs.length > 0
+      ? (xs[xs.length - 1] - xs[0]) / 2 + ENTRY_HALF_WIDTH
+      : ENTRY_HALF_WIDTH;
+    moduleHalfWidth.set(moduleId, spanHalf);
+  });
+
+  // --- R2/R4: module x placement ---
+  const moduleX = new Map<string, number>();
+  const moduleY = new Map<string, number>();
+  let conceptPositions: Map<string, { x: number; y: number; tierBand: number }> | null = null;
+
+  if (mode === 'concept') {
+    conceptPositions = layoutConceptModules(modules);
+  }
+
+  if (mode === 'tree') {
+    const xs = sequentialCentredXs(modules.map(m => moduleHalfWidth.get(m.id) ?? ENTRY_HALF_WIDTH), MODULE_SPACING);
+    modules.forEach((m, i) => {
+      moduleX.set(m.id, xs[i] ?? 0);
+      moduleY.set(m.id, BAND_Y.L2);
+    });
+  } else {
+    // Concept mode: keep tier column ORDER (T14 contract) but space columns
+    // dynamically so entry/depth bands of adjacent columns never overlap.
+    const byBand = new Map<number, string[]>();
+    modules.forEach(m => {
+      const p = conceptPositions!.get(m.id);
+      if (!p) return;
+      if (!byBand.has(p.tierBand)) byBand.set(p.tierBand, []);
+      byBand.get(p.tierBand)!.push(m.id);
+    });
+    // Band order follows layoutConceptModules column order (tier 0→6, ungrouped last)
+    const bandIds = [...byBand.keys()].sort(
+      (a, b) => conceptPositions!.get(byBand.get(a)![0])!.x - conceptPositions!.get(byBand.get(b)![0])!.x
+    );
+    // Fan modules within each band (centred on 0), record each band's half width
+    const bandFanXs = new Map<number, number[]>();
+    const bandHalfs = bandIds.map(band => {
+      const ids = byBand.get(band)!;
+      const halfs = ids.map(id => moduleHalfWidth.get(id) ?? ENTRY_HALF_WIDTH);
+      const xs = sequentialCentredXs(halfs, MODULE_SPACING);
+      bandFanXs.set(band, xs);
+      let half = ENTRY_HALF_WIDTH;
+      ids.forEach((id, i) => {
+        half = Math.max(half, Math.abs(xs[i] ?? 0) + halfs[i]);
+      });
+      return half;
+    });
+    // Dynamic column spacing (ordered columns, centred on 0)
+    const colXs = sequentialCentredXs(bandHalfs, CONCEPT_TIER_COLUMN_SPACING);
+    bandIds.forEach((band, bi) => {
+      const ids = byBand.get(band)!;
+      const fanXs = bandFanXs.get(band)!;
+      ids.forEach((id, i) => {
+        moduleX.set(id, colXs[bi] + (fanXs[i] ?? 0));
+        moduleY.set(id, conceptPositions!.get(id)!.y);
+      });
+    });
+  }
+
+  // --- Place modules / root / constraints ---
+  const boxFor = (kind: NodeLayoutKind, x: number, y: number, tierBand?: number): NodeLayoutBox => ({
+    x,
+    y,
+    width: NODE_SIZE_ESTIMATES[kind].width,
+    height: NODE_SIZE_ESTIMATES[kind].height,
+    zIndex: NODE_Z_INDEX[kind],
+    ...(tierBand !== undefined ? { tierBand } : {}),
+  });
+
+  modules.forEach(m => {
+    const p = conceptPositions?.get(m.id);
+    boxes.set(m.id, boxFor('L2', moduleX.get(m.id) ?? 0, moduleY.get(m.id) ?? BAND_Y.L2, p?.tierBand));
+  });
+
+  (byLevel[1] ?? []).forEach((n, index) => {
+    const pos = calculateNodePosition(1, index, (byLevel[1] ?? []).length);
+    boxes.set(n.id, boxFor('L1', pos.x, pos.y));
+  });
+  const constraints = byLevel[0] ?? [];
+  constraints.forEach((n, index) => {
+    const pos = calculateNodePosition(0, index, constraints.length);
+    boxes.set(n.id, boxFor('L0', pos.x, pos.y));
+  });
+
+  // --- R4: detail bands (shifted below the deepest tier column in concept mode) ---
+  let bandTop = BAND_Y.L3;
+  if (mode === 'concept') {
+    const colRowCount = new Map<number, number>();
+    modules.forEach(m => {
+      const p = conceptPositions!.get(m.id);
+      if (!p) return;
+      colRowCount.set(p.tierBand, (colRowCount.get(p.tierBand) ?? 0) + 1);
+    });
+    const maxRowCount = colRowCount.size > 0 ? Math.max(...colRowCount.values()) : 1;
+    bandTop = CONCEPT_MODULE_Y + (maxRowCount - 1) * CONCEPT_TIER_ROW_SPACING + 180;
+  }
+  const bandY = {
+    L3: bandTop,
+    TERM: bandTop + (BAND_Y.TERM - BAND_Y.L3),
+    L4: bandTop + (BAND_Y.L4 - BAND_Y.L3),
+    L5: bandTop + (BAND_Y.L5 - BAND_Y.L3),
+  };
+
+  // --- Entries under their module ---
+  entriesByModule.forEach((children, moduleId) => {
+    const baseX = moduleId === '__orphans__' ? 0 : (moduleX.get(moduleId) ?? 0);
+    const xs = relEntryXs.get(moduleId) ?? [];
+    children.forEach((c, i) => {
+      boxes.set(c.id, boxFor('L3', baseX + (xs[i] ?? 0), bandY.L3));
+    });
+  });
+
+  // --- Term row ---
+  const termNodes = nodes.filter(n => nodeLayoutKind(n) === 'term');
+  if (termNodes.length > 0) {
+    const totalWidth = (termNodes.length - 1) * TERM_SPACING;
+    termNodes.forEach((n, index) => {
+      boxes.set(n.id, boxFor('term', index * TERM_SPACING - totalWidth / 2, bandY.TERM));
+    });
+  }
+
+  // --- R3: depth slots (L4 within their entry's slot) ---
+  entries.forEach(entry => {
+    const plan = entryDepthPlan.get(entry.id);
+    const entryBox = boxes.get(entry.id);
+    if (!plan || !entryBox) return;
+    const children = l4ByEntry.get(entry.id)!;
+    const slotStart = entryBox.x - plan.width / 2;
+    children.forEach((c, i) => {
+      boxes.set(c.id, boxFor('L4', slotStart + plan.centers[i], bandY.L4));
+    });
+  });
+
+  // --- L5 under their L4 parent ---
+  l5ByL4.forEach((children, l4Id) => {
+    const parentBox = boxes.get(l4Id);
+    if (!parentBox) return;
+    const totalWidth = (children.length - 1) * DEPTH_SPACING;
+    children.forEach((c, index) => {
+      boxes.set(c.id, boxFor('L5', parentBox.x + index * DEPTH_SPACING - totalWidth / 2, bandY.L5));
+    });
+  });
+
+  return boxes;
 };
 
 export function A1KnowledgeGraph({ 
@@ -560,161 +875,30 @@ export function A1KnowledgeGraph({
   }, [hoveredEdge, hoverEdgeKey, focusEdgeKey]);
 
   /**
-   * Calculate layout positions for all nodes
+   * Calculate layout positions for all nodes.
+   * Coordinates/zIndex come from the pure computeNodeLayout (occlusion fix R1-R5);
+   * this wrapper only assembles React Flow nodes.
    */
   const layoutNodes = useCallback((
     nodes: GraphNode[],
     edges: GraphEdge[],
     mode: 'tree' | 'concept' = 'tree'
   ): Node[] => {
-    // Group nodes by level
-    const nodesByLevel = nodes.reduce((acc, node) => {
-      if (!acc[node.level]) {
-        acc[node.level] = [];
-      }
-      acc[node.level].push(node);
-      return acc;
-    }, {} as Record<number, GraphNode[]>);
+    const layout = computeNodeLayout(nodes, edges, mode);
 
-    // Build parent mapping for level 3 nodes
-    const parentMap = new Map<string, string>();
-    edges.forEach(edge => {
-      if (edge.edge_type === 'tree') {
-        const targetNode = nodes.find(n => n.id === edge.to_node_id);
-        if (targetNode && targetNode.level === 3) {
-          parentMap.set(edge.to_node_id, edge.from_node_id);
-        }
-      }
-    });
-
-    // Calculate positions
     const positionedNodes: Node[] = [];
-
-    // Level 1: Background root
-    if (nodesByLevel[1]) {
-      nodesByLevel[1].forEach((node, index) => {
-        const pos = calculateNodePosition(node.level, index, nodesByLevel[1].length);
-        const rfNode = toReactFlowNode(node);
-        rfNode.position = pos;
-        positionedNodes.push(rfNode);
-      });
-    }
-
-    // Level 2: Modules
-    const modulePositions = new Map<string, number>();
-    if (nodesByLevel[2]) {
-      if (mode === 'concept') {
-        // T14: tier-band columns (tier 0-6 + 无分组), grouped via pure layoutConceptModules
-        const positions = layoutConceptModules(nodesByLevel[2]);
-        nodesByLevel[2].forEach(node => {
-          const p = positions.get(node.id);
-          if (!p) return;
-          const rfNode = toReactFlowNode(node);
-          rfNode.position = { x: p.x, y: p.y };
-          rfNode.data = { ...rfNode.data, testId: `tier-group-${p.tierBand}` };
-          positionedNodes.push(rfNode);
-          modulePositions.set(node.id, p.x);
-        });
-      } else {
-        nodesByLevel[2].forEach((node, index) => {
-          const pos = calculateNodePosition(node.level, index, nodesByLevel[2].length);
-          const rfNode = toReactFlowNode(node);
-          rfNode.position = pos;
-          positionedNodes.push(rfNode);
-          modulePositions.set(node.id, pos.x);
-        });
+    nodes.forEach(node => {
+      const box = layout.get(node.id);
+      if (!box) return;
+      const rfNode = toReactFlowNode(node);
+      rfNode.position = { x: box.x, y: box.y };
+      rfNode.zIndex = box.zIndex; // R5: deterministic stacking (L1→L0 top)
+      if (box.tierBand !== undefined) {
+        // T14: preserve tier-group test hooks
+        rfNode.data = { ...rfNode.data, testId: `tier-group-${box.tierBand}` };
       }
-    }
-
-    // Level 3: Entries (grouped by parent module)
-    if (nodesByLevel[3]) {
-      const entriesByModule = nodesByLevel[3].reduce((acc, node) => {
-        const parentId = parentMap.get(node.id);
-        if (!parentId) return acc;
-
-        if (!acc[parentId]) {
-          acc[parentId] = [];
-        }
-        acc[parentId].push(node);
-        return acc;
-      }, {} as Record<string, GraphNode[]>);
-
-      Object.entries(entriesByModule).forEach(([parentId, children]) => {
-        const parentX = modulePositions.get(parentId);
-        children.forEach((node, index) => {
-          const pos = calculateNodePosition(node.level, index, children.length, parentX);
-          const rfNode = toReactFlowNode(node);
-          rfNode.position = pos;
-          positionedNodes.push(rfNode);
-        });
-      });
-    }
-
-    // Level 0: Constraints
-    if (nodesByLevel[0]) {
-      nodesByLevel[0].forEach((node, index) => {
-        const pos = calculateNodePosition(node.level, index, nodesByLevel[0].length);
-        const rfNode = toReactFlowNode(node);
-        rfNode.position = pos;
-        positionedNodes.push(rfNode);
-      });
-    }
-
-    // Level 4 / concept-term nodes: single row below entries
-    const termNodes = nodes.filter(n => isConceptTermNode(n));
-    if (termNodes.length > 0) {
-      const TERM_SPACING = 180;
-      const totalWidth = (termNodes.length - 1) * TERM_SPACING;
-      termNodes.forEach((node, index) => {
-        const rfNode = toReactFlowNode(node);
-        rfNode.position = {
-          x: (index * TERM_SPACING) - (totalWidth / 2),
-          y: 760
-        };
-        positionedNodes.push(rfNode);
-      });
-    }
-
-    // v0.5 depth-tree nodes (d:, level 4/5): banded rows below term nodes,
-    // grouped under their parent entry (L4) / parent depth node (L5) via tree edges
-    const depthNodes = nodes.filter(n => isDepthNode(n.id));
-    if (depthNodes.length > 0) {
-      const depthParent = new Map<string, string>();
-      edges.forEach(edge => {
-        if (edge.edge_type === 'tree') {
-          depthParent.set(edge.to_node_id, edge.from_node_id);
-        }
-      });
-      const positionedXById = new Map<string, number>();
-      positionedNodes.forEach(n => positionedXById.set(n.id, n.position.x));
-
-      const placeDepthGroup = (groupNodes: GraphNode[], yLevel: number) => {
-        const byParent = groupNodes.reduce((acc, node) => {
-          const parentId = depthParent.get(node.id);
-          if (!parentId) return acc;
-          if (!acc[parentId]) {
-            acc[parentId] = [];
-          }
-          acc[parentId].push(node);
-          return acc;
-        }, {} as Record<string, GraphNode[]>);
-
-        Object.entries(byParent).forEach(([parentId, children]) => {
-          const parentX = positionedXById.get(parentId);
-          children.forEach((node, index) => {
-            const pos = calculateNodePosition(yLevel, index, children.length, parentX);
-            const rfNode = toReactFlowNode(node);
-            rfNode.position = pos;
-            positionedNodes.push(rfNode);
-            positionedXById.set(node.id, pos.x);
-          });
-        });
-      };
-
-      // L4 first (so L5 can align to L4 x), then grandchildren
-      placeDepthGroup(depthNodes.filter(n => n.level === 4), 4);
-      placeDepthGroup(depthNodes.filter(n => n.level === 5), 5);
-    }
+      positionedNodes.push(rfNode);
+    });
 
     return positionedNodes;
   }, [toReactFlowNode]);
@@ -1121,6 +1305,7 @@ export function A1KnowledgeGraph({
         nodes={flowNodes}
         edges={flowEdges}
         fitView
+        elevateNodesOnSelect
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={true}

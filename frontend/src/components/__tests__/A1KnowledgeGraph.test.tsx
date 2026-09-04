@@ -674,10 +674,10 @@ describe('Concept Term Nodes (T-C)', () => {
     expect(container.textContent).toContain('● 死亡转生');
   });
 
-  it('isConceptTermNode detects term: prefix OR level 4 (defensive OR)', async () => {
+  it('isConceptTermNode detects term: prefix only (tightened T-D contract)', async () => {
     const { isConceptTermNode } = await import('../graph/A1KnowledgeGraph');
     expect(isConceptTermNode({ id: 'term:血月', level: 4 })).toBe(true);
-    expect(isConceptTermNode({ id: 'legacy_node', level: 4 })).toBe(true);
+    expect(isConceptTermNode({ id: 'legacy_node', level: 4 })).toBe(false);
     expect(isConceptTermNode({ id: 'entry-1', level: 3 })).toBe(false);
   });
 });
