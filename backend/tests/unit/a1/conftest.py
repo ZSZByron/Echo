@@ -60,6 +60,28 @@ class StubLLMProvider(LLMProvider):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_a1_store(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """Autouse: point the A1 disk store at a tmp file and reset in-memory state.
+
+    Guarantees:
+    1. Tests never read/write the real ``backend/data/a1_store.json``.
+    2. No leakage between tests (dicts cleared, lazy-load flag reset).
+    3. The real store file is never polluted by test data.
+    """
+    from app.api import a1_routes
+
+    store_path = tmp_path / "a1_store.json"
+    monkeypatch.setenv("A1_STORE_PATH", str(store_path))
+    # Rebind the module-level store to the tmp path (env is only read in
+    # A1Store.__init__, and a previous test may already have constructed it).
+    monkeypatch.setattr(a1_routes, "_STORE", a1_routes.A1Store(store_path))
+    a1_routes._loaded = False
+    a1_routes._SESSIONS.clear()
+    a1_routes._FILES.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_real_llm_provider(monkeypatch: pytest.MonkeyPatch):
     """Autouse: neutralize real LLM HTTP calls from finalize (test-order pollution).
 

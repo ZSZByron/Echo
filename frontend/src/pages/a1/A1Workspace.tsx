@@ -110,6 +110,39 @@ export interface OpenQuestionRecord {
   source_hint?: string;
 }
 
+/** P0 归一化兜底：旧会话数据可能是裸 string，统一转为 OpenQuestionRecord */
+export function normalizeOpenQuestions(
+  questions: Array<OpenQuestionRecord | string>
+): OpenQuestionRecord[] {
+  return questions.map((q, i) =>
+    typeof q === 'string'
+      ? { id: `legacy-${i}`, question: q, status: 'pending' as const }
+      : q
+  );
+}
+
+/**
+ * 去回答闭环：从归一化 open_questions 派生最老 pending/asked 待问。
+ * 服务端按创建序返回，首条即最老；count 供状态角标「待问 N」。
+ */
+export function deriveOldestPendingQuestion(
+  questions: OpenQuestionRecord[]
+): { question: { id: string; question: string } | null; count: number } {
+  const open = questions.filter((q) => q.status === 'pending' || q.status === 'asked');
+  return {
+    question: open.length > 0 ? { id: open[0].id, question: open[0].question } : null,
+    count: open.length,
+  };
+}
+
+/** stale fileId 恢复：识别 404（ApiError.status 或降级 fetch 的 message） */
+export function isNotFoundError(err: unknown): boolean {
+  return (
+    (err instanceof ApiError && err.status === 404) ||
+    (err instanceof Error && err.message.includes('404'))
+  );
+}
+
 interface FileData {
   file_id: string;
   status: 'draft' | 'finalized';
@@ -303,6 +336,10 @@ export function A1Workspace() {
   // C7: 待问开放问题提示卡 + 状态角标
   const [pendingQuestion, setPendingQuestion] = useState<{ id: string; question: string } | null>(null);
   const [pendingQuestionsCount, setPendingQuestionsCount] = useState(0);
+  // 去回答闭环：从服务端 file data 提升的归一化 open_questions（chat 实时值优先）
+  const [openQuestions, setOpenQuestions] = useState<OpenQuestionRecord[]>([]);
+  // stale fileId 恢复：一次性提示条（后端重启导致旧会话 404）
+  const [staleSessionNotice, setStaleSessionNotice] = useState(false);
   const [pendingProposals, setPendingProposals] = useState<A1Proposal[]>([]);
   
   // Graph State
@@ -357,6 +394,39 @@ export function A1Workspace() {
     localStorage.removeItem('a1_return_intent');
   }, []); // Run once on mount
 
+  // stale fileId 自动恢复：清 localStorage 会话字段（保留其余），回种子选择器并提示
+  const handleStaleSession = () => {
+    try {
+      const raw = localStorage.getItem(A1_STORAGE_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw) as Record<string, unknown>;
+        delete stored.fileId;
+        delete stored.sessionId;
+        delete stored.ipCode;
+        localStorage.setItem(A1_STORAGE_KEY, JSON.stringify(stored));
+      }
+    } catch { /* localStorage 损坏时忽略，继续走 UI 重置 */ }
+    setSessionId(null);
+    setFileId(null);
+    setIpCode(null);
+    setWorkspaceState('seed_selector');
+    setStaleSessionNotice(true);
+  };
+
+  // 去回答闭环：回到访谈页时若无 chat 实时 pending_question（null），
+  // 从服务端 open_questions 派生最老 pending/asked 卡片；chat 响应的实时值优先，
+  // 用户在访谈中回答/跳过后由现有 chat 响应链路刷新。
+  useEffect(() => {
+    if (workspaceState !== 'guided_chat') return;
+    if (pendingQuestion !== null) return;
+    if (openQuestions.length === 0) return;
+    const derived = deriveOldestPendingQuestion(openQuestions);
+    setPendingQuestionsCount(derived.count);
+    if (derived.question) {
+      setPendingQuestion(derived.question);
+    }
+  }, [workspaceState, pendingQuestion, openQuestions]);
+
   // Hydrate file state when fileId changes (skip in graph_view to avoid
   // re-render cycle — GraphViewContent loads its own file data locally)
   useEffect(() => {
@@ -377,8 +447,13 @@ export function A1Workspace() {
               content?: string;
               subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
             }>;
+            open_questions?: Array<OpenQuestionRecord | string>;
           }>(`/api/a1/file/${fileId}`);
-          
+
+          if (response.open_questions) {
+            setOpenQuestions(normalizeOpenQuestions(response.open_questions));
+          }
+
           // Set file state
           setFile({
             status: response.status === 'finalized' ? 'finalized' : 'draft',
@@ -401,6 +476,11 @@ export function A1Workspace() {
             setGraphCode(response.graph_code);
           }
         } catch (err) {
+          if (isNotFoundError(err)) {
+            // 后端重启/旧 fileId 失效：自动回种子选择器，避免死重试屏
+            handleStaleSession();
+            return;
+          }
           console.error('Failed to hydrate file state:', err);
           // Don't show error to user - hydration is optional
         }
@@ -414,6 +494,7 @@ export function A1Workspace() {
   const startSession = async (seedId?: string, customIdeaText?: string) => {
     setIsChatLoading(true);
     setError(null);
+    setStaleSessionNotice(false);
     
     try {
       const request = {
@@ -471,7 +552,7 @@ export function A1Workspace() {
           content?: string;
           subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
         }>;
-        open_questions: string[];
+        open_questions: Array<OpenQuestionRecord | string>;
         edge_stats: {
           semantic_total: number;
           semantic_confirmed: number;
@@ -502,6 +583,7 @@ export function A1Workspace() {
         confirmed_edges: response.confirmed_edges,
         rejected_edges: response.rejected_edges,
       });
+      setOpenQuestions(normalizeOpenQuestions(response.open_questions));
     } catch (err) {
       console.error('Failed to refresh file:', err);
     }
@@ -1175,10 +1257,14 @@ export function A1Workspace() {
             done: boolean;
             content?: string;
             subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
-          }>;
-          graph_code?: string;
-        }>(`/api/a1/file/${fileId}`)
+            }>;
+            graph_code?: string;
+            open_questions?: Array<OpenQuestionRecord | string>;
+          }>(`/api/a1/file/${fileId}`)
           .then((response) => {
+            if (response.open_questions) {
+              setOpenQuestions(normalizeOpenQuestions(response.open_questions));
+            }
             setFile({
               status: response.status === 'finalized' ? 'finalized' : 'draft',
               sections: response.sections,
@@ -1197,6 +1283,11 @@ export function A1Workspace() {
             }
           })
           .catch((err) => {
+            if (isNotFoundError(err)) {
+              // 旧 fileId 已失效（后端重启）：自动回种子选择器，避免白切回
+              handleStaleSession();
+              return;
+            }
             console.error('Failed to re-hydrate file state:', err);
           });
       }
@@ -1233,13 +1324,28 @@ export function A1Workspace() {
           </div>
         </div>
         
-        <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} />
+        <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} onFileMissing={handleStaleSession} />
       </div>
     );
   };
 
   return (
     <div>
+      {staleSessionNotice && (
+        <div
+          data-testid="stale-session-notice"
+          role="alert"
+          className="glass-panel flex items-center justify-between gap-4 px-4 py-3 border border-cosmos-error/30 bg-cosmos-error/10"
+        >
+          <p className="text-cosmos-error text-sm">原会话已失效（服务重启），请重新进入或新建。</p>
+          <button
+            onClick={() => setStaleSessionNotice(false)}
+            className="text-void-400 hover:text-stardust-300 text-sm transition-colors"
+          >
+            知道了
+          </button>
+        </div>
+      )}
       {workspaceState === 'seed_selector' && renderSeedSelector()}
       {workspaceState === 'guided_chat' && renderGuidedChat()}
       {workspaceState === 'graph_view' && renderGraphView()}
@@ -1250,16 +1356,20 @@ export function A1Workspace() {
 // Graph View Content Component with Tabs
 // Defined OUTSIDE A1Workspace to prevent remount on every parent re-render
 // (inner component definition causes React to treat each render as a new component type)
-function GraphViewContent({
+// Exported for tests (404 stale-fileId recovery component-level assertions)
+export function GraphViewContent({
   fileId,
   returnToChat,
   graphCode,
   fileStatus,
+  onFileMissing,
 }: {
   fileId: string;
   returnToChat: () => void;
   graphCode: string | null;
   fileStatus: string | undefined;
+  /** stale fileId（404）：通知父级切回 seed_selector */
+  onFileMissing: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
   const [localFileData, setLocalFileData] = useState<FileData | null>(null);
@@ -1272,9 +1382,14 @@ function GraphViewContent({
           setLocalFileData(data);
         })
         .catch((err) => {
+          if (isNotFoundError(err)) {
+            onFileMissing();
+            return;
+          }
           console.error('Failed to load file data:', err);
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
 
   // Stable prop identities: useMemo prevents new []/{} on each render

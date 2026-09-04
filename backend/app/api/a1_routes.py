@@ -90,6 +90,35 @@ router = APIRouter()
 _SESSIONS: dict[str, A1Session] = {}
 _FILES: dict[str, dict[str, Any]] = {}
 
+# ---- Disk persistence (v0.5 A1: survive backend restarts) ----
+# Lazy load: _load_once() runs on first access (not at import — import-time
+# side effects would interfere with test collection). Save points sit at the
+# tail of every mutating endpoint's success path.
+from app.domains.creation.a1.store import A1Store  # noqa: E402
+
+_STORE = A1Store()
+_loaded = False
+
+
+def _load_once() -> None:
+    """Load persisted sessions/files into memory exactly once per process."""
+    global _loaded
+    if _loaded:
+        return
+    _loaded = True
+    sessions, files = _STORE.load()
+    _SESSIONS.update(sessions)
+    _FILES.update(files)
+
+
+def _save_store() -> None:
+    """Snapshot in-memory state to disk (best-effort; never crash a request)."""
+    try:
+        _STORE.save(_SESSIONS, _FILES)
+    except Exception as exc:  # noqa: BLE001 — persistence failure must not 500
+        from app.domains.creation.a1.interaction_log import log_event as _log
+        _log("a1_store", "save_failed", error=f"{type(exc).__name__}: {exc}"[:300])
+
 # In-memory lock to prevent duplicate concurrent poster generation for the
 # same file_id (mirrors _generation_tasks in assets_routes.py).
 _poster_generation_tasks: dict[str, Any] = {}
@@ -571,6 +600,7 @@ def get_seeds() -> dict:
 
 @router.post("/api/a1/session/start")
 def start_session(req: StartRequest) -> dict:
+    _load_once()
     if req.seed_id is None and not req.custom_idea:
         raise HTTPException(status_code=400, detail="seed_id 与 custom_idea 必须二选一")
 
@@ -617,6 +647,7 @@ def start_session(req: StartRequest) -> dict:
         seed=session.seed_name or None,
         custom_idea=(req.custom_idea or "")[:100] or None,
     )
+    _save_store()
     return {
         "session_id": session.session_id,
         "file_id": file_id,
@@ -637,6 +668,7 @@ def start_session(req: StartRequest) -> dict:
 
 @router.post("/api/a1/chat")
 async def chat(req: ChatRequest) -> dict:
+    _load_once()
     session = _SESSIONS.get(req.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -672,6 +704,7 @@ async def chat(req: ChatRequest) -> dict:
             "divergent_question": None,
         }
         out.update(_open_question_payload(oq_log, session))
+        _save_store()
         return out
 
     interviewer = _get_interviewer()
@@ -751,11 +784,13 @@ async def chat(req: ChatRequest) -> dict:
     # A 触发点：视觉设计模块填满时启动后台预生成
     await _trigger_visual_bg_if_filled(session.session_id)
 
+    _save_store()
     return out
 
 
 @router.post("/api/a1/chat/confirm")
 def chat_confirm(req: ConfirmRequest) -> dict:
+    _load_once()
     session = _SESSIONS.get(req.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -818,12 +853,12 @@ def chat_confirm(req: ConfirmRequest) -> dict:
         else:
             reply = "已放弃该内容，可重新输入。"
 
+        _save_store()
         return {
             "reply": reply,
             "next_question": _question_payload(session),
             "applied": result.get("applied", False),
         }
-
     # Default: classification proposal (existing innovation_capture path)
     from app.domains.creation.shared.semantic_compiler import ClassificationProposal
     proposal = ClassificationProposal(**req.proposal)
@@ -839,10 +874,12 @@ def chat_confirm(req: ConfirmRequest) -> dict:
     if "reply" not in out:
         out["reply"] = "已确认并记录。" if out.get("persisted") else "已放弃该内容，可重新输入。"
     out["next_question"] = _question_payload(session)
+    _save_store()
     return out
 
 
 def _get_file(file_id: str) -> dict:
+    _load_once()
     rec = _FILES.get(file_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="file not found")
@@ -1153,6 +1190,7 @@ def finalize(file_id: str) -> dict:
         thread.start()
         _visual_bg_tasks[file_id] = thread
 
+    _save_store()
     return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings,
             "status": "finalized", "concept_terms_count": len(rec.get("concept_terms", []))}
 
@@ -1259,6 +1297,7 @@ async def generate_poster(file_id: str) -> dict:
             status_code=502, detail=f"unexpected error: {exc}",
         )
     finally:
+        _save_store()
         _poster_generation_tasks.pop(file_id, None)
         if gen is not None:
             await gen.close()
@@ -1330,6 +1369,7 @@ async def _pregenerate_visual_bg(file_id: str) -> None:
         rec["visual_bg_error"] = str(exc)
         print(f"[visual_bg] {file_id}: failed: {exc}")
     finally:
+        _save_store()
         _visual_bg_tasks.pop(file_id, None)
 
 
@@ -1445,6 +1485,7 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         prefilled_fields=len(session.answers),
         innovations=len(parsed.get("innovations") or []),
     )
+    _save_store()
     return {
         "session_id": session.session_id,
         "file_id": file_id,
@@ -1621,6 +1662,7 @@ def confirm_edge(file_id: str, key: str) -> dict:
 
         # Task T-B: 新词入典流——确认含提议新关系的边 → relation 入典
         _induct_proposed_relation(rec, key)
+        _save_store()
         return {"confirmed": True, "key": key}
 
     if key not in confirmed:
@@ -1651,6 +1693,7 @@ def confirm_edge(file_id: str, key: str) -> dict:
 
     # Task T-B: 新词入典流——确认含提议新关系的边 → relation 入典
     _induct_proposed_relation(rec, key)
+    _save_store()
     return {"confirmed": True, "key": key}
 
 
@@ -1689,6 +1732,7 @@ def reject_edge(file_id: str, key: str) -> dict:
         g = KG.model_validate(rec["graph_json"])
         rec["edge_stats"] = _compute_edge_stats(g.edges)
 
+    _save_store()
     return {"rejected": True, "key": key}
 
 
@@ -1751,6 +1795,7 @@ def confirm_terms(file_id: str, req: TermsConfirmRequest) -> dict:
         if req.all or t["term"] in req.terms:
             t["confirmed"] = True
     rec["concept_terms"] = terms
+    _save_store()
     return {"concept_terms": terms}
 
 
@@ -1839,5 +1884,6 @@ def extract_concept_edges_v2(file_id: str) -> dict:
     g = _KG.model_validate(rec["graph_json"])
     rec["edge_stats"] = _compute_edge_stats(g.edges)
 
+    _save_store()
     return {"success": True, "added": added,
             "edges": [e.model_dump() for e in result.edges]}

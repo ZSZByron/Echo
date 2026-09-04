@@ -67,6 +67,7 @@ backend/experiments/results/
 data/assets/visual_bg/
 data/*.jsonl
 backend/data/*.txt
+backend/data/a1_store.json
 
 # Session runtime state (regenerated)
 .sisyphus/run-continuation/
