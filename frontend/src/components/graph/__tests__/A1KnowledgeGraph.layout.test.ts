@@ -6,6 +6,10 @@ import {
   layoutConceptModules,
   NODE_Z_INDEX,
   TIER_UNGROUPED,
+  ENTRIES_PER_ROW,
+  ENTRY_ROW_HEIGHT,
+  GRAPH_MIN_ZOOM,
+  NODE_SIZE_ESTIMATES,
 } from '../A1KnowledgeGraph';
 import type { GraphEdge, GraphNode } from '../../../types/graph';
 
@@ -55,7 +59,8 @@ const expectZeroOverlap = (
 const buildFixture = (
   moduleIds: string[],
   moduleTier?: Map<string, number>,
-  withDetails = true
+  withDetails = true,
+  withTerms = true
 ): { nodes: GraphNode[]; edges: GraphEdge[] } => {
   const nodes: GraphNode[] = [mkNode('bg', 1)];
   const edges: GraphEdge[] = [];
@@ -87,8 +92,10 @@ const buildFixture = (
   }
 
   // 4 concept-term nodes
-  for (let t = 1; t <= 4; t++) {
-    nodes.push(mkNode(`term:t${t}`, 4));
+  if (withTerms) {
+    for (let t = 1; t <= 4; t++) {
+      nodes.push(mkNode(`term:t${t}`, 4));
+    }
   }
 
   return { nodes, edges };
@@ -262,5 +269,90 @@ describe('computeNodeLayout — zero-overlap invariant (occlusion fix R6)', () =
     expect(layout.get('term:t1')!.zIndex).toBe(NODE_Z_INDEX.term);
     expect(layout.get('d:m1-e1:detail1')!.zIndex).toBe(NODE_Z_INDEX.L4);
     expect(layout.get('d:d:m1-e1:detail1:grand')!.zIndex).toBe(NODE_Z_INDEX.L5);
+  });
+});
+
+/** Full bbox horizontal extent: max(x+width) - min(x) (width-budget measure). */
+const boxSpan = (layout: Map<string, { x: number; width: number }>): number => {
+  let min = Infinity;
+  let max = -Infinity;
+  layout.forEach(b => {
+    min = Math.min(min, b.x);
+    max = Math.max(max, b.x + b.width);
+  });
+  return max - min;
+};
+
+describe('computeNodeLayout — black-screen width fix (F1/F2/F3)', () => {
+  it('fitView contract: GRAPH_MIN_ZOOM >= 0.3 (F3)', () => {
+    expect(GRAPH_MIN_ZOOM).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('F1-pure: entries only (no depth nodes/terms) stay within the 3600 budget', () => {
+    // Real-data worst case: every module fully answered, no depth tree.
+    const { nodes, edges } = buildFixture(
+      ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
+      undefined,
+      false,
+      false
+    );
+    const layout = computeNodeLayout(nodes, edges, 'tree');
+    const span = boxSpan(layout);
+    // eslint-disable-next-line no-console
+    console.log(`[width-evidence] pure-entries fixture (tree): total width = ${span}px`);
+    expect(span).toBeLessThanOrEqual(3600);
+  });
+
+  it('F1: entries of a 5-entry module wrap into 2 rows with ENTRY_ROW_HEIGHT', () => {
+    const { nodes, edges } = buildFixture(['m1'], undefined, false);
+    const layout = computeNodeLayout(nodes, edges, 'tree');
+    const entries = [...layout.entries()]
+      .filter(([id]) => id.startsWith('m1-e'))
+      .map(([, b]) => b.y)
+      .sort((a, b) => a - b);
+    const distinctYs = [...new Set(entries)];
+    expect(distinctYs.length).toBe(Math.ceil(5 / ENTRIES_PER_ROW));
+    expect(distinctYs[1] - distinctYs[0]).toBe(ENTRY_ROW_HEIGHT);
+  });
+
+  it('F1: TERM/L4/L5 bands shift below the deepest wrap row', () => {
+    const { nodes, edges } = buildFixture(['m1'], undefined, true);
+    const layout = computeNodeLayout(nodes, edges, 'tree');
+    const entryYs = [...layout.entries()]
+      .filter(([id]) => id.startsWith('m1-e'))
+      .map(([, b]) => b.y);
+    const deepestEntryBottom = Math.max(...entryYs) + NODE_SIZE_ESTIMATES.L3.height;
+    expect(layout.get('term:t1')!.y).toBeGreaterThanOrEqual(deepestEntryBottom);
+    expect(layout.get('d:m1-e1:detail1')!.y).toBeGreaterThan(layout.get('m1-e1')!.y);
+  });
+
+  it('F1: fixture A (tree, with depth fan) total width <= 4700', () => {
+    // Orchestrator decision (2026-09-04): the original 3600 target is
+    // mathematically unreachable for a depth-bearing fixture (lower bound
+    // ~4200); the budget is split: pure entries <= 3600, with-depth <= 4700.
+    const { nodes, edges } = buildFixture(['m1', 'm2', 'm3', 'm4', 'm5', 'm6']);
+    const layout = computeNodeLayout(nodes, edges, 'tree');
+    const span = boxSpan(layout);
+    // eslint-disable-next-line no-console
+    console.log(`[width-evidence] fixture A tree mode: total width = ${span}px`);
+    expect(span).toBeLessThanOrEqual(4700);
+  });
+
+  it('F2: fixture A (concept) total width <= 5000, columns differ from tree', () => {
+    const tiers = new Map([
+      ['m1', 0], ['m2', 1], ['m3', 2], ['m4', 2], ['m5', 2], ['m6', 4],
+    ]);
+    const { nodes, edges } = buildFixture(['m1', 'm2', 'm3', 'm4', 'm5', 'm6'], tiers);
+    const concept = computeNodeLayout(nodes, edges, 'concept');
+    const tree = computeNodeLayout(nodes, edges, 'tree');
+    const span = boxSpan(concept);
+    // eslint-disable-next-line no-console
+    console.log(`[width-evidence] fixture A concept mode: total width = ${span}px`);
+    expect(span).toBeLessThanOrEqual(5000);
+    // Anti-degeneration guard: tiered concept layout must NOT be identical to tree
+    const modIds = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'];
+    const treeXs = modIds.map(id => tree.get(id)!.x);
+    const conceptXs = modIds.map(id => concept.get(id)!.x);
+    expect(treeXs).not.toEqual(conceptXs);
   });
 });

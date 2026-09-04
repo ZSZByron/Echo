@@ -104,7 +104,6 @@ export const tierLegendColor = (tier: number | undefined): string => {
 export const CONCEPT_TIER_COLUMN_SPACING = 340;
 export const CONCEPT_TIER_ROW_SPACING = 220;
 export const CONCEPT_MODULE_Y = 240;
-
 /**
  * Vertical band Y for each node tier (occlusion fix R1).
  * Adjacent bands keep >=100px clear height given conservative node heights
@@ -122,9 +121,17 @@ export const BAND_Y = {
 
 /** Horizontal spacing constants (occlusion fix R1/R2). */
 export const MODULE_SPACING = 280;
-export const MODULE_GAP = 40;
-export const ENTRY_SPACING = 200; // > L3 maxWidth (180) so entry bboxes never touch
-export const ENTRY_HALF_WIDTH = 100; // conservative half width of an entry node
+export const MODULE_GAP = 30; // tuned 40->30 (F1 width budget; wrapped rows tightened)
+export const ENTRY_SPACING = 190; // > L3 maxWidth (180) so entry bboxes never touch (F1 width budget)
+export const ENTRY_HALF_WIDTH = 95; // conservative half width of an entry node (> real 90, F1 width budget)
+/** Entries wrap into a grid: max ENTRIES_PER_ROW per row (black-screen width fix F1). */
+export const ENTRIES_PER_ROW = 3;
+/** Vertical distance between entry wrap rows (> L3 estimated height 64). */
+export const ENTRY_ROW_HEIGHT = 110;
+/** Depth slots (L4) wrap too: max DEPTH_SLOTS_PER_ROW slots per row. */
+export const DEPTH_SLOTS_PER_ROW = 2;
+/** FitView floor (black-screen fix F3): keeps nodes >= ~60px rendered width. */
+export const GRAPH_MIN_ZOOM = 0.3;
 export const DEPTH_SPACING = 220;
 export const DEPTH_SLOT = 200;
 export const TERM_SPACING = 190; // > term node width estimate (170)
@@ -291,15 +298,37 @@ export interface NodeLayoutBox {
   tierBand?: number;
 }
 
-/** Sequential x layout, centred on 0, for items with individual half-widths. */
-const sequentialCentredXs = (halfWidths: number[], minGap: number): number[] => {
+/** Sequential x layout, centred on 0, for items with individual half-widths.
+ *  gapOf defaults to halfsum + MODULE_GAP; wrap rows pass a tighter gap
+ *  (halfsum only, no module gap) to keep row width low (F1). */
+const sequentialCentredXs = (
+  halfWidths: number[],
+  minGap: number,
+  gapOf: (a: number, b: number) => number = (a, b) => Math.max(minGap, a + b + MODULE_GAP)
+): number[] => {
   if (halfWidths.length === 0) return [];
   const xs: number[] = [0];
   for (let i = 1; i < halfWidths.length; i++) {
-    xs.push(xs[i - 1] + Math.max(minGap, halfWidths[i - 1] + halfWidths[i] + MODULE_GAP));
+    xs.push(xs[i - 1] + gapOf(halfWidths[i - 1], halfWidths[i]));
   }
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
   return xs.map(x => x - mean);
+};
+
+/** Balanced-centred variant: shifts so left/right extents (incl. half-widths)
+ *  are symmetric — wrap rows with a wide leading item stay inside the module
+ *  envelope (F1). */
+const balancedCentredXs = (
+  halfs: number[],
+  minGap: number,
+  gapOf: (a: number, b: number) => number
+): number[] => {
+  const xs = sequentialCentredXs(halfs, minGap, gapOf);
+  if (xs.length === 0) return xs;
+  const left = xs[0] - halfs[0];
+  const right = xs[xs.length - 1] + halfs[halfs.length - 1];
+  const shift = (left + right) / 2;
+  return xs.map(x => x - shift);
 };
 
 export const computeNodeLayout = (
@@ -347,18 +376,37 @@ export const computeNodeLayout = (
     return Math.max(DEPTH_SLOT, (l5Count - 1) * DEPTH_SPACING + DEPTH_SLOT + MODULE_GAP / 2);
   };
 
-  const entryDepthPlan = new Map<string, { width: number; centers: number[] }>();
+  const entryDepthPlan = new Map<string, { width: number; centers: number[]; rows: number[] }>();
+  let maxDepthRows = 1;
   l4ByEntry.forEach((children, entryId) => {
     const reqs = children.map(c => l4RequiredWidth(c.id));
-    const chainWidth = reqs.reduce((a, b) => a + b, 0);
-    const width = Math.max(DEPTH_SPACING, chainWidth + MODULE_GAP / 2);
+    // F1 (black-screen fix): wrap the L4 slot chain into rows of DEPTH_SLOTS_PER_ROW
+    // so a wide depth fan cannot blow up the entry (and module) half width.
+    const rowCount = Math.ceil(reqs.length / DEPTH_SLOTS_PER_ROW);
     const centers: number[] = [];
-    let acc = (width - chainWidth) / 2;
-    children.forEach((_, i) => {
-      centers.push(acc + reqs[i] / 2);
-      acc += reqs[i];
-    });
-    entryDepthPlan.set(entryId, { width, centers });
+    const rows: number[] = [];
+    let spanHalf = DEPTH_SLOT / 2;
+    for (let r = 0; r < rowCount; r++) {
+      const rowReqs = reqs.slice(r * DEPTH_SLOTS_PER_ROW, (r + 1) * DEPTH_SLOTS_PER_ROW);
+      const xs = balancedCentredXs(
+        rowReqs.map(w => w / 2),
+        DEPTH_SLOT,
+        (a, b) => Math.max(DEPTH_SLOT, a + b) // no module gap inside a slot row
+      );
+      rowReqs.forEach((_, i) => {
+        centers.push(xs[i] ?? 0);
+        rows.push(r);
+      });
+      if (xs.length > 0) {
+        // True row extent half: farthest slot box edge from row centre.
+        spanHalf = Math.max(
+          spanHalf,
+          ...xs.map((x, i) => Math.abs(x) + rowReqs[i] / 2)
+        );
+      }
+    }
+    maxDepthRows = Math.max(maxDepthRows, rowCount);
+    entryDepthPlan.set(entryId, { width: spanHalf * 2, centers, rows });
   });
 
   const entryHalfWidth = (entryId: string): number => {
@@ -374,16 +422,48 @@ export const computeNodeLayout = (
     entriesByModule.get(p)!.push(e);
   });
 
-  // Relative (module-centred) entry xs + each module's required half width
-  const relEntryXs = new Map<string, number[]>(); // moduleId -> per-entry relative x
+  // Relative (module-centred) entry xs + each module's required half width.
+  // F1 (black-screen fix): entries wrap into a grid of ENTRIES_PER_ROW per row
+  // instead of a single long line, capping each module's half width at ~300px.
+  const relEntryXs = new Map<string, { x: number; row: number }[]>(); // moduleId -> per-entry relative x + row
   const moduleHalfWidth = new Map<string, number>();
+  let maxEntryRows = 1;
   entriesByModule.forEach((children, moduleId) => {
-    const halfs = children.map(c => entryHalfWidth(c.id));
-    const xs = sequentialCentredXs(halfs, ENTRY_SPACING);
-    relEntryXs.set(moduleId, xs);
-    const spanHalf = xs.length > 0
-      ? (xs[xs.length - 1] - xs[0]) / 2 + ENTRY_HALF_WIDTH
-      : ENTRY_HALF_WIDTH;
+    // F1: wrap into rows of <= ENTRIES_PER_ROW; a depth-bearing entry always
+    // gets an exclusive row (its L4 slot fan is wider than a shared row allows).
+    const rows: GraphNode[][] = [];
+    let current: GraphNode[] | null = null;
+    for (const c of children) {
+      const hasPlan = entryDepthPlan.has(c.id);
+      if (
+        !current ||
+        current.length >= ENTRIES_PER_ROW ||
+        hasPlan ||
+        current.some(d => entryDepthPlan.has(d.id))
+      ) {
+        current = [c];
+        rows.push(current);
+      } else {
+        current.push(c);
+      }
+    }
+    maxEntryRows = Math.max(maxEntryRows, rows.length);
+    const placed: { x: number; row: number }[] = [];
+    let spanHalf = ENTRY_HALF_WIDTH;
+    rows.forEach((row, rowIdx) => {
+      const halfs = row.map(c => entryHalfWidth(c.id));
+      const xs = balancedCentredXs(
+        halfs,
+        ENTRY_SPACING,
+        (a, b) => Math.max(ENTRY_SPACING, a + b) // no module gap inside an entry row
+      );
+      row.forEach((c, i) => placed.push({ x: xs[i] ?? 0, row: rowIdx }));
+      const rowHalf = xs.length > 0
+        ? Math.max(...xs.map((x, i) => Math.abs(x) + halfs[i]))
+        : ENTRY_HALF_WIDTH;
+      spanHalf = Math.max(spanHalf, rowHalf);
+    });
+    relEntryXs.set(moduleId, placed);
     moduleHalfWidth.set(moduleId, spanHalf);
   });
 
@@ -397,7 +477,11 @@ export const computeNodeLayout = (
   }
 
   if (mode === 'tree') {
-    const xs = sequentialCentredXs(modules.map(m => moduleHalfWidth.get(m.id) ?? ENTRY_HALF_WIDTH), MODULE_SPACING);
+    const xs = sequentialCentredXs(
+      modules.map(m => moduleHalfWidth.get(m.id) ?? ENTRY_HALF_WIDTH),
+      MODULE_SPACING,
+      (a, b) => Math.max(MODULE_SPACING, a + b) // no extra gap term (F1 width budget)
+    );
     modules.forEach((m, i) => {
       moduleX.set(m.id, xs[i] ?? 0);
       moduleY.set(m.id, BAND_Y.L2);
@@ -421,7 +505,11 @@ export const computeNodeLayout = (
     const bandHalfs = bandIds.map(band => {
       const ids = byBand.get(band)!;
       const halfs = ids.map(id => moduleHalfWidth.get(id) ?? ENTRY_HALF_WIDTH);
-      const xs = sequentialCentredXs(halfs, MODULE_SPACING);
+      const xs = sequentialCentredXs(
+        halfs,
+        MODULE_SPACING,
+        (a, b) => Math.max(MODULE_SPACING, a + b) // no extra gap term (F1)
+      );
       bandFanXs.set(band, xs);
       let half = ENTRY_HALF_WIDTH;
       ids.forEach((id, i) => {
@@ -430,7 +518,11 @@ export const computeNodeLayout = (
       return half;
     });
     // Dynamic column spacing (ordered columns, centred on 0)
-    const colXs = sequentialCentredXs(bandHalfs, CONCEPT_TIER_COLUMN_SPACING);
+    const colXs = sequentialCentredXs(
+      bandHalfs,
+      CONCEPT_TIER_COLUMN_SPACING,
+      (a, b) => Math.max(CONCEPT_TIER_COLUMN_SPACING, a + b) // no extra gap term (F1)
+    );
     bandIds.forEach((band, bi) => {
       const ids = byBand.get(band)!;
       const fanXs = bandFanXs.get(band)!;
@@ -467,7 +559,11 @@ export const computeNodeLayout = (
   });
 
   // --- R4: detail bands (shifted below the deepest tier column in concept mode) ---
-  let bandTop = BAND_Y.L3;
+  // F1: TERM/L4/L5 bands shift below the deepest entry wrap row AND the deepest
+  // L4 depth wrap row (a second L4 row sits ENTRY_ROW_HEIGHT below bandY.L4).
+  const entryRowDepth = (maxEntryRows - 1) * ENTRY_ROW_HEIGHT;
+  const depthRowDepth = (maxDepthRows - 1) * ENTRY_ROW_HEIGHT;
+  let bandTop = BAND_Y.L3 + entryRowDepth + depthRowDepth;
   if (mode === 'concept') {
     const colRowCount = new Map<number, number>();
     modules.forEach(m => {
@@ -476,21 +572,37 @@ export const computeNodeLayout = (
       colRowCount.set(p.tierBand, (colRowCount.get(p.tierBand) ?? 0) + 1);
     });
     const maxRowCount = colRowCount.size > 0 ? Math.max(...colRowCount.values()) : 1;
-    bandTop = CONCEPT_MODULE_Y + (maxRowCount - 1) * CONCEPT_TIER_ROW_SPACING + 180;
+    bandTop = Math.max(
+      bandTop,
+      CONCEPT_MODULE_Y + (maxRowCount - 1) * CONCEPT_TIER_ROW_SPACING + 180 + entryRowDepth + depthRowDepth
+    );
   }
   const bandY = {
     L3: bandTop,
-    TERM: bandTop + (BAND_Y.TERM - BAND_Y.L3),
-    L4: bandTop + (BAND_Y.L4 - BAND_Y.L3),
-    L5: bandTop + (BAND_Y.L5 - BAND_Y.L3),
+    // F1: TERM must clear the deepest entry wrap row; L4 must clear TERM;
+    // L5 keeps >= one L4 wrap row + node height above its floor.
+    TERM: bandTop + Math.max(
+      BAND_Y.TERM - BAND_Y.L3,
+      entryRowDepth + NODE_SIZE_ESTIMATES.L3.height + 16
+    ),
+    L4: bandTop + Math.max(
+      BAND_Y.L4 - BAND_Y.L3,
+      entryRowDepth + NODE_SIZE_ESTIMATES.L3.height + 16 + NODE_SIZE_ESTIMATES.term.height + 40
+    ),
+    L5: bandTop + Math.max(
+      BAND_Y.L5 - BAND_Y.L3,
+      entryRowDepth + NODE_SIZE_ESTIMATES.L3.height + 16 + NODE_SIZE_ESTIMATES.term.height + 40
+        + ENTRY_ROW_HEIGHT + NODE_SIZE_ESTIMATES.L4.height
+    ),
   };
 
-  // --- Entries under their module ---
+  // --- Entries under their module, wrapped into rows (F1) ---
   entriesByModule.forEach((children, moduleId) => {
     const baseX = moduleId === '__orphans__' ? 0 : (moduleX.get(moduleId) ?? 0);
-    const xs = relEntryXs.get(moduleId) ?? [];
+    const placed = relEntryXs.get(moduleId) ?? [];
     children.forEach((c, i) => {
-      boxes.set(c.id, boxFor('L3', baseX + (xs[i] ?? 0), bandY.L3));
+      const p = placed[i] ?? { x: 0, row: 0 };
+      boxes.set(c.id, boxFor('L3', baseX + p.x, bandY.L3 + p.row * ENTRY_ROW_HEIGHT));
     });
   });
 
@@ -503,25 +615,32 @@ export const computeNodeLayout = (
     });
   }
 
-  // --- R3: depth slots (L4 within their entry's slot) ---
+  // --- R3: depth slots (L4 within their entry's slot, wrapped into rows F1) ---
+  // centers[] are row-centred on the entry x (each wrap row is centred independently).
+  const l4RowY = new Map<string, number>();
   entries.forEach(entry => {
     const plan = entryDepthPlan.get(entry.id);
     const entryBox = boxes.get(entry.id);
     if (!plan || !entryBox) return;
     const children = l4ByEntry.get(entry.id)!;
-    const slotStart = entryBox.x - plan.width / 2;
     children.forEach((c, i) => {
-      boxes.set(c.id, boxFor('L4', slotStart + plan.centers[i], bandY.L4));
+      const y = bandY.L4 + (plan.rows[i] ?? 0) * ENTRY_ROW_HEIGHT;
+      l4RowY.set(c.id, y);
+      boxes.set(c.id, boxFor('L4', entryBox.x + plan.centers[i], y));
     });
   });
 
-  // --- L5 under their L4 parent ---
+  // --- L5 under their L4 parent (following its wrap row); y offset clears the
+  // next L4 wrap row (ENTRY_ROW_HEIGHT + L4 height) so rows never collide ---
+  const L5_ROW_OFFSET = ENTRY_ROW_HEIGHT + NODE_SIZE_ESTIMATES.L4.height;
   l5ByL4.forEach((children, l4Id) => {
     const parentBox = boxes.get(l4Id);
     if (!parentBox) return;
+    const py = l4RowY.get(l4Id) ?? bandY.L4;
+    const y = Math.max(bandY.L5, py + L5_ROW_OFFSET);
     const totalWidth = (children.length - 1) * DEPTH_SPACING;
     children.forEach((c, index) => {
-      boxes.set(c.id, boxFor('L5', parentBox.x + index * DEPTH_SPACING - totalWidth / 2, bandY.L5));
+      boxes.set(c.id, boxFor('L5', parentBox.x + index * DEPTH_SPACING - totalWidth / 2, y));
     });
   });
 
@@ -1305,6 +1424,7 @@ export function A1KnowledgeGraph({
         nodes={flowNodes}
         edges={flowEdges}
         fitView
+        fitViewOptions={{ minZoom: GRAPH_MIN_ZOOM, padding: 0.15 }}
         elevateNodesOnSelect
         nodesDraggable={false}
         nodesConnectable={false}
@@ -1312,7 +1432,7 @@ export function A1KnowledgeGraph({
         edgesFocusable={true}
         panOnScroll
         zoomOnScroll
-        minZoom={0.15}
+        minZoom={GRAPH_MIN_ZOOM}
         maxZoom={1.5}
         onEdgeMouseEnter={(_, edge) => {
           setHoveredEdge(edge.id);
