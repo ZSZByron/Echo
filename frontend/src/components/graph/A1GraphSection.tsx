@@ -9,7 +9,7 @@
 
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
-import { confirmEdge, rejectEdge, confirmConceptTerms, extractConceptRelations } from '../../api/a1';
+import { confirmEdge, rejectEdge, confirmConceptTerms, extractConceptRelations, discardDeadEdge, getDeadEdgeKey, type DeadEdge } from '../../api/a1';
 import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
 import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
@@ -71,6 +71,8 @@ export function A1GraphSection({
   // T16: degradation warnings from finalize (graphify degradation report)
   const [finalizeWarnings, setFinalizeWarnings] = useState<string[]>([]);
   const [showWarningsPopover, setShowWarningsPopover] = useState(false);
+  // F2: dead edges from get_file response, surfaced in EdgeReviewPanel
+  const [deadEdges, setDeadEdges] = useState<DeadEdge[]>([]);
 
   // Fullscreen layout state (T-C)
   const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
@@ -122,10 +124,12 @@ export function A1GraphSection({
         concept_terms?: ConceptTerm[];
         proposed_relations?: ProposedRelation[];
         finalize_warnings?: string[];
+        dead_edges?: DeadEdge[];
       }>(`/api/a1/file/${fileId}`);
       setConceptTerms(file.concept_terms ?? []);
       setProposedRelations(file.proposed_relations ?? []);
       setFinalizeWarnings(file.finalize_warnings ?? []);
+      setDeadEdges(file.dead_edges ?? []);
     } catch (err) {
       console.error('Failed to load concept terms:', err);
     }
@@ -217,6 +221,16 @@ export function A1GraphSection({
       console.error('Failed to reject edge:', err);
     }
   }, [fileId, loadGraph]);
+
+  /** F2: discard a dead edge via reject endpoint, then drop it from local state. */
+  const handleDiscardDeadEdge = useCallback(async (edge: DeadEdge) => {
+    try {
+      await discardDeadEdge(fileId, edge);
+      setDeadEdges(prev => prev.filter(d => getDeadEdgeKey(d) !== getDeadEdgeKey(edge)));
+    } catch (err) {
+      console.error('Failed to discard dead edge:', err);
+    }
+  }, [fileId]);
 
   const handleGoAnswer = () => {
     localStorage.setItem('a1_return_intent', 'chat');
@@ -539,6 +553,8 @@ export function A1GraphSection({
             onConfirmAllTerms={handleConfirmAllTerms}
             onExtractRelations={handleExtractRelations}
             isExtracting={isExtracting}
+            deadEdges={deadEdges}
+            onDiscardDeadEdge={handleDiscardDeadEdge}
           />
         )}
       </div>
