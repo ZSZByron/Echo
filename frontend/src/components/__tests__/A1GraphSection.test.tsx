@@ -507,7 +507,7 @@ describe('A1GraphSection - Fullscreen Layout + Guide (T-C)', () => {
     ],
   };
 
-  it('should render fullscreen fixed inset-0 container', async () => {
+  it('should render full-bleed absolute inset-0 shell (below title bar)', async () => {
     vi.mocked(fetchJson).mockResolvedValue(mockGraph);
     const { container } = render(
       <A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} />
@@ -516,7 +516,7 @@ describe('A1GraphSection - Fullscreen Layout + Guide (T-C)', () => {
     await waitFor(() => {
       const shell = container.querySelector('[data-testid="a1-graph-fullscreen"]');
       expect(shell).toBeInTheDocument();
-      expect(shell?.className).toContain('fixed');
+      expect(shell?.className).toContain('absolute');
       expect(shell?.className).toContain('inset-0');
     });
   });

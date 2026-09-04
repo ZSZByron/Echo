@@ -35,13 +35,24 @@ def _default_path() -> Path:
 
 
 class A1Store:
-    """JSON-file persistence for A1 sessions + file records."""
+    """JSON-file persistence for A1 sessions + file records.
+
+    Path resolution is LAZY (per call, not at construction): the
+    ``A1_STORE_PATH`` env override is re-read on every load/save so that
+    process-wide test isolation (see tests/conftest.py session fixture)
+    covers even late background-thread writes that outlive per-test
+    monkeypatches.
+    """
 
     def __init__(self, path: Path | None = None) -> None:
-        if path is None:
-            env_path = os.environ.get("A1_STORE_PATH")
-            path = Path(env_path) if env_path else _default_path()
-        self.path = path
+        self._explicit_path = path
+
+    @property
+    def path(self) -> Path:
+        if self._explicit_path is not None:
+            return self._explicit_path
+        env_path = os.environ.get("A1_STORE_PATH")
+        return Path(env_path) if env_path else _default_path()
 
     # -- load ------------------------------------------------------------
 

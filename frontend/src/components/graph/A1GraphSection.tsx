@@ -40,10 +40,11 @@ function stripWarningPrefix(w: string): string {
   return w.replace(/^\[(entries|edges|constraint_fields)\]\s*/, '');
 }
 
-/** Fixed fullscreen overlay shell (T-C): covers the entire workspace viewport. */
+/** Fullscreen shell (T-C): absolutely fills its positioned parent — the
+ *  workspace stacks it BELOW the title bar and tab nav (no overlap). */
 function FullscreenShell({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-space-950" data-testid="a1-graph-fullscreen">
+    <div className="absolute inset-0 z-40 flex flex-col bg-space-950" data-testid="a1-graph-fullscreen">
       {children}
     </div>
   );

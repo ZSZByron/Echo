@@ -1294,9 +1294,9 @@ export function A1Workspace() {
     };
     
     return (
-      <div className="min-h-screen starry-gradient">
+      <div className="h-screen flex flex-col overflow-hidden starry-gradient">
         {/* Top Bar */}
-        <div className="glass-panel p-4 border-b border-white/5">
+        <div className="glass-panel p-4 border-b border-white/5 shrink-0">
           <div className="flex items-center justify-between max-w-7xl mx-auto">
             <div className="flex items-center gap-3">
               <div className="text-stardust-400 text-xl">✦</div>
@@ -1324,7 +1324,10 @@ export function A1Workspace() {
           </div>
         </div>
         
-        <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} onFileMissing={handleStaleSession} />
+        {/* Graph fills the remaining viewport below the title bar (no overlap) */}
+        <div className="relative flex-1 min-h-0">
+          <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} onFileMissing={handleStaleSession} />
+        </div>
       </div>
     );
   };
@@ -1406,9 +1409,9 @@ export function GraphViewContent({
   const stableRejectedEdges = useMemo(() => localFileData?.rejected_edges ?? {}, [localFileData]);
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="absolute inset-0 flex flex-col">
       {/* Tab Navigation */}
-      <div className="flex gap-4 border-b border-white/5 bg-space-900/30 backdrop-blur-sm">
+      <div className="flex gap-4 border-b border-white/5 bg-space-900/30 backdrop-blur-sm shrink-0">
         <button
           onClick={() => setActiveTab('graph')}
           className={`px-6 py-3 font-medium transition-colors border-b-2 -mb-px ${
@@ -1431,8 +1434,8 @@ export function GraphViewContent({
         </button>
       </div>
 
-      {/* Tab Content */}
-      <div className="p-8">
+      {/* Tab Content: fills below tab nav; graph shell absolute-fills this box */}
+      <div className="relative flex-1 min-h-0">
         {activeTab === 'graph' && (
           <A1GraphSection
             fileId={fileId}
@@ -1443,7 +1446,13 @@ export function GraphViewContent({
             rejectedEdges={stableRejectedEdges}
           />
         )}
-        {activeTab === 'poster' && <PosterPreview fileId={fileId} />}
+        {activeTab === 'poster' && (
+          <div className="absolute inset-0 overflow-y-auto p-8">
+            <div className="max-w-7xl mx-auto">
+              <PosterPreview fileId={fileId} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
