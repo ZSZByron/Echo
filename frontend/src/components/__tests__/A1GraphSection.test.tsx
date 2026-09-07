@@ -174,6 +174,34 @@ describe('A1GraphSection - One-Click Refinalize', () => {
     });
   });
 
+  it('shows the always-available refinalize button for FINALIZED files (not just stale drafts)', async () => {
+    // Regression: the answer -> refinalize loop must work post-finalize.
+    // Previously the button only rendered inside the isStale banner, so a
+    // finalized file had NO re-finalize entry point at all.
+    const mockGraph: KnowledgeGraph = {
+      scene_id: 'test-scene',
+      nodes: {
+        'node-1': { id: 'node-1', serial_number: '1', level: 1, description: 'N', status: 'completed' },
+      },
+      edges: [],
+    };
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={2} isStale={false} />);
+
+    const btn = await screen.findByTestId('refinalize-button');
+    expect(btn).toBeInTheDocument();
+    expect(screen.getByText(/已定稿 v2/)).toBeInTheDocument();
+
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(fetchJson).toHaveBeenCalledWith(
+        `/api/a1/file/${mockFileId}/finalize`,
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+  });
+
   it('should refresh graph after successful finalize', async () => {
     const mockGraph: KnowledgeGraph = {
       scene_id: 'test-scene',

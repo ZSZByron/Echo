@@ -1326,7 +1326,19 @@ export function A1Workspace() {
         
         {/* Graph fills the remaining viewport below the title bar (no overlap) */}
         <div className="relative flex-1 min-h-0">
-          <GraphViewContent fileId={fileId} returnToChat={returnToChat} graphCode={graphCode} fileStatus={file?.status} onFileMissing={handleStaleSession} />
+          <GraphViewContent
+            fileId={fileId}
+            returnToChat={returnToChat}
+            graphCode={graphCode}
+            fileStatus={file?.status}
+            onFileMissing={handleStaleSession}
+            onFileData={(d) => {
+              if (d.graph_code) setGraphCode(d.graph_code);
+              if (d.status === 'finalized' || d.status === 'draft') {
+                setFile((prev) => (prev ? { ...prev, status: d.status } : prev));
+              }
+            }}
+          />
         </div>
       </div>
     );
@@ -1366,6 +1378,7 @@ export function GraphViewContent({
   graphCode,
   fileStatus,
   onFileMissing,
+  onFileData,
 }: {
   fileId: string;
   returnToChat: () => void;
@@ -1373,6 +1386,9 @@ export function GraphViewContent({
   fileStatus: string | undefined;
   /** stale fileId（404）：通知父级切回 seed_selector */
   onFileMissing: () => void;
+  /** Report fetched file meta upward so the parent's graphCode/status stay
+   *  fresh on direct reloads into graph_view (badge shows the real version). */
+  onFileData?: (data: { graph_code?: string; status: string }) => void;
 }) {
   const [activeTab, setActiveTab] = useState<'graph' | 'poster'>('graph');
   const [localFileData, setLocalFileData] = useState<FileData | null>(null);
@@ -1383,6 +1399,7 @@ export function GraphViewContent({
       fetchJson<FileData>(`/api/a1/file/${fileId}`)
         .then((data) => {
           setLocalFileData(data);
+          onFileData?.({ graph_code: data.graph_code, status: data.status });
         })
         .catch((err) => {
           if (isNotFoundError(err)) {
@@ -1440,7 +1457,7 @@ export function GraphViewContent({
           <A1GraphSection
             fileId={fileId}
             returnToChat={returnToChat}
-            version={graphCode ? parseInt(graphCode.split('_')[1]?.replace('v', '') || '1', 10) : 1}
+            version={graphCode ? (graphCode.match(/-v(\d+)$/)?.[1] ? parseInt(graphCode.match(/-v(\d+)$/)[1], 10) : 1) : 1}
             isStale={fileStatus === 'draft' && graphCode !== null}
             openQuestions={stableOpenQuestions}
             rejectedEdges={stableRejectedEdges}

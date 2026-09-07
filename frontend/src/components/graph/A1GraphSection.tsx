@@ -69,6 +69,11 @@ export function A1GraphSection({
   const [error, setError] = useState<string | null>(null);
   const [isRefinalizing, setIsRefinalizing] = useState(false);
   const [showRejectedList, setShowRejectedList] = useState(false);
+  // Refinalize freshness: parent props (version/isStale) may arrive late
+  // (graphCode fetched after mount) or only refresh on remount. A local
+  // override set from the finalize response wins over the possibly-stale
+  // prop until the next mount.
+  const [versionOverride, setVersionOverride] = useState<number | null>(null);
 
   // T-D: two-phase concept flow state
   const [conceptTerms, setConceptTerms] = useState<ConceptTerm[]>([]);
@@ -187,7 +192,17 @@ export function A1GraphSection({
     setError(null);
 
     try {
-      await fetchJson(`/api/a1/file/${fileId}/finalize`, { method: 'POST' });
+      // Finalize is long-running (real LLM, server-side retry worst case
+      // ~2x GRAPHIFY_TIMEOUT) — must outlive the 30s client default that
+      // otherwise aborts mid-finalize (AbortError -> dead error screen).
+      const res = await fetchJson<{ graph_code?: string }>(
+        `/api/a1/file/${fileId}/finalize`,
+        { method: 'POST', timeoutMs: 180_000 }
+      );
+      // Local freshness: parent props (version/isStale) refresh on remount;
+      // derive the new version from the finalize response when present.
+      const parsed = res.graph_code ? (res.graph_code.match(/-v(\d+)$/)?.[1] ? parseInt(res.graph_code.match(/-v(\d+)$/)[1], 10) : version + 1) : version + 1;
+      setVersionOverride(Number.isFinite(parsed) ? parsed : version + 1);
       // Reload graph after successful finalize
       await loadGraph();
     } catch (err) {
@@ -397,11 +412,22 @@ export function A1GraphSection({
         {/* Right: stats + panel toggle */}
         <div className="flex items-center gap-3 text-sm">
           <div className="flex items-center gap-3">
-            {!isStale && (
+            {!isStale || versionOverride !== null ? (
               <span className="px-2 py-0.5 rounded bg-cosmos-success/10 border border-cosmos-success/30 text-cosmos-success text-xs whitespace-nowrap">
-                已定稿 v{version} ✓
+                已定稿 v{versionOverride ?? version} ✓
               </span>
-            )}
+            ) : null}
+            {/* Always-available re-finalize: the answer -> refinalize loop
+                must work for FINALIZED files too, not just stale drafts. */}
+            <button
+              onClick={handleRefinalize}
+              disabled={isRefinalizing}
+              className="px-2 py-0.5 rounded bg-cosmos-warning/10 border border-cosmos-warning/40 text-cosmos-warning text-xs whitespace-nowrap hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              data-testid="refinalize-button"
+              title="重新调用图谱化，纳入新回答/待问转正证据"
+            >
+              {isRefinalizing ? '定稿中…' : '↻ 重新定稿'}
+            </button>
             <span className="text-amber-400">待确认 <b>{stats.pending}</b></span>
             <span className="text-emerald-400">已确认 <b>{stats.confirmed}</b></span>
             <span className="text-blue-400">待问 <b>{pendingOpenQuestions.length}</b></span>
@@ -459,8 +485,8 @@ export function A1GraphSection({
         </div>
       </div>
 
-      {/* ---- Stale banner (Mechanism 1) ---- */}
-      {isStale && (
+      {/* ---- Stale banner (Mechanism 1) — hidden once locally refinalized ---- */}
+      {isStale && versionOverride === null && (
         <div className="shrink-0 flex justify-center py-2 border-b border-white/5 bg-space-900/40">
           <button
             onClick={handleRefinalize}
