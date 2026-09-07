@@ -237,10 +237,18 @@ export function A1GraphSection({
     if (err instanceof ApiError && err.status === 404) {
       return '该边不存在或后端仍是旧版本——请重启后端进程后重试';
     }
+    // Legacy wrappers throw plain Error('HTTP <status>') without a status
+    // field — parse the message so 404 still gets the actionable copy.
+    if (err instanceof Error && /HTTP 404/.test(err.message)) {
+      return '该边不存在或后端仍是旧版本——请重启后端进程后重试';
+    }
+    if (err instanceof Error && /HTTP 5\d\d/.test(err.message)) {
+      return `服务端错误（${err.message}）——请把此信息反馈给开发`;
+    }
     if (err instanceof Error && err.name === 'AbortError') {
       return '请求超时';
     }
-    return '网络或服务错误';
+    return '网络错误——后端可能未启动，请启动后端后重试';
   };
 
   /** Confirm a concept edge from the review panel (slash-separated key). */

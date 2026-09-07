@@ -97,15 +97,16 @@ export async function confirmEdge(
   fileId: string,
   edgeKey: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await fetchWithTimeout(
+  // fetchJson (not fetchWithTimeout) so failures throw ApiError with a
+  // status — the review panel's error copy depends on distinguishing 404
+  // (stale backend / vanished edge) from network errors.
+  return fetchJson<{ success: boolean; message?: string }>(
     `${A1_BASE}/file/${encodeURIComponent(fileId)}/edge/${encodeURIComponent(edgeKey)}/confirm`,
     {
       method: "POST",
       headers: JSON_HEADERS,
     }
   );
-
-  return (await res.json()) as { success: boolean; message?: string };
 }
 
 /**
@@ -120,15 +121,13 @@ export async function rejectEdge(
   fileId: string,
   edgeKey: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await fetchWithTimeout(
+  return fetchJson<{ success: boolean; message?: string }>(
     `${A1_BASE}/file/${encodeURIComponent(fileId)}/edge/${encodeURIComponent(edgeKey)}/reject`,
     {
       method: "POST",
       headers: JSON_HEADERS,
     }
   );
-
-  return (await res.json()) as { success: boolean; message?: string };
 }
 
 /**
