@@ -229,23 +229,41 @@ export function A1GraphSection({
     }
   };
 
+  /** Confirm/reject failure surfaced in the panel — a dead button must never
+   *  be silent (stale backend without the v0.5 endpoint fix 404s silently). */
+  const [panelActionError, setPanelActionError] = useState<string | null>(null);
+
+  const describeEdgeActionError = (err: unknown): string => {
+    if (err instanceof ApiError && err.status === 404) {
+      return '该边不存在或后端仍是旧版本——请重启后端进程后重试';
+    }
+    if (err instanceof Error && err.name === 'AbortError') {
+      return '请求超时';
+    }
+    return '网络或服务错误';
+  };
+
   /** Confirm a concept edge from the review panel (slash-separated key). */
   const handlePanelConfirm = useCallback(async (edgeKey: string) => {
     try {
+      setPanelActionError(null);
       await confirmEdge(fileId, edgeKey);
       await loadGraph();
     } catch (err) {
       console.error('Failed to confirm edge:', err);
+      setPanelActionError(`确认失败（${describeEdgeActionError(err)}）`);
     }
   }, [fileId, loadGraph]);
 
   /** Reject a concept edge from the review panel. */
   const handlePanelReject = useCallback(async (edgeKey: string) => {
     try {
+      setPanelActionError(null);
       await rejectEdge(fileId, edgeKey);
       await loadGraph();
     } catch (err) {
       console.error('Failed to reject edge:', err);
+      setPanelActionError(`拒绝失败（${describeEdgeActionError(err)}）`);
     }
   }, [fileId, loadGraph]);
 
@@ -629,8 +647,9 @@ export function A1GraphSection({
             edges={conceptEdges}
             nodeLabels={nodeLabels}
             fileId={fileId}
-            onConfirm={handlePanelConfirm}
-            onReject={handlePanelReject}
+        onConfirm={handlePanelConfirm}
+        onReject={handlePanelReject}
+        actionError={panelActionError}
             highlightKey={focusEdgeKey}
             onHoverEdge={setHoverEdgeKey}
             rejectedKeys={rejectedEdges}

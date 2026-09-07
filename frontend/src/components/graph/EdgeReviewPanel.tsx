@@ -53,6 +53,9 @@ export interface EdgeReviewPanelProps {
   deadEdges?: DeadEdge[];
   /** Discard a dead edge (废弃: removes it from backend confirmed_edges via existing reject endpoint) */
   onDiscardDeadEdge?: (edge: DeadEdge) => void;
+  /** Last confirm/reject failure message — rendered visibly so a dead
+      button is never silent (e.g. stale backend needs a restart). */
+  actionError?: string | null;
 }
 
 /** Canonical edge key: `from/to/relation` (slash-separated). */
@@ -123,6 +126,7 @@ export function EdgeReviewPanel({
   isExtracting = false,
   deadEdges,
   onDiscardDeadEdge,
+  actionError,
 }: EdgeReviewPanelProps) {
   // Rejected group collapsed by default
   const [showRejected, setShowRejected] = useState(false);
@@ -372,8 +376,8 @@ export function EdgeReviewPanel({
         className="w-[340px] shrink-0 h-full overflow-y-auto bg-space-900/60 border-l border-white/10 p-4"
         data-testid="edge-review-panel"
       >
-        <h3 className="text-stardust-300 text-sm font-medium mb-3">概念边审核</h3>
-        {renderConceptGroup()}
+      <h3 className="text-stardust-300 text-sm font-medium mb-3">概念边审核</h3>
+      {renderConceptGroup()}
         {renderDeadZone()}
         {renderDiscardDialog()}
         <p className="text-void-400 text-sm leading-relaxed">
@@ -405,6 +409,25 @@ export function EdgeReviewPanel({
         <div className="flex items-start gap-2">
           <span className={badge.className} title={badge.title}>{badge.symbol}</span>
           <div className="flex-1 min-w-0">
+            {/* Explicit state chip — the status flip must be visible on the
+                card itself, not only via border colour / group relocation. */}
+            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+              {status === 'pending' && (
+                <span data-testid="edge-status-chip" className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/50 text-amber-300 text-[10px] font-medium">
+                  ● 待确认
+                </span>
+              )}
+              {status === 'confirmed' && (
+                <span data-testid="edge-status-chip" className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 text-[10px] font-medium">
+                  ✓ 已确认
+                </span>
+              )}
+              {status === 'rejected' && (
+                <span data-testid="edge-status-chip" className="px-1.5 py-0.5 rounded bg-gray-600/30 border border-gray-500/50 text-gray-400 text-[10px] font-medium">
+                  ✗ 已拒绝
+                </span>
+              )}
+            </div>
             <div className={`text-sm break-words ${isConfirmed ? 'text-white font-bold' : 'text-gray-200'}`}>
               <span className={isConfirmed ? 'font-bold' : ''}>{fromLabel}</span>
               <span className="text-void-400 mx-1">→</span>
@@ -465,6 +488,14 @@ export function EdgeReviewPanel({
       data-file-id={fileId}
     >
       <h3 className="text-stardust-300 text-sm font-medium mb-3">概念边审核</h3>
+      {actionError && (
+        <div
+          data-testid="panel-action-error"
+          className="mb-3 px-3 py-2 rounded bg-rose-900/30 border border-rose-600/50 text-rose-200 text-xs break-words"
+        >
+          {actionError}
+        </div>
+      )}
       {renderConceptGroup()}
       {renderDeadZone()}
       {renderDiscardDialog()}

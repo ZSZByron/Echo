@@ -203,7 +203,7 @@ describe('EdgeReviewPanel — Concept Term Group (T-D)', () => {
     renderPanel();
     expect(screen.getByText('概念词（已确认 1/3）')).toBeInTheDocument();
     expect(screen.getAllByTestId('concept-term-row')).toHaveLength(3);
-    expect(screen.getByText('✓ 已确认')).toBeInTheDocument();
+    expect(screen.getAllByText('✓ 已确认').length).toBeGreaterThan(0);
   });
 
   it('calls onConfirmTerm with the term on single ✓确认', () => {
