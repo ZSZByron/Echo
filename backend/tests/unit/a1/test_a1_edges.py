@@ -534,6 +534,105 @@ class TestEdgeKeyFormat:
         assert resp.status_code == 200
 
 
+class TestV05EdgeConfirmReject:
+    """v0.5 回归: graphify 产出的 pending 语义边（仅存在于 graph_json.edges，
+    confirmed_edges 为空）也必须可 confirm/reject——修复 v0.5 边点 ✓/✗ 404 无效。"""
+
+    _V05_EDGE_A = {
+        "from_node_id": "d:力量体系.source:力量源头",
+        "to_node_id": "d:世界本体.origin:明珠映照",
+        "edge_type": "semantic",
+        "visual_description": "力量源自",
+        "relation": "力量源自",
+        "confidence": "semantic",
+        "confirmed": False,
+    }
+    _V05_EDGE_B = {
+        "from_node_id": "d:世界本体.origin:明珠映照",
+        "to_node_id": "d:力量体系.source:力量源头",
+        "edge_type": "semantic",
+        "visual_description": "反哺",
+        "relation": "反哺",
+        "confidence": "semantic",
+        "confirmed": False,
+    }
+
+    def _setup_finalized_with_pending_edges(self, client, payload, monkeypatch):
+        """finalize（graphify 降级为纯 TREE）后注入 graphify 产物 pending 语义边."""
+        _inject_answers(payload)
+        monkeypatch.setattr(
+            "app.api.a1_routes.graphify_llm",
+            lambda *a, **kw: GraphifyResult(
+                success=False, warning="graphify degraded (test)"
+            ),
+        )
+        fin = client.post(f"/api/a1/file/{payload['file_id']}/finalize")
+        assert fin.status_code == 200
+
+        from app.api import a1_routes
+        rec = a1_routes._FILES[payload["file_id"]]
+        rec["graph_json"]["edges"].append(dict(self._V05_EDGE_A))
+        rec["graph_json"]["edges"].append(dict(self._V05_EDGE_B))
+        rec["confirmed_edges"] = {}
+        rec["rejected_edges"] = {}
+
+        from app.api.a1_routes import _make_edge_key
+        key_a = _make_edge_key(
+            self._V05_EDGE_A["from_node_id"],
+            self._V05_EDGE_A["to_node_id"],
+            self._V05_EDGE_A["relation"],
+        )
+        key_b = _make_edge_key(
+            self._V05_EDGE_B["from_node_id"],
+            self._V05_EDGE_B["to_node_id"],
+            self._V05_EDGE_B["relation"],
+        )
+        return rec, key_a, key_b
+
+    def test_confirm_pending_v05_edge(self, started, monkeypatch):
+        """confirm v0.5 pending 边 → 200; graph边confirmed=true; confirmed_edges含key."""
+        client, payload = started
+        rec, key_a, _ = self._setup_finalized_with_pending_edges(
+            client, payload, monkeypatch
+        )
+
+        resp = client.post(f"/api/a1/file/{payload['file_id']}/edge/{key_a}/confirm")
+        assert resp.status_code == 200
+        assert resp.json() == {"confirmed": True, "key": key_a}
+
+        assert rec["confirmed_edges"][key_a]["confirmed"] is True
+        graph_edge = [
+            e for e in rec["graph_json"]["edges"] if e.get("relation") == "力量源自"
+        ][0]
+        assert graph_edge["confirmed"] is True
+
+    def test_reject_pending_v05_edge(self, started, monkeypatch):
+        """reject v0.5 pending 边 → 200; 边从graph_json.edges移除; rejected_edges含key."""
+        client, payload = started
+        rec, _, key_b = self._setup_finalized_with_pending_edges(
+            client, payload, monkeypatch
+        )
+
+        resp = client.post(f"/api/a1/file/{payload['file_id']}/edge/{key_b}/reject")
+        assert resp.status_code == 200
+        assert resp.json() == {"rejected": True, "key": key_b}
+
+        assert key_b in rec["rejected_edges"]
+        assert not any(
+            e.get("relation") == "反哺" for e in rec["graph_json"]["edges"]
+        )
+
+    def test_confirm_unknown_key_still_404(self, started, monkeypatch):
+        """回归: 图中不存在的 key confirm → 404."""
+        client, payload = started
+        self._setup_finalized_with_pending_edges(client, payload, monkeypatch)
+
+        from app.api.a1_routes import _make_edge_key
+        missing = _make_edge_key("node:x", "node:y", "不存在关系")
+        resp = client.post(f"/api/a1/file/{payload['file_id']}/edge/{missing}/confirm")
+        assert resp.status_code == 404
+
+
 class TestFinalizeSignature:
     """Regression test: finalize endpoint must be sync (not async) to allow asyncio.run() inside."""
 

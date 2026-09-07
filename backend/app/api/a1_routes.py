@@ -1665,7 +1665,39 @@ def confirm_edge(file_id: str, key: str) -> dict:
         _save_store()
         return {"confirmed": True, "key": key}
 
-    if key not in confirmed:
+    # v0.5 路径: pending 边只存在于 graph_json.edges（confirmed=False），
+    # 未预写 confirmed_edges → 按三元组在图中匹配并升格为 confirmed。
+    if key not in confirmed and key not in rejected:
+        if rec["status"] == "finalized" and rec.get("graph_json"):
+            for edge in rec["graph_json"]["edges"]:
+                edge_key = _make_edge_key(
+                    edge.get("from_node_id", ""),
+                    edge.get("to_node_id", ""),
+                    edge.get("relation", ""),
+                )
+                if edge_key == key:
+                    confirmed[key] = {
+                        "from_node_id": edge.get("from_node_id", ""),
+                        "to_node_id": edge.get("to_node_id", ""),
+                        "relation": edge.get("relation", ""),
+                        "confidence": edge.get("confidence") or "semantic",
+                        "confirmed": True,
+                    }
+                    edge["confirmed"] = True
+                    break
+            else:
+                raise HTTPException(status_code=404, detail="edge not found")
+
+            # Recompute edge_stats after pending → confirmed promotion
+            from app.models.knowledge_graph import KnowledgeGraph as _KG05
+            g05 = _KG05.model_validate(rec["graph_json"])
+            rec["edge_stats"] = _compute_edge_stats(g05.edges)
+
+            # Task T-B: 新词入典流——确认含提议新关系的边 → relation 入典
+            _induct_proposed_relation(rec, key)
+            _save_store()
+            return {"confirmed": True, "key": key}
+
         raise HTTPException(status_code=404, detail="edge not found")
 
     # Update confirmed state
@@ -1708,6 +1740,43 @@ def reject_edge(file_id: str, key: str) -> dict:
     rejected = rec.get("rejected_edges", {})
 
     if key not in confirmed:
+        # v0.5 路径: pending 边只存在于 graph_json.edges → 从图中移除并记录快照。
+        found = False
+        if rec["status"] == "finalized" and rec.get("graph_json"):
+            for edge in rec["graph_json"]["edges"]:
+                edge_key = _make_edge_key(
+                    edge.get("from_node_id", ""),
+                    edge.get("to_node_id", ""),
+                    edge.get("relation", ""),
+                )
+                if edge_key == key:
+                    rejected[key] = {
+                        "from_node_id": edge.get("from_node_id", ""),
+                        "to_node_id": edge.get("to_node_id", ""),
+                        "relation": edge.get("relation", ""),
+                        "confidence": edge.get("confidence") or "semantic",
+                        "confirmed": False,
+                    }
+                    found = True
+                    break
+            if found:
+                rec["graph_json"]["edges"] = [
+                    e for e in rec["graph_json"]["edges"]
+                    if _make_edge_key(
+                        e.get("from_node_id", ""),
+                        e.get("to_node_id", ""),
+                        e.get("relation", ""),
+                    ) != key
+                ]
+
+                # Recompute edge_stats after pending → rejected removal
+                from app.models.knowledge_graph import KnowledgeGraph as KG05
+                g05 = KG05.model_validate(rec["graph_json"])
+                rec["edge_stats"] = _compute_edge_stats(g05.edges)
+
+                _save_store()
+                return {"rejected": True, "key": key}
+
         raise HTTPException(status_code=404, detail="edge not found in confirmed_edges")
 
     # Move from confirmed to rejected
