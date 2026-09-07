@@ -105,7 +105,7 @@ export function A1GraphSection({
     setShowGuide(false);
   }, []);
 
-  const loadGraph = useCallback(async () => {
+  const loadGraph = useCallback(async (attempt = 0): Promise<void> => {
     setIsLoading(true);
     setError(null);
 
@@ -116,6 +116,11 @@ export function A1GraphSection({
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setError('pending_finalize');
+      } else if (attempt === 0 && !(err instanceof ApiError)) {
+        // Transient network failure (backend restart window / fetch abort):
+        // one silent retry beats dumping the user onto an error screen.
+        await new Promise((r) => setTimeout(r, 800));
+        await loadGraph(1);
       } else {
         console.error('Failed to load graph:', err);
         setError('Failed to load graph');
@@ -346,7 +351,7 @@ export function A1GraphSection({
     );
   }
 
-  if (error || !graph) {
+  if (error && !lastGraph && !graph) {
     return (
       <FullscreenShell>
         {/* Top toolbar — back button must be reachable on error too. */}
@@ -367,6 +372,28 @@ export function A1GraphSection({
             >
               重试
             </button>
+          </div>
+        </div>
+      </FullscreenShell>
+    );
+  }
+
+  if (!graph) {
+    // Initial load (no error, no graph yet) — spinner shell
+    return (
+      <FullscreenShell>
+        <div className="h-14 shrink-0 flex items-center px-4 border-b border-white/10 bg-space-900/70">
+          <button
+            onClick={returnToChat}
+            className="px-3 py-1.5 rounded-md text-sm font-medium text-stardust-300 hover:bg-white/10 transition-colors"
+          >
+            ← 返回访谈
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-stardust-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-stardust-300">加载图谱中...</p>
           </div>
         </div>
       </FullscreenShell>
@@ -484,6 +511,33 @@ export function A1GraphSection({
           )}
         </div>
       </div>
+
+      {/* ---- Load-failure banner (graph kept): transient GET /graph failure
+            must not wipe the working canvas — show banner + retry instead ---- */}
+      {error && (graph || lastGraph) && (
+        <div
+          className="shrink-0 flex items-center justify-between gap-4 px-4 py-2 bg-cosmos-error/10 border-b border-cosmos-error/30"
+          data-testid="graph-load-error-banner"
+        >
+          <p className="text-sm text-cosmos-error">
+            图谱刷新失败（网络或服务瞬时不可用）——当前展示上一版本图谱
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadGraph}
+              className="px-3 py-1 rounded bg-cosmos-error/20 border border-cosmos-error/40 text-cosmos-error text-xs hover:bg-cosmos-error/30 transition-colors"
+            >
+              重试
+            </button>
+            <button
+              onClick={() => setError(null)}
+              className="px-3 py-1 rounded text-void-300 hover:text-stardust-300 text-xs transition-colors"
+            >
+              忽略
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ---- Stale banner (Mechanism 1) — hidden once locally refinalized ---- */}
       {isStale && versionOverride === null && (
