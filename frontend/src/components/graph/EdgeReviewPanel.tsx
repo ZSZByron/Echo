@@ -257,7 +257,7 @@ export function EdgeReviewPanel({
                 data-dead-key={key}
                 className={`p-3 rounded-lg bg-space-900/70 border-l-4 border-rose-900/70 ${retained ? 'opacity-70' : ''}`}
               >
-                <div className="text-sm text-gray-300 truncate">
+                <div className="text-sm text-gray-300 break-words">
                   <span>{fromLabel}</span>
                   <span className="text-void-400 mx-1">→</span>
                   <span className="text-void-300 text-xs">[{dead.relation}]</span>
@@ -334,7 +334,7 @@ export function EdgeReviewPanel({
       >
         <div className="w-80 rounded-lg bg-space-800 border border-rose-800/50 p-4 shadow-xl">
           <div className="text-stardust-300 text-sm font-medium mb-2">确认废弃该边？</div>
-          <div className="text-sm text-gray-300 truncate mb-2">
+          <div className="text-sm text-gray-300 break-words mb-2">
             <span>{fromLabel}</span>
             <span className="text-void-400 mx-1">→</span>
             <span className="text-void-300 text-xs">[{discardCandidate.relation}]</span>
@@ -405,13 +405,13 @@ export function EdgeReviewPanel({
         <div className="flex items-start gap-2">
           <span className={badge.className} title={badge.title}>{badge.symbol}</span>
           <div className="flex-1 min-w-0">
-            <div className={`text-sm truncate ${isConfirmed ? 'text-white font-bold' : 'text-gray-200'}`}>
+            <div className={`text-sm break-words ${isConfirmed ? 'text-white font-bold' : 'text-gray-200'}`}>
               <span className={isConfirmed ? 'font-bold' : ''}>{fromLabel}</span>
               <span className="text-void-400 mx-1">→</span>
               <span className="text-void-300 text-xs">[{edge.relation || edge.visual_description}]</span>
               <span className={`ml-1 ${isConfirmed ? 'font-bold' : ''}`}>{toLabel}</span>
             </div>
-            <div className="text-void-400 text-xs mt-1 line-clamp-2">{edge.visual_description}</div>
+              <div className="text-void-400 text-xs mt-1 line-clamp-3">{edge.visual_description}</div>
             {status === 'pending' && isNewRelationEdge(edge, proposedRelations) && (
               <span
                 data-testid="new-relation-badge"
