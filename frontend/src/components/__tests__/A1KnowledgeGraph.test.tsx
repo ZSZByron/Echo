@@ -208,6 +208,75 @@ describe('A1KnowledgeGraph', () => {
     expect(container.textContent).toContain('Astral Tribes');
   });
 
+  it('renders L3 entry with depth (d:) anchor as field-name only, full text in tooltip', () => {
+    const graph: KnowledgeGraph = {
+      scene_id: 'a1-depth',
+      background_node_id: 'bg-1',
+      nodes: {
+        'IP定位.name': {
+          id: 'IP定位.name',
+          serial_number: '1-1-1',
+          level: 3,
+          description: '名称与概念: 由明珠映照出的大道印痕，是明华世界的力量本源',
+          status: 'completed'
+        },
+        'd:IP定位.name:明华世界': {
+          id: 'd:IP定位.name:明华世界',
+          serial_number: '1-1-1-d1',
+          level: 4,
+          description: '明华世界',
+          status: 'completed'
+        }
+      },
+      edges: [
+        {
+          from_node_id: 'IP定位.name',
+          to_node_id: 'd:IP定位.name:明华世界',
+          edge_type: 'tree',
+          visual_description: 'contains'
+        }
+      ]
+    };
+
+    const { container } = render(<A1KnowledgeGraph graph={graph} isLoading={false} error={null} />);
+
+    // Depth entry rendered
+    expect(container.textContent).toContain('明华世界');
+    // L3 entry downgraded to field-name only: answer full text NOT duplicated in label.
+    // The only remaining occurrence of the answer lives in the tooltip (title attr),
+    // so plain textContent must not contain it.
+    expect(container.textContent).toContain('名称与概念');
+    expect(container.textContent).not.toContain('由明珠映照出的大道印痕');
+    // Full text available via tooltip
+    const entryNode = Array.from(container.querySelectorAll('.react-flow__node')).find(n =>
+      n.textContent?.includes('名称与概念')
+    );
+    const labelDiv = entryNode?.querySelector('div[title]');
+    expect(labelDiv?.getAttribute('title')).toContain('由明珠映照出的大道印痕');
+  });
+
+  it('keeps L3 entry full label when the anchor has no depth entries', () => {
+    const graph: KnowledgeGraph = {
+      scene_id: 'a1-no-depth',
+      background_node_id: 'bg-1',
+      nodes: {
+        'entry-solo': {
+          id: 'entry-solo',
+          serial_number: '1-1-1',
+          level: 3,
+          description: 'Geography: Crystal Mountains',
+          status: 'completed'
+        }
+      },
+      edges: []
+    };
+
+    const { container } = render(<A1KnowledgeGraph graph={graph} isLoading={false} error={null} />);
+
+    // No d: nodes -> L3 keeps original label: value rendering
+    expect(container.textContent).toContain('Crystal Mountains');
+  });
+
   it('should not render retry button when onRetry is not provided', () => {
     const props: A1KnowledgeGraphProps = {
       graph: null,

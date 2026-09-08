@@ -736,6 +736,21 @@ export function A1KnowledgeGraph({
     };
   }, [graph, edgeStats]);
   /**
+   * Anchors (L3 entry ids) that have at least one depth (d:) entry beneath them.
+   * v0.5 dedup: those L3 entries render field-name-only (full text in tooltip),
+   * since the depth entry already carries the distilled version.
+   */
+  const anchorsWithDepth = useMemo(() => {
+    const anchors = new Set<string>();
+    if (graph) {
+      for (const n of Object.values(graph.nodes)) {
+        if (isDepthNode(n.id)) anchors.add(n.id.split(':')[1]);
+      }
+    }
+    return anchors;
+  }, [graph]);
+
+  /**
    * Transform GraphNode to ReactFlow Node with styling based on level
    */
   const toReactFlowNode = useCallback((node: GraphNode): Node => {
@@ -844,6 +859,8 @@ export function A1KnowledgeGraph({
     } else if (node.level === 3) {
       // Entry node: thin white border, parse description
       const parts = node.description.split(':');
+      // v0.5 dedup: anchor with depth entries shows field-name only (tooltip keeps full text)
+      const hasDepthEntry = anchorsWithDepth.has(node.id);
       if (parts.length >= 2) {
         const entryLabel = parts[0].trim();
         const entryValue = parts.slice(1).join(':').trim();
@@ -856,7 +873,7 @@ export function A1KnowledgeGraph({
           maxWidth: '180px',
           fontSize: '13px'
         };
-        label = `· ${entryLabel}: ${entryValue}`;
+        label = hasDepthEntry ? `· ${entryLabel}` : `· ${entryLabel}: ${entryValue}`;
         // 2-line clamp + tooltip: real-data entry values are 50-100 char sentences;
         // without clamping the node grows to 200px+ and breaks the wrap grid.
         tooltip = node.description;
@@ -922,7 +939,7 @@ export function A1KnowledgeGraph({
       },
       style: nodeStyle
     };
-  }, [conceptTerms]);
+  }, [conceptTerms, anchorsWithDepth]);
 
   /**
    * Transform GraphEdge to ReactFlow Edge with concept network styling
@@ -1301,6 +1318,10 @@ export function A1KnowledgeGraph({
               style={{ backgroundColor: 'transparent', border: `1px solid ${TERM_CLUSTER_COLORS[0]}` }}
             />
             <span className="text-void-400">分条目</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-void-400/70">▸</span>
+            <span className="text-void-400">条目下有 ▸ 提炼条目时，条目仅显示字段名，悬停看原文</span>
           </div>
         </div>
       </div>
