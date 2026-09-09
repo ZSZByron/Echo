@@ -21,6 +21,7 @@ from app.domains.creation.a1.graphify import (
     depth_id,
     graphify_llm,
 )
+from app.domains.creation.a1.graphify import GRAPHIFY_MAX_TOKENS
 from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.domains.creation.graph.constraint_topology import STRUCTURED_FIELDS
@@ -115,6 +116,22 @@ class TestHappyPath:
         assert "d:" in prompt
         # C7 evidence slot present (empty for now, T17 wires it)
         assert "转正证据" in prompt
+        # output constraint tail (anti markdown-fence + token budget)
+        assert "单个完整 JSON 对象" in prompt
+        assert "12000" in prompt
+
+    def test_chat_json_receives_max_tokens_kwarg(self, make_stub_llm) -> None:
+        captured: dict = {}
+
+        class _KwargsCaptureProvider:
+            async def chat_json(self, messages, **kwargs):  # type: ignore[no-untyped-def]
+                captured.update(kwargs)
+                return _happy_response()
+
+        result = graphify_llm(_make_session({VALID_ANCHOR: "答案正文"}), _KwargsCaptureProvider())
+
+        assert result.success is True
+        assert captured.get("max_tokens") == GRAPHIFY_MAX_TOKENS == 16000
 
     def test_answered_evidence_injected_into_prompt(self, make_stub_llm) -> None:
         provider = make_stub_llm(response=_happy_response())

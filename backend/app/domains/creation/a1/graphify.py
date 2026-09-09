@@ -37,7 +37,13 @@ from app.domains.creation.seed.a1_question_tree import all_subfield_keys
 # =============================================================================
 
 #: LLM call timeout in seconds. Overridable via ``GRAPHIFY_TIMEOUT`` env var.
-GRAPHIFY_TIMEOUT: int = int(os.environ.get("GRAPHIFY_TIMEOUT", "60"))
+#: 120s default: real-world tests showed long creative inputs take
+#: 78-121s to generate (dual-timeout degradation at 60s default).
+GRAPHIFY_TIMEOUT: int = int(os.environ.get("GRAPHIFY_TIMEOUT", "120"))
+
+#: max_tokens passed through to provider.chat_json — deepseek's 4000
+#: default truncated large five-field JSON payloads mid-object.
+GRAPHIFY_MAX_TOKENS: int = 16000
 
 #: Pause before the single retry of a provider-layer failure (seconds).
 _RETRY_PAUSE_SECONDS: float = 1.0
@@ -346,6 +352,9 @@ def build_graphify_prompt(
             ' "edges": [{"from": "<节点引用>", "to": "<节点引用>", "relation": "<词表内关系名>", "rationale": "…", "confidence": "semantic"}],',
             ' "constraint_fields": {"<DIM>.<tag>": "<值>"},',
             ' "open_questions": ["世界观问句"]}',
+            "",
+            "输出必须是单个完整 JSON 对象，不要用 markdown 代码围栏包裹，"
+            "总长控制在 12000 tokens 内。",
         ]
     )
 
@@ -544,7 +553,8 @@ def graphify_llm(
         async def _attempt() -> Any:
             """One provider call under its own full timeout budget."""
             return await asyncio.wait_for(
-                provider.chat_json(messages), timeout=effective_timeout
+                provider.chat_json(messages, max_tokens=GRAPHIFY_MAX_TOKENS),
+                timeout=effective_timeout,
             )
 
         raw: Any = None

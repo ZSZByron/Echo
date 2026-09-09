@@ -118,11 +118,14 @@ class OpenAICompatibleProvider(LLMProvider):
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         """Send messages and return text content from first choice."""
         kwargs = self._merge_kwargs(kwargs)
+        # Caller may override the configured token cap (e.g. graphify's large
+        # five-field output needs far more than the 4k default).
+        max_tokens = kwargs.pop("max_tokens", None) or self._config.max_tokens
         response = await self._client.chat.completions.create(
             model=self._config.model,
             messages=cast(Any, messages),
             temperature=self._config.temperature,
-            max_tokens=self._config.max_tokens,
+            max_tokens=max_tokens,
             **kwargs,
         )
         content = response.choices[0].message.content
@@ -131,6 +134,7 @@ class OpenAICompatibleProvider(LLMProvider):
     async def chat_json(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, Any]:
         """Send messages requesting JSON output, return parsed dict."""
         kwargs = self._merge_kwargs(kwargs)
+        max_tokens = kwargs.pop("max_tokens", None) or self._config.max_tokens
         attempted_without_response_format = False
 
         try:
@@ -138,7 +142,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 model=self._config.model,
                 messages=cast(Any, messages),
                 temperature=self._config.temperature,
-                max_tokens=self._config.max_tokens,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
                 **kwargs,
             )
@@ -154,7 +158,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     model=self._config.model,
                     messages=cast(Any, messages),
                     temperature=self._config.temperature,
-                    max_tokens=self._config.max_tokens,
+                    max_tokens=max_tokens,
                     **kwargs_no_format,
                 )
             else:
@@ -178,7 +182,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 model=self._config.model,
                 messages=cast(Any, messages),
                 temperature=self._config.temperature,
-                max_tokens=self._config.max_tokens,
+                max_tokens=max_tokens,
                 **kwargs_no_format,
             )
             content = response.choices[0].message.content
@@ -251,10 +255,11 @@ class AnthropicProvider(LLMProvider):
         if not prefill_messages:
             prefill_messages = [{"role": "user", "content": system_prompt or "Return a strict JSON object only."}]
 
+        max_tokens = kwargs.pop("max_tokens", None) or self._config.max_tokens
         response = await self._client.messages.create(
             model=self._config.model,
             messages=cast(Any, prefill_messages),
-            max_tokens=self._config.max_tokens,
+            max_tokens=max_tokens,
             **kwargs,
         )
 

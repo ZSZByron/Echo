@@ -212,8 +212,10 @@ class TestValidationRules:
 
 
 class TestTimeout:
-    def test_default_timeout_is_60(self) -> None:
-        assert GRAPHIFY_TIMEOUT == 60
+    def test_default_timeout_is_120(self) -> None:
+        # 120s: real-world tests showed long creative inputs take 78-121s
+        # (dual-timeout degradation at the old 60s default).
+        assert GRAPHIFY_TIMEOUT == 120
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import importlib
