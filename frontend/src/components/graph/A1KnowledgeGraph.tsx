@@ -20,7 +20,6 @@ import type { ConceptTerm } from '../../types/a1';
 import { confirmEdge, rejectEdge } from '../../api/a1';
 import NodeDetailPanel, {
   searchGraphNodes,
-  nodeTitle as graphNodeTitle,
   type SearchHit,
 } from './NodeDetailPanel';
 import 'reactflow/dist/style.css';
@@ -63,6 +62,57 @@ export const isConceptTermNode = (node: { id: string }): boolean =>
 
 /** Detect v0.5 depth-tree node: id prefix `d:` (form `d:{anchor}:{title}`, level=4). */
 export const isDepthNode = (id: string): boolean => id.startsWith('d:');
+
+/**
+ * Anchor (L3 entry) id → field label, used for the depth-entry same-name fallback.
+ * L3 = id contains '.' and is not a d:/term:/cst_/bg_ node; the label is the text
+ * before the first ':' in its description (whole description when no colon).
+ */
+export const buildAnchorFieldLabel = (nodes: GraphNode[]): Record<string, string> => {
+  const map: Record<string, string> = {};
+  for (const n of nodes) {
+    if (
+      n.level === 3 &&
+      n.id.includes('.') &&
+      !isDepthNode(n.id) &&
+      !isConceptTermNode(n) &&
+      !n.id.startsWith('cst_') &&
+      !n.id.startsWith('bg_')
+    ) {
+      const idx = n.description.indexOf(':');
+      map[n.id] = (idx > 0 ? n.description.slice(0, idx) : n.description).trim();
+    }
+  }
+  return map;
+};
+
+/**
+ * First clause of a depth-entry description (up to 。，,；;), clamped to 10 chars.
+ * Used when a depth entry's id title duplicates its parent L3 field name — the
+ * canvas label falls back to a content summary so the two labels never collide.
+ */
+export const depthEntrySummary = (description: string): string => {
+  const first = description.split(/[。，,；;]/)[0].trim();
+  return first.length <= 10 ? first : `${first.slice(0, 10)}…`;
+};
+
+/**
+ * Canvas label of a depth (d:) node. Same-name fallback (label dedup fix):
+ * when the id title segment equals the parent anchor's L3 field name
+ * (e.g. "▸ 核心概念" hanging under "· 核心概念"), render a content summary
+ * instead; the tooltip and NodeDetailPanel still show the full title/content.
+ */
+export const depthNodeLabel = (
+  node: Pick<GraphNode, 'id' | 'description'>,
+  anchorFieldLabel: Record<string, string>
+): string => {
+  const title = node.id.split(':').slice(2).join(':').trim() || node.id;
+  const anchor = node.id.split(':')[1];
+  if (anchor !== undefined && anchorFieldLabel[anchor] === title) {
+    return `▸ ${depthEntrySummary(node.description)}`;
+  }
+  return `▸ ${title}`;
+};
 
 /** Cluster palette for concept-term nodes (reuses existing module cluster colors). */
 const TERM_CLUSTER_COLORS = [
@@ -782,6 +832,15 @@ export function A1KnowledgeGraph({
   }, [graph]);
 
   /**
+   * Label dedup fix: anchor (L3) id → field name, so depth entries whose id
+   * title duplicates the parent field name can fall back to a content summary.
+   */
+  const anchorFieldLabel = useMemo(
+    () => (graph ? buildAnchorFieldLabel(Object.values(graph.nodes)) : {}),
+    [graph]
+  );
+
+  /**
    * Transform GraphNode to ReactFlow Node with styling based on level
    */
   const toReactFlowNode = useCallback((node: GraphNode): Node => {
@@ -838,7 +897,9 @@ export function A1KnowledgeGraph({
       };
       // Indexified canvas (v0.6): label shows the short id title segment only;
       // the full LLM content lives in the detail panel (tooltip kept as fallback).
-      label = `▸ ${graphNodeTitle(node)}`;
+      // Label dedup fix: when the title duplicates the parent L3 field name,
+      // fall back to a content summary so parent/child labels never collide.
+      label = depthNodeLabel(node, anchorFieldLabel);
       tooltip = node.description;
       // 2-line clamp keeps the rendered height <= NODE_SIZE_ESTIMATES.L4.height
       // (long LLM entry descriptions would otherwise stretch the node and break
@@ -972,7 +1033,7 @@ export function A1KnowledgeGraph({
       },
       style: nodeStyle
     };
-  }, [conceptTerms, anchorsWithDepth]);
+  }, [conceptTerms, anchorsWithDepth, anchorFieldLabel]);
 
   /**
    * Transform GraphEdge to ReactFlow Edge with concept network styling
@@ -1427,7 +1488,7 @@ export function A1KnowledgeGraph({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-void-400/70">▸</span>
-            <span className="text-void-400">条目下有 ▸ 提炼条目时，条目仅显示字段名，悬停看原文</span>
+            <span className="text-void-400">▸ 条目：标题或内容摘要，点击查看全文</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-void-400/70">点击节点查看完整内容；内容中的其他条目可点击跳转；支持搜索</span>

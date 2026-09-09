@@ -369,7 +369,7 @@ export function A1GraphSection({
             <h3 className="text-stardust-300 text-sm font-medium mb-2">图例说明</h3>
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-void-400 text-xs">
               <div><span className="text-stardust-300">节点层级：</span>约束 / 世界背景 / 模块 / 设定条目</div>
-              <div><span className="text-stardust-300">边类型：</span>实线 = 层级包含 / 虚线 = 约束拓扑</div>
+              <div><span className="text-stardust-300">交互：</span>点击节点查看内容 · 搜索定位 · 交叉引用跳转（边类型见图内右下图例）</div>
             </div>
           </div>
         </div>
@@ -639,14 +639,8 @@ export function A1GraphSection({
             </div>
           )}
 
-          {/* Legend */}
-          <div className="absolute bottom-4 right-4 z-10 glass-panel px-4 py-2">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-void-400 text-xs">
-              <div><span className="text-emerald-400">★</span> 铁律推断</div>
-              <div><span className="text-amber-400">◆</span> 联想</div>
-              <div><span className="text-gray-400">◇</span> 结构拆解</div>
-            </div>
-          </div>
+          {/* Edge-type legend lives in the canvas (A1KnowledgeGraph bottom bar) —
+              no duplicate overlay here (legend consolidation). */}
         </div>
 
         {/* Right review panel (concept mode only) */}
