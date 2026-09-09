@@ -7,17 +7,22 @@
  * Extended with concept network view showing semantic edges with review workflow.
  */
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
   BackgroundVariant,
 } from 'reactflow';
-import type { Node, Edge } from 'reactflow';
+import type { Node, Edge, ReactFlowInstance } from 'reactflow';
 import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
 import type { ConceptTerm } from '../../types/a1';
 import { confirmEdge, rejectEdge } from '../../api/a1';
+import NodeDetailPanel, {
+  searchGraphNodes,
+  nodeTitle as graphNodeTitle,
+  type SearchHit,
+} from './NodeDetailPanel';
 import 'reactflow/dist/style.css';
 
 export interface A1KnowledgeGraphProps {
@@ -702,6 +707,32 @@ export function A1KnowledgeGraph({
   
   // Edge hover state for highlighting
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+
+  // Node detail panel (graph "indexification"): canvas indexes, panel carries content
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [highlightNodeId, setHighlightNodeId] = useState<string | null>(null);
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+  // Graph search (toolbar)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchHits: SearchHit[] = useMemo(
+    () => (graph ? searchGraphNodes(searchQuery, graph) : []),
+    [searchQuery, graph]
+  );
+
+  // Transient node highlight after navigation (cleared automatically)
+  useEffect(() => {
+    if (!highlightNodeId) return;
+    const t = setTimeout(() => setHighlightNodeId(null), 1600);
+    return () => clearTimeout(t);
+  }, [highlightNodeId]);
+
+  /**
+   * Focus a node: center the canvas on it (React Flow setCenter, moderate zoom),
+   * open its detail panel and flash a highlight. Defined after the flowNodes
+   * memo below (needs the computed positions).
+   */
   
   // Review card state
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
@@ -805,7 +836,9 @@ export function A1KnowledgeGraph({
         fontSize: '12px',
         boxShadow: `0 0 4px ${clusterColor}30`
       };
-      label = `▸ ${node.description}`;
+      // Indexified canvas (v0.6): label shows the short id title segment only;
+      // the full LLM content lives in the detail panel (tooltip kept as fallback).
+      label = `▸ ${graphNodeTitle(node)}`;
       tooltip = node.description;
       // 2-line clamp keeps the rendered height <= NODE_SIZE_ESTIMATES.L4.height
       // (long LLM entry descriptions would otherwise stretch the node and break
@@ -1197,6 +1230,38 @@ export function A1KnowledgeGraph({
     return { flowNodes, flowEdges };
   }, [graph, toReactFlowEdge, layoutNodes, viewMode, filteredEdges]);
 
+  const focusGraphNode = useCallback((nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setHighlightNodeId(nodeId);
+    const rfNode = flowNodes.find(n => n.id === nodeId);
+    if (!rfInstance || !rfNode) return;
+    const gnode = graph?.nodes[nodeId];
+    const est = gnode ? NODE_SIZE_ESTIMATES[nodeLayoutKind(gnode)] : { width: 200, height: 76 };
+    rfInstance.setCenter(
+      rfNode.position.x + est.width / 2,
+      rfNode.position.y + est.height / 2,
+      { zoom: 0.7, duration: 400 }
+    );
+  }, [rfInstance, graph, flowNodes]);
+
+  /** Transient amber highlight style applied to the focused node. */
+  const displayNodes = useMemo(
+    () =>
+      flowNodes.map(n =>
+        n.id === highlightNodeId
+          ? {
+              ...n,
+              style: {
+                ...n.style,
+                border: '2px solid #fbbf24',
+                boxShadow: '0 0 12px rgba(251, 191, 36, 0.6)',
+              },
+            }
+          : n
+      ),
+    [flowNodes, highlightNodeId]
+  );
+
   /**
    * Loading state
    */
@@ -1298,6 +1363,47 @@ export function A1KnowledgeGraph({
         </div>
         )}
 
+        {/* Graph search (indexification): locate entries by title / content */}
+        <div className="relative" data-testid="graph-search">
+          <input
+            type="text"
+            data-testid="graph-search-input"
+            value={searchQuery}
+            placeholder="搜索条目/内容…"
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            className="w-56 px-3 py-1.5 text-sm bg-void-900/90 border border-void-600 rounded-md text-white placeholder:text-void-500 focus:outline-none focus:border-nebula-400 transition-colors"
+          />
+          {searchOpen && searchQuery.trim() && searchHits.length > 0 && (
+            <ul
+              data-testid="graph-search-results"
+              className="absolute top-full mt-1 left-0 w-80 max-h-72 overflow-y-auto bg-void-900/95 border border-void-600 rounded-md shadow-xl z-20"
+            >
+              {searchHits.map(hit => (
+                <li key={hit.nodeId}>
+                  <button
+                    type="button"
+                    data-testid="graph-search-result-item"
+                    onClick={() => {
+                      setSearchOpen(false);
+                      setSearchQuery('');
+                      focusGraphNode(hit.nodeId);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-void-700/80 transition-colors"
+                  >
+                    <span className="text-sm text-white">{hit.title}</span>
+                    <span className="text-xs text-nebula-400"> · {hit.kind} · </span>
+                    <span className="text-xs text-void-400">{hit.snippet}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {/* Legend */}
         <div className="flex items-center gap-4 text-xs">
           <div className="flex items-center gap-2">
@@ -1322,6 +1428,9 @@ export function A1KnowledgeGraph({
           <div className="flex items-center gap-2">
             <span className="text-void-400/70">▸</span>
             <span className="text-void-400">条目下有 ▸ 提炼条目时，条目仅显示字段名，悬停看原文</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-void-400/70">点击节点查看完整内容；内容中的其他条目可点击跳转；支持搜索</span>
           </div>
         </div>
       </div>
@@ -1519,7 +1628,7 @@ export function A1KnowledgeGraph({
       )}
 
       <ReactFlow
-        nodes={flowNodes}
+        nodes={displayNodes}
         edges={flowEdges}
         fitView
         fitViewOptions={{ minZoom: GRAPH_MIN_ZOOM, padding: 0.15 }}
@@ -1532,6 +1641,13 @@ export function A1KnowledgeGraph({
         zoomOnScroll
         minZoom={GRAPH_MIN_ZOOM}
         maxZoom={1.5}
+        onInit={setRfInstance}
+        onNodeClick={(_nodeEvent, node) => {
+          setSelectedNodeId(node.id);
+        }}
+        onPaneClick={() => {
+          setSearchOpen(false);
+        }}
         onEdgeMouseEnter={(_, edge) => {
           setHoveredEdge(edge.id);
         }}
@@ -1564,6 +1680,19 @@ export function A1KnowledgeGraph({
           maskColor="rgba(19, 19, 42, 0.8)"
         />
       </ReactFlow>
+
+      {/* Node detail panel (indexification): full content, related edges, crosslinks */}
+      {selectedNodeId && graph?.nodes[selectedNodeId] && (
+        <NodeDetailPanel
+          node={graph.nodes[selectedNodeId]}
+          graph={graph}
+          onClose={() => {
+            setSelectedNodeId(null);
+            setHighlightNodeId(null);
+          }}
+          onNavigate={focusGraphNode}
+        />
+      )}
 
       {/* CSS animations */}
       <style>{`
