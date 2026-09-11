@@ -78,6 +78,9 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+markers = [
+    "xt: A1 extreme-testing experiments (docs/plans/2026-09-09-a1-extreme-testing-design.md)",
+]
 addopts = [
     "--cov=app",
     "--cov-report=term-missing",

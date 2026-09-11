@@ -75,4 +75,5 @@ updated: 2026-08-05
 | `docs/plans/2026-08-03-layered-constraint-architecture.md` | → [[3_knowledge-assets]] 知识资产 | 分层约束架构 |
 | `[[2-A2-v0.2-产品策划顾问+模组合成]]` | → [[2_product-architecture]] 产品架构 | A2 产品策划工作台设计规范 |
 | `[[2-A-v0.3-A模块架构总览]]` | → [[2_product-architecture]] 产品架构 | A模块架构独立总览，从表2提取 |
+| `[[2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4]]` | → [[5_engineering-governance]] 工程治理 | A1 极限实验确诊缺陷的级联分析与 J1-J4 修复接头（xt 套件为验收器） |
 | `.sisyphus/plans/*` | → [[1_project-control-tower]] 控制塔 | 具体实施计划 |
