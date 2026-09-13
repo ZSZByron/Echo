@@ -1,22 +1,76 @@
 {
-  "active_plan": "H:\\UGC\\.sisyphus\\plans\\A1-v0.5-A模块公用模块与A模块设计.md",
-  "started_at": "2026-08-19T08:48:03.403Z",
+  "active_plan": "H:\\UGC\\.sisyphus\\plans\\a1-graphification-v05.md",
+  "started_at": "2026-09-04T03:12:47.424Z",
   "session_ids": [
-    "ses_fe6cb3d36ffeZtRArbWZQoNUfW",
-    "ses_fe6bcfd93ffecpPFPRH9CmgXVM",
-    "ses_fe6bcdc83ffeSyEmEZTUYANtFO",
-    "ses_fdbbe9a79ffe2pzSgdk7txOoVT"
+    "ses_f95986f38ffeyeyGC12bpv4fhH"
   ],
   "session_origins": {
-    "ses_fe6cb3d36ffeZtRArbWZQoNUfW": "direct",
-    "ses_fe6bcfd93ffecpPFPRH9CmgXVM": "appended",
-    "ses_fe6bcdc83ffeSyEmEZTUYANtFO": "appended",
-    "ses_fdbbe9a79ffe2pzSgdk7txOoVT": "appended"
+    "ses_f95986f38ffeyeyGC12bpv4fhH": "direct"
   },
-  "plan_name": "A1-v0.5-A模块公用模块与A模块设计",
+  "plan_name": "a1-graphification-v05",
   "agent": "atlas",
-  "execution_mode": "batch1",
-  "user_instructions": "只执行批次1标记的任务，批次2/3任务跳过",
-  "optimization_check": "in_progress",
-  "task_sessions": {}
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "SIR 契约模型 + graphify.py 骨架",
+      "session_id": "ses_f95943cb3ffe5IAXdx7SVsJ2c8",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-09-04T03:22:45.530Z"
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "graphify_llm 实现（prompt+调用+超时+解析+校验+降级）",
+      "session_id": "ses_f957ff832ffeRoI4WuQiYOMiZu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-09-04T03:50:41.363Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "finalize 端点改造（串联+持久化+两阶段退役+保护块保留）",
+      "session_id": "ses_f956f5081ffe7B36bcMZujj73U",
+      "agent": "Sisyphus-Junior",
+      "updated_at": "2026-09-04T04:56:28.353Z"
+    },
+    "todo:11": {
+      "task_key": "todo:11",
+      "task_label": "11",
+      "task_title": "children 递归挂载 + cst 复活 + 断言接线",
+      "session_id": "ses_f9531ac80ffe6oG1DYwiHDMI7Y",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-09-04T05:35:03.916Z"
+    },
+    "todo:14": {
+      "task_key": "todo:14",
+      "task_label": "14",
+      "task_title": "概念网 tier 分组布局",
+      "session_id": "ses_f94b770f7ffeddPzIEIy1pWKl6",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-09-04T07:29:04.814Z"
+    },
+    "todo:17": {
+      "task_key": "todo:17",
+      "task_label": "17",
+      "task_title": "open_questions 全链闭环（C6/C7 实现：后端+访谈前端）",
+      "session_id": "ses_f94ab9e95ffeYkp9SWWsJIvT2R",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-09-04T07:50:22.142Z"
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "**Plan Compliance Audit** — `oracle`",
+      "session_id": "ses_f94832e4effeHGqpm42vE89nlC",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-09-04T08:19:02.471Z"
+    }
+  }
 }
