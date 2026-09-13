@@ -5,7 +5,7 @@ Defines ConstraintDimension (RED/LAW/ACT/NAR/WST/SOC) and CreationLayer
 6 typed DimensionOutput sub-models.
 
 This module is SEPARATE from constraint.py (ConstraintType HARD/SOFT).
-See SYSTEM_DESIGN_SPEC_v4.md §18.9 for naming collision resolution.
+See docs/archive/SYSTEM_DESIGN_SPEC_v4.md §18.9 for naming collision resolution (historical six-dimension-era spec, archived 2026-09-11).
 """
 from __future__ import annotations
 
