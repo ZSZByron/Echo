@@ -1,3 +1,5 @@
+> ✅ **实施状态**（2026-09-11 注）: **PoC 已完成并转正**——视觉背景预生成已接入 A1 主线（`/api/a1/file/{id}/visual-bg/pregenerate`），详见 PROJECT_STATE.md
+
 # 视觉设计→LLM生提示词→万相生图→GLM-4V评分 PoC 实施计划
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
