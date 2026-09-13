@@ -2,19 +2,20 @@
 
 > **用法**: 用 Obsidian 打开 `docs/` 文件夹作为 Vault。
 > 所有文档通过 `[[]]` 双链互联，从本页出发可到达任何文档。
+> **链接规则**: 本页一律使用文件名链接（不带路径）——Obsidian 按文件名全库解析，文档移入 `archive/` 也不会断链。
+>
+> **进度真相源**: [PROJECT_STATE.md](../PROJECT_STATE.md)（仓库根，每次会话更新）。本页只做导航，不承载进度。
 
 ---
 
-## 📌 快速入口
+## 📌 快速入口（新会话必读，按序）
 
-| 文档 | 说明 | 更新频率 |
-|------|------|---------|
-| [[governance/project-control-tower\|🎯 控制塔]] | 进度管理 · 断点 · Milestone · 本周聚焦 | 每周 |
-| [[governance/product-architecture\|🏗️ 产品架构]] | 系统边界 · 依赖关系 · TRPG映射 | 季度 |
-| [[governance/knowledge-assets\|🧠 知识资产]] | 实体类型 · Schema · 关系语义 · ID规则 | 新模型时 |
-| [[governance/ux-flow\|👥 用户体验]] | 用户旅程 · 页面地图 · 交互规则 | 新页面时 |
-| [[governance/engineering-governance\|⚙️ 工程治理]] | 代码结构 · API契约 · 编码规范 | 持续 |
-| [[governance/index\|📋 五表总览]] | 五表关系图 · 使用规则 | — |
+| 序 | 文档 | 看什么 |
+|---|------|--------|
+| 1 | [PROJECT_STATE.md](../PROJECT_STATE.md) | 进度真相源——今天做到哪、下一步是什么 |
+| 2 | [[0_index-v0.3]] | 治理体系索引 + 权威声明（当前权威 = 2-A1-v0.5.1 + PROJECT_STATE） |
+| 3 | [[SYSTEM_DESIGN_SPEC_v5]] + [[SYSTEM_DESIGN_SPEC_v5.1]] | 现行设计规范（v5 正文 + v5.1 增量补丁，配套读） |
+| 4 | [[2-A1-v0.5-内容图谱化统一模型与契约]] | A1 唯一权威概念模型（NL/SIR/KG 三轴 + graphify 契约） |
 
 ---
 
@@ -22,37 +23,86 @@
 
 | 文档 | 版本 | 状态 |
 |------|------|------|
-| [[SYSTEM_DESIGN_SPEC_v5.1\|系统设计规范 v5.1]] | v5.1（current） | ✅ 最新 |
-| [[SYSTEM_DESIGN_SPEC_v5\|系统设计规范 v5]] | v5.0 | 📦 归档 |
-| [[SYSTEM_DESIGN_SPEC_v4\|系统设计规范 v4]] | v4.0 | 📦 归档 |
-| [[SYSTEM_DESIGN_SPEC_v3\|系统设计规范 v3]] | v3.0 | 📦 归档 |
-| [[SYSTEM_DESIGN_SPEC_v2\|系统设计规范 v2]] | v2.0 | 📦 归档 |
-| [[SYSTEM_DESIGN_SPEC\|系统设计规范 v1]] | v1.0 | 📦 归档 |
+| [[SYSTEM_DESIGN_SPEC_v5.1]] | v5.1 | ✅ 最新（增量补丁，未注册接口以 v5.0 为准） |
+| [[SYSTEM_DESIGN_SPEC_v5]] | v5.0 | ✅ 现行正文 |
+| [[SYSTEM_DESIGN_SPEC_v4]] | v4.0 | 📦 `archive/`（六维死架构） |
+| [[SYSTEM_DESIGN_SPEC_v3]] | v3.0 | 📦 `archive/` |
+| [[SYSTEM_DESIGN_SPEC_v2]] | v2.0 | 📦 `archive/` |
+| [[SYSTEM_DESIGN_SPEC]] | v1.0 | 📦 `archive/`（同目录另存根目录早期变体-20260804） |
 
 ---
 
-## 📋 架构设计文档 (Plans)
+## 🏛️ 治理文档（docs/governance/，现行版本）
 
-| 文档 | 内容 | 关联治理表 |
-|------|------|-----------|
-| [[plans/2026-08-04-platform-architecture\|平台完整架构]] | 7类用户 · 4端 · 8系统 · Sprint路线 | → [[governance/product-architecture]] |
-| [[plans/2026-08-04-trpg-pipeline-alignment\|TRPG全流程对齐]] | 8阶段TRPG × 现状对照 · 4大断层 | → [[governance/product-architecture]] |
-| [[plans/2026-08-04-trpg-pipeline-mapping\|TRPG全流程映射]] | TRPG阶段 × 平台系统 × 代码文件 三视图映射 | → [[governance/product-architecture]] |
-| [[plans/2026-08-04-directory-structure-recommendations\|目录结构建议]] | services→domains 迁移方案 | → [[governance/engineering-governance]] |
-| [[plans/2026-08-03-layered-constraint-architecture\|分层约束架构]] | 6维×6层×权重 · 继承模型 · 实施路线 | → [[governance/knowledge-assets]] |
-| [[plans/2026-08-01-ai-story-scene-editor-design\|AI编辑器设计]] | 五图模型 · Phase 1-4 编辑器 | → [[governance/ux-flow]] |
-| [[handoff-bidirectional-concept-mapping\|双向概念映射（设计）]] | 概念映射设计思路 | → [[governance/knowledge-assets]] |
-| [[handoff-bidirectional-mapping\|双向概念映射（实施）]] | 具体实施映射 | → [[governance/knowledge-assets]] |
+### 五表体系
+
+| # | 文档 | 状态 |
+|---|------|------|
+| 0 | [[0_index-v0.3]] | ✅ 索引 + 权威声明（2026-09-11） |
+| 1 | [[1_project-control-tower-v0.3]] | ✅ 一页指针（数据源=PROJECT_STATE） |
+| 2 | [[2_product-architecture]] | ✅ 现行（平台愿景，A2+ 未启动） |
+| 3 | [[3_knowledge-assets]] | ✅ 现行（已降级为槽位级编译目标类型） |
+| 4 | [[4_ux-flow-v0.2]] | ✅ 现行 |
+| 5 | [[5_engineering-governance-v0.2]] | ✅ 现行 |
+
+### A1 专项（主线）
+
+| 文档 | 状态 |
+|------|------|
+| [[2-A1-v0.5-内容图谱化统一模型与契约]] | ✅ **当前权威** |
+| [[2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4]] | ✅ 当前（J1-J4 加固） |
+| [[2-A1-v0.1-定稿图谱拓扑与回退流]] | ⚙️ 保留（被 v0.5 修订 §2.2/§5/§9） |
+
+### 其他
+
+| 文档 | 状态 |
+|------|------|
+| [[2-A-认知边界与信息框架总纲]] / [[2-A-认知边界与信息框架分题材总览]] | ✅ 当前 |
+| [[2-A-v0.3-A模块架构总览]] | ⚙️ 部分过时（A1 系接管主线） |
+| [[2-A2-v0.2-产品策划顾问+模组合成]] | 🔭 愿景稿（A2 未启动） |
+| [[seed-presets-catalog]] / [[seed-preset-template-seeds]] / [[trpg-preset-rulebook-references]] | ✅ 当前（预设三件套） |
+
+> 过时版本（0_index/控制塔 v0.1-v0.2、2-A1-v0.2/v0.3/v0.4 等 10 份）已移入 `governance/archive/`。
+
+---
+
+## 📋 A1 现行设计（docs/plans/）
+
+| 文档 | 内容 |
+|------|------|
+| [[2026-08-25-a1-worldview-upload-design]] | A1 世界观上传解析（已实现） |
+| [[2026-08-27-visual-design-bg-pipeline-design]] | 视觉背景管线（PoC 已完成） |
+| [[2026-08-31-a1-guided-review-and-concept-network-design]] | 引导评审 + 概念网络 |
+| [[2026-09-09-a1-extreme-testing-design]] | 极限测试（xt 系列，J 系加固依据） |
+| [[mvp-requirements-and-flows]] | MVP 需求与流程（A1 已实现 / A2+ 未动） |
+| [[2026-09-11-文档矛盾审计与整改方案]] | 文档矛盾审计（本次清账依据） |
+| [[A1架构图]] / [[A1架构图2]] | A1 架构图纸 ×2 |
+
+---
+
+## 🗂️ 历史文档（六维管线时代 / 过渡期）
+
+| 文档 | 说明 |
+|------|------|
+| [[2026-08-03-layered-constraint-architecture]] | 六维核心设计（分层约束架构） |
+| [[2026-08-01-ai-story-scene-editor-design]] | 五图编辑器设计 |
+| [[2026-08-04-platform-architecture]] | 平台完整架构愿景稿（7类用户·4端·8系统） |
+| [[2026-08-04-trpg-pipeline-alignment]] / [[2026-08-04-trpg-pipeline-mapping]] | TRPG 全流程对齐/映射 |
+| [[2026-08-04-directory-structure-recommendations]] | 目录结构建议（迁移已完成） |
+| [[a1-topology-boundary-spec]] | 拓扑边界（被 2-A1-v0.4 接管→已归档） |
+| [[handoff-bidirectional-concept-mapping]] / [[handoff-bidirectional-mapping]] | 双向概念映射（五维时代研究稿） |
+| [[流程图8.19改]] | 用户操作流程图（现行修订版；旧版流程图0 已按审计矛盾#6 留新删旧） |
+
+> 归档区：`docs/archive/`（规格书 5 份）｜`docs/governance/archive/`（治理旧版 10 份）
 
 ---
 
 ## 🔗 标签导航
 
-- `#governance` — 治理文档（5张表）
+- `#governance` — 治理文档
 - `#design-spec` — 系统设计规范
-- `#plan` — 架构设计方案
-- `#handoff` — 交接/设计映射文档
-- `#current` — 当前版本（唯一）
+- `#a1` — A1 世界观工坊（主线）
+- `#current` — 当前版本
 - `#archived` — 归档版本
 
 ---
@@ -60,18 +110,25 @@
 ## 📖 阅读顺序建议
 
 **新会话第一次读**:
-1. [[governance/project-control-tower|🎯 控制塔]] — 看进度在哪
-2. [[governance/product-architecture|🏗️ 产品架构]] — 看系统边界
+1. [PROJECT_STATE.md](../PROJECT_STATE.md) — 看进度在哪、下一步是什么
+2. [[0_index-v0.3]] — 看治理体系与权威声明
 
 **要改数据模型**:
-1. [[governance/knowledge-assets|🧠 知识资产]] — 看 Schema 规则
-2. [[SYSTEM_DESIGN_SPEC_v4|设计规范 v4]] §5 领域模型 — 看字段定义
-3. [[governance/engineering-governance|⚙️ 工程治理]] — 看命名规范
+1. [[SYSTEM_DESIGN_SPEC_v5]] §领域模型 — 看现行字段定义
+2. [[3_knowledge-assets]] — 看槽位规则（已降级为编译目标类型）
+3. [[5_engineering-governance-v0.2]] — 看命名规范
 
 **要加新页面**:
-1. [[governance/ux-flow|👥 用户体验]] — 看用户旅程位置
-2. [[governance/engineering-governance|⚙️ 工程治理]] — 看 API 规范
+1. [[4_ux-flow-v0.2]] — 看用户旅程位置
+2. [[5_engineering-governance-v0.2]] — 看 API 规范
 
 **要排期开发**:
-1. [[governance/project-control-tower|🎯 控制塔]] — 看断点依赖
-2. [[plans/2026-08-04-platform-architecture|平台架构]] — 看 Sprint 路线
+1. [PROJECT_STATE.md](../PROJECT_STATE.md) — 看"下一步"节
+2. [[1_project-control-tower-v0.3]] — 一页指针
+
+---
+
+## 变更记录
+
+- **2026-09-11 重写（矛盾#3 整改）**: 修复 6 条死链（改文件名链接制）；v5 摘除错误的「归档」标（现行正文）；快速入口重排（PROJECT_STATE 第一）；补录 A1 全系（治理 3 + 设计 6 + 图纸 2）；历史文档集中标注去向；阅读顺序全部指向现行版本
+- 原版（6 死链 + 漏录 A1 时代）见 git 历史
