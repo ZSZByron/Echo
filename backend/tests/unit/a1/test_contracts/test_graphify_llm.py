@@ -395,3 +395,125 @@ def test_timeout_retried_and_second_attempt_succeeds() -> None:
     assert provider.chat_json_calls == 2
     assert result.success is True
     assert len(result.entries) == 1
+
+
+# =============================================================================
+# J3 披露协议：GraphifyResult.warnings 结构化列表（2-A1-v0.5.1 §3 J3）
+# 级联 C 修复：graphify 层警告曾挤进单字符串 result.warning，且仅在
+# success=False 时被 finalize 捞走 —— success=True 时蒸发（警告链断裂）。
+# =============================================================================
+
+
+class TestGraphifyWarningsList:
+    """warnings 列表与 warning 字符串双轨：列表是结构化真源，字符串向后兼容。"""
+
+    def test_happy_path_empty_warnings(self, make_stub_llm) -> None:
+        provider = make_stub_llm(response=_happy_response())
+        result = graphify_llm(_make_session({VALID_ANCHOR: "答案正文"}), provider)
+
+        assert result.success is True
+        assert result.warnings == []
+        assert result.warning == ""
+
+    def test_validation_warnings_populate_list_on_success(self, make_stub_llm) -> None:
+        """幻觉端点丢边发生在 success=True 时，警告必须留在 warnings 列表（不再蒸发）."""
+        resp = _happy_response()
+        resp["edges"] = [{
+            "from": MODULE_ID,
+            "to": "d:不存在的锚点:幽灵条目",  # 幻觉端点
+            "relation": TIER_RELATION,
+            "rationale": "x",
+            "confidence": "semantic",
+        }]
+        provider = make_stub_llm(response=resp)
+        result = graphify_llm(_make_session({VALID_ANCHOR: "答案正文"}), provider)
+
+        assert result.success is True
+        assert any("引用了不存在的节点" in w for w in result.warnings)
+        # 向后兼容：warning 字符串仍携带同样的内容（既有降级断言依赖）
+        assert any("引用了不存在的节点" in part for part in result.warning.split("；"))
+
+    def test_degrade_path_carries_warnings_list(self, make_stub_llm) -> None:
+        provider = make_stub_llm(raise_error=RuntimeError("api down"))
+        result = graphify_llm(_make_session(), provider)
+
+        assert result.success is False
+        assert result.warnings == [result.warning]
+        assert "graphify failed" in result.warnings[0]
+
+    def test_result_defaults_warnings_to_empty(self) -> None:
+        r = GraphifyResult()
+        assert r.warnings == []
+
+
+class TestIsTitleTruncated:
+    """J3：32 字标题静默截断的披露判定（与 sanitize_title 同一归一化）."""
+
+    def test_exact_32_not_truncated(self):
+        from app.domains.creation.a1.graphify import is_title_truncated
+        assert is_title_truncated("三" * 32) is False
+
+    def test_33_truncated(self):
+        from app.domains.creation.a1.graphify import is_title_truncated
+        assert is_title_truncated("三" * 33) is True
+
+    def test_normalization_before_length_check(self):
+        from app.domains.creation.a1.graphify import is_title_truncated
+        # 32 字 + 前后空白 + 冒号：归一化剥离后恰 32 字 → 不算截断
+        title = "  " + "三" * 30 + "::" + "三三  "
+        assert is_title_truncated(title) is False
+        # 冒号间空白折叠为单个内部空格保留：30+1+2=33 → 截断
+        assert is_title_truncated("三" * 30 + "  三三") is True
+
+
+# =============================================================================
+# J4 预算护栏：graphify prompt 总长预算（2-A1-v0.5.1 §3 J4）
+# 级联 D 修复：35×5000 答案炸弹曾全文嵌入 prompt（175k 字）——
+# 现在每答案 ≤2000 字 + 答案块总长 ≤60000 字，截断必披露。
+# =============================================================================
+
+
+class TestGraphifyPromptBudget:
+    def _bomb_answers(self) -> dict[str, str]:
+        from app.domains.creation.seed.a1_question_tree import all_subfield_keys as _k
+        return {k: "灵气复苏的叙事纹理。" * 357 for k in _k()}
+
+    def test_bomb_answers_prompt_bounded(self, make_stub_llm) -> None:
+        """每处答案在 prompt 中 ≤2000 字；答案块总长 ≤60000 字."""
+        provider = make_stub_llm(response=_happy_response())
+        graphify_llm(_make_session(self._bomb_answers()), provider)
+
+        system = provider.last_messages[0]["content"]
+        # 旧病理：35×5000=175k 全文嵌入。现在总 prompt 被预算钳制。
+        assert len(system) < 100_000
+        # 每行答案（k = v 形态）都 ≤ 2000 + key 开销
+        for line in system.splitlines():
+            if " = " in line:
+                _k, _, v = line.partition(" = ")
+                assert len(v) <= 2000, f"answer line too long: {_k}"
+
+    def test_budget_disclosure_in_warnings(self, make_stub_llm) -> None:
+        """截断事实进 result.warnings（success 路径），配 J3 ledger 披露."""
+        provider = make_stub_llm(response=_happy_response())
+        result = graphify_llm(_make_session(self._bomb_answers()), provider)
+
+        assert result.success is True
+        assert any(
+            "[budget]" in w and "截断" in w for w in result.warnings
+        )
+
+    def test_budget_note_survives_degrade(self, make_stub_llm) -> None:
+        """degrade 路径也携带预算披露（炸弹+故障叠加时丢内容可见）."""
+        provider = make_stub_llm(raise_error=RuntimeError("api down"))
+        result = graphify_llm(_make_session(self._bomb_answers()), provider)
+
+        assert result.success is False
+        assert any("[budget]" in w for w in result.warnings)
+        assert "graphify failed" in result.warnings[0]
+
+    def test_no_budget_note_when_within_limits(self, make_stub_llm) -> None:
+        provider = make_stub_llm(response=_happy_response())
+        result = graphify_llm(_make_session({VALID_ANCHOR: "短答案"}), provider)
+
+        assert result.success is True
+        assert not any("[budget]" in w for w in result.warnings)

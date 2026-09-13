@@ -4,10 +4,12 @@
   层1  sanitize_title 截断 32 字 → 两个不同条目铸出同一深度树 id
   层2  dedupe_items 丢第二条（有警告 —— 非静默）
   层3  引用第二条的边：LLM 写的是全长标题 id，节点表里只有 32 字截断 id
-       → graphify 校验层按"幻觉端点"丢边 —— 而 graphify 层警告不进
-       assemble_warnings/finalize_warnings —— 警告链断裂，边蒸发于无痕
+       → graphify 校验层按"幻觉端点"丢边 —— 警告链曾断裂（只进
+       llm_result.warning 且 success=True 时蒸发）
+       → J3 已修复（2026-09-11）：警告落结构化 ledger（source=graphify），
+         层3 断言已翻转为期望行为；id 同前缀碰撞本体归 J2 规范化层
 
-判据：B+C（条目层丢失有记录；边层丢失 = 警告本身被静默丢弃）。
+判据：B+C（条目层丢失有记录；边层丢失 = 警告进 ledger，不再静默）。
 """
 from __future__ import annotations
 
@@ -94,17 +96,25 @@ class TestE31TwinTitleCollision:
         # 条目层丢失有记录（assemble_warnings 有"重复条目去重"）→ 非静默 ✓
         assert any("重复条目去重" in w for w in rec["assemble_warnings"])
 
-        # BUG(#7): 边层丢失发生在 graphify 校验层（"引用了不存在的节点"），
-        # 该警告只写进 llm_result.warning —— 而 finalize 只在 success=False 时
-        # 才把 warning 并入 finalize_warnings，_assemble_depth_tree 的
-        # assemble_warnings 也不含它 → 这条边从图里蒸发，且没有任何持久化痕迹：
-        assert rec["dead_edges"] == []  # 边死区没有它（根本没到 _merge_llm_edges）
+        # J3 fixed(#7 警告链断裂)：边层丢失警告现在进结构化 ledger
+        # （source=graphify），不再随 success=True 蒸发；也不混入旧通道
+        # （assemble/finalize 语义边界保持——graphify 层归 graphify source）
+        led = rec["warnings"]
+        dropped = next(
+            e for e in led
+            if e["source"] == "graphify" and "引用了不存在的节点" in e["detail"]
+        )
+        assert dropped["level"] == "warn"
+        assert dropped["count"] == 1
         assert not any(
             "引用了不存在的节点" in w for w in rec.get("assemble_warnings", [])
         )
         assert not any(
             "引用了不存在的节点" in w for w in rec.get("finalize_warnings", [])
         )
+        # 边死区仍没有它（丢弃发生在 graphify 校验层，早于 _merge_llm_edges
+        # 的端点核验——ledger 是它唯一的持久化痕迹）
+        assert rec["dead_edges"] == []
         # 图里也确实没有这条边
         assert not any(
             e["from_node_id"].endswith(TWIN_T2) or e["to_node_id"].endswith(TWIN_T1)

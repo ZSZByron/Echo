@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 _STORE_VERSION = 1
 
+#: J4 预算护栏：备份轮转保留份数（path → .bak1 → .bak2 → .bak3）。
+_BACKUP_COUNT = 3
+
 
 def _default_path() -> Path:
     # store.py = backend/app/domains/creation/a1/store.py -> parents[4] = backend/
@@ -56,31 +59,60 @@ class A1Store:
 
     # -- load ------------------------------------------------------------
 
-    def load(self) -> tuple[dict[str, A1Session], dict[str, dict[str, Any]]]:
-        """Read sessions/files from disk.
+    def _backup_paths(self) -> list[Path]:
+        """Backup slots, newest first: [.bak1, .bak2, ...]."""
+        return [
+            self.path.with_name(f"{self.path.name}.bak{i}")
+            for i in range(1, _BACKUP_COUNT + 1)
+        ]
 
-        Missing or corrupt file → empty dicts (warning logged, never raised).
+    def load(self) -> tuple[dict[str, A1Session], dict[str, dict[str, Any]]]:
+        """Read sessions/files from disk (J4: with backup recovery).
+
+        Tries the main path first, then backups newest-first. Missing or
+        corrupt candidates are skipped (warning logged, never raised);
+        exhausting all candidates → empty dicts (same degrade stance).
         Returns ``(sessions, files)`` where sessions are reconstructed
         ``A1Session`` pydantic models and files are raw dicts.
         """
-        if not self.path.exists():
-            return {}, {}
-        try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-            sessions = {
-                sid: A1Session.model_validate(s)
-                for sid, s in raw.get("sessions", {}).items()
-            }
-            files: dict[str, dict[str, Any]] = raw.get("files", {})
-            return sessions, files
-        except Exception as exc:  # noqa: BLE001 — corrupt store must not crash boot
-            logger.warning(
-                "A1Store: corrupt store at %s, starting empty (%s: %s)",
-                self.path, type(exc).__name__, exc,
-            )
-            return {}, {}
+        for candidate in [self.path, *self._backup_paths()]:
+            if not candidate.exists():
+                continue
+            try:
+                raw = json.loads(candidate.read_text(encoding="utf-8"))
+                sessions = {
+                    sid: A1Session.model_validate(s)
+                    for sid, s in raw.get("sessions", {}).items()
+                }
+                files: dict[str, dict[str, Any]] = raw.get("files", {})
+                return sessions, files
+            except Exception as exc:  # noqa: BLE001 — corrupt candidate: try next
+                logger.warning(
+                    "A1Store: corrupt store candidate %s, trying next backup "
+                    "(%s: %s)",
+                    candidate, type(exc).__name__, exc,
+                )
+        return {}, {}
 
     # -- save ------------------------------------------------------------
+
+    def _rotate_backups(self) -> None:
+        """J4: rotate backups before overwriting the main file.
+
+        path → .bak1 → .bak2 → .bak3（更旧的删除）。Best-effort：备份失败
+        绝不阻塞主写（OSError 静默跳过——主写的原子性优先）。
+        """
+        baks = self._backup_paths()
+        try:
+            if baks[-1].exists():
+                baks[-1].unlink()
+            for i in range(len(baks) - 1, 0, -1):
+                if baks[i - 1].exists():
+                    os.replace(baks[i - 1], baks[i])
+            if self.path.exists():
+                os.replace(self.path, baks[0])
+        except OSError:
+            return
 
     def save(
         self,
@@ -93,6 +125,7 @@ class A1Store:
         are plain dicts passed through as-is (``default=str`` guards any
         non-JSON value such as datetimes). Iron law: this is a pure dump of
         the in-memory state — nothing is filtered or rewritten.
+        J4: existing file is rotated into the .bak chain before replace.
         """
         payload = {
             "version": _STORE_VERSION,
@@ -107,4 +140,5 @@ class A1Store:
             json.dumps(payload, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
+        self._rotate_backups()
         os.replace(tmp, self.path)

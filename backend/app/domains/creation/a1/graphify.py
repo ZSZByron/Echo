@@ -30,7 +30,11 @@ from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES
 from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.domains.creation.graph.constraint_topology import STRUCTURED_FIELDS
-from app.domains.creation.seed.a1_question_tree import all_subfield_keys
+from app.domains.creation.seed.a1_question_tree import (
+    ANSWER_MAX_CHARS,
+    all_subfield_keys,
+    clip_answer,
+)
 
 # =============================================================================
 # Constants
@@ -44,6 +48,10 @@ GRAPHIFY_TIMEOUT: int = int(os.environ.get("GRAPHIFY_TIMEOUT", "120"))
 #: max_tokens passed through to provider.chat_json — deepseek's 4000
 #: default truncated large five-field JSON payloads mid-object.
 GRAPHIFY_MAX_TOKENS: int = 16000
+
+#: J4 预算护栏：graphify prompt 答案块总长上限（字符）。每答案先过
+#: ANSWER_MAX_CHARS（2000），此处为硬顶（防 35 字段全长的极端组合）。
+GRAPHIFY_ANSWERS_BUDGET: int = 60000
 
 #: Pause before the single retry of a provider-layer failure (seconds).
 _RETRY_PAUSE_SECONDS: float = 1.0
@@ -123,6 +131,9 @@ class GraphifyResult(BaseModel):
 
     success: bool = True
     warning: str = ""
+    # J3 披露协议：结构化警告真源（apply_graphify_validation 收集 / degrade
+    # 路径单条）。warning 字符串保留向后兼容（由列表拼接而来）。
+    warnings: list[str] = Field(default_factory=list)
     module_summaries: dict[str, str] = Field(default_factory=dict)
     entries: list[AnchorEntries] = Field(default_factory=list)
     edges: list[EdgeSpec] = Field(default_factory=list)
@@ -148,6 +159,17 @@ def sanitize_title(title: str) -> str:
     if not cleaned:
         return _UNNAMED_PLACEHOLDER
     return cleaned[:_TITLE_MAX_LEN]
+
+
+def is_title_truncated(title: str) -> bool:
+    """J3 disclosure helper: will :func:`sanitize_title` length-truncate?
+
+    Uses the same normalization as ``sanitize_title`` (colon removal +
+    whitespace collapse + strip) before comparing against the 32-char cap,
+    so the flag fires exactly when real content is cut.
+    """
+    cleaned = _WHITESPACE_RE.sub(" ", title.replace(":", "")).strip()
+    return len(cleaned) > _TITLE_MAX_LEN
 
 
 def depth_id(anchor: str, title: str) -> str:
@@ -269,9 +291,16 @@ def validate_children_depth(result: GraphifyResult) -> list[str]:
 
 
 def _answers_block(answers: dict[str, str]) -> str:
-    """Full-text answers block (NL contract C1: verbatim, no truncation)."""
+    """Answers block (NL contract C1: verbatim), under J4 budget guards.
+
+    输入应已过 graphify_llm 的每答案 2000 字截断；此处再施加答案块
+    总长预算（GRAPHIFY_ANSWERS_BUDGET）——超限整体截断并留痕于块尾。
+    """
     lines = [f"{k} = {v}" for k, v in answers.items() if v]
-    return "\n".join(lines) if lines else "（暂无）"
+    block = "\n".join(lines) if lines else "（暂无）"
+    if len(block) <= GRAPHIFY_ANSWERS_BUDGET:
+        return block
+    return block[:GRAPHIFY_ANSWERS_BUDGET] + "\n（答案总量超预算，已截断）"
 
 
 def _immutable_block(answers: dict[str, str]) -> str:
@@ -507,6 +536,9 @@ def apply_graphify_validation(result: GraphifyResult) -> GraphifyResult:
     # rule 5: children closed in Phase 1 (warning only, items kept)
     warnings.extend(validate_children_depth(result))
 
+    # J3: 列表是结构化真源（finalize 汇入 warning ledger，不再蒸发）；
+    # warning 字符串由列表拼接，向后兼容既有降级断言。
+    result.warnings = warnings
     if warnings:
         result.warning = (
             (result.warning + " | " if result.warning else "") + "；".join(warnings)
@@ -545,8 +577,26 @@ def graphify_llm(
     """
     session_id = getattr(session, "session_id", "unknown")
     effective_timeout = GRAPHIFY_TIMEOUT if timeout is None else timeout
+    # J4 预算护栏：每答案 ≤2000 字 + 答案块总长 ≤60000 字（直注/存量
+    # 脏数据的二次防线——写入层护栏管不到 inject_answers 这类入口）。
+    # 截断必披露：budget notes 进 result.warnings（J3 ledger 消费）。
+    budget_notes: list[str] = []
     try:
-        answers = getattr(session, "answers", {}) or {}
+        raw_answers = getattr(session, "answers", {}) or {}
+        answers: dict[str, str] = {}
+        n_clips = 0
+        for k, v in raw_answers.items():
+            clipped_value, was_clipped = clip_answer(v)
+            answers[k] = clipped_value
+            n_clips += int(was_clipped)
+        if n_clips:
+            budget_notes.append(
+                f"[budget] 答案超{ANSWER_MAX_CHARS}字已在 prompt 截断: {n_clips} 处"
+            )
+        if sum(len(v) for v in answers.values()) > GRAPHIFY_ANSWERS_BUDGET:
+            budget_notes.append(
+                f"[budget] 答案总长超{GRAPHIFY_ANSWERS_BUDGET}字已整体截断"
+            )
         system = build_graphify_prompt(answers, answered_evidence)
         messages = [{"role": "system", "content": system}]
 
@@ -573,8 +623,23 @@ def graphify_llm(
         # Parse/validate OUTSIDE the retry loop: wrong-shape JSON replays
         # identically on retry — degrade fast instead.
         result = parse_graphify_raw(raw)
-        return apply_graphify_validation(result)
+        result = apply_graphify_validation(result)
+        # J4: 预算披露附加在 validate 之后（warnings 列表为真源）
+        if budget_notes:
+            result.warnings = result.warnings + budget_notes
+            result.warning = (
+                (result.warning + " | " if result.warning else "")
+                + "；".join(budget_notes)
+            )
+        return result
     except Exception as e:  # noqa: BLE001 — degrade, never crash finalize
         warning = f"graphify failed: {str(e)[:200]}"
         log_event(session_id, "graphify_degraded", error=warning)
-        return GraphifyResult(success=False, warning=warning)
+        # J3: degrade 警告同入结构化列表（单条）；J4: budget notes 随行
+        degrade_warning = warning + (
+            " | " + "；".join(budget_notes) if budget_notes else ""
+        )
+        return GraphifyResult(
+            success=False, warning=degrade_warning,
+            warnings=[warning, *budget_notes],
+        )

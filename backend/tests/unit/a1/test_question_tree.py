@@ -15,7 +15,9 @@ from app.domains.creation.seed.a1_question_tree import (
     is_module_done,
     is_module_over_half,
     is_finalizable,
+    is_truthy_answer,
     module_done_ratio,
+    clip_answer,
 )
 
 
@@ -144,7 +146,7 @@ class TestSeverity:
         # Severity values are now mentioned only in comments, not as a constant
         # The valid values are: COSMIC, MAJOR, REGIONAL, MINOR
         expected_values = ["COSMIC", "MAJOR", "REGIONAL", "MINOR"]
-        # Check that these values are mentioned in the MODULES structure
+        # Check that these are mentioned in the MODULES structure
         found_values = []
         for module in MODULES:
             for field in module["fields"]:
@@ -153,6 +155,126 @@ class TestSeverity:
                     import re
                     matches = re.findall(r'(COSMIC|MAJOR|REGIONAL|MINOR)', field["hint"])
                     found_values.extend(matches)
-        # Verify the expected values appear somewhere in the hints
+        # Verify that the expected values appear somewhere in the hints
         for val in expected_values:
             assert any(val in field.get("hint", "") for module in MODULES for field in module["fields"])
+
+
+class TestTruthyAnswer:
+    """J1 答案真值闸 canonical 谓词（2-A1-v0.5.1 §3 J1）.
+
+    占位词典精确匹配（归一化后）+ 空串/None → False；
+    真实语义答案（含"无"、含占位词作子串的长句）→ True。
+    """
+
+    def test_none_and_empty_are_falsy(self):
+        assert is_truthy_answer(None) is False
+        assert is_truthy_answer("") is False
+        assert is_truthy_answer("   ") is False
+        assert is_truthy_answer("\t\n") is False
+
+    def test_placeholder_dictionary_hits(self):
+        for value in [
+            "未提及", "未明确", "未知", "缺少依据", "未说明", "未指定",
+            "未确定", "未定义", "未给出", "未提供", "未回答", "未涉及",
+            "不明确", "不适用", "不详", "暂无", "暂缺", "无依据",
+            "待定", "待补充", "待确认", "待填写", "无相关内容",
+            "文中未提及", "原文未提及", "用户未提及", "资料未提及",
+            "N/A", "n/a", "NA", "na", "N.A.", "None", "none", "null",
+            "NULL", "nil", "unknown", "Unknown", "UNKNOWN",
+            "not mentioned", "Not Specified", "unspecified",
+            "not applicable", "no data", "no evidence", "tbd", "TBD",
+            "todo", "TODO", "missing", "-", "——", "———",
+        ]:
+            assert is_truthy_answer(value) is False, value
+
+    def test_placeholder_variants_normalized(self):
+        # 全角 Ｎ／Ａ、包裹符号、首尾标点、前后空白都归一化后命中
+        assert is_truthy_answer("Ｎ／Ａ") is False
+        assert is_truthy_answer("（暂无）") is False
+        assert is_truthy_answer("【未知】") is False
+        assert is_truthy_answer("未知。") is False
+        assert is_truthy_answer("，缺少依据！") is False
+        assert is_truthy_answer("  Not Mentioned.  ") is False
+        assert is_truthy_answer("「未提及」") is False
+
+    def test_real_answers_are_truthy(self):
+        for value in [
+            "蒸汽朋克浮空城",
+            "无",  # 合法否定答案（如"是否有神"→"无"），词典保守不收
+            "未知种族的迁徙历史",  # 占位词作子串，非占位答案
+            "尚未确定的三个王位继承人",  # 同上
+            "N/A 机制不存在，灵气即货币",
+            "0",
+        ]:
+            assert is_truthy_answer(value) is True, value
+
+
+class TestGateCountsOnlyTruthy:
+    """J1：门禁计数从 key 存在性升级为真值感知（治级联 A 的放行半边）."""
+
+    def test_ratio_ignores_placeholder_and_empty_values(self):
+        answers = {
+            "IP定位.name": "未提及",
+            "IP定位.concept": "",
+            "IP定位.world_type": "N/A",
+            "IP定位.core_experience": "浮空城",
+        }
+        # 只有 1 个真值 → 1/4 = 0.25（旧逻辑按 key 存在算 4/4 = 1.0）
+        assert module_done_ratio("IP定位", answers) == 0.25
+
+    def test_module_done_requires_truthy_values(self):
+        answers = {"IP定位.name": "未知", "IP定位.concept": "暂无"}
+        assert is_module_done("IP定位", answers) is False
+
+    def test_finalizable_all_placeholders_is_false(self):
+        answers = dict.fromkeys(all_subfield_keys(), "缺少依据")
+        assert is_finalizable(answers) is False
+
+    def test_finalizable_all_empty_strings_is_false(self):
+        answers = dict.fromkeys(all_subfield_keys(), "")
+        assert is_finalizable(answers) is False
+
+    def test_finalizable_mixed_placeholders_count_truthy_only(self):
+        # 每模块 >50% 真值 + 少量占位 → 可定稿；占位字段不计入分子
+        answers: dict[str, str] = {}
+        for m in MODULES:
+            fields = m["fields"]
+            need = len(fields) // 2 + 1
+            for f in fields[:need]:
+                answers[f"{m['id']}.{f['id']}"] = "真实答案"
+            for f in fields[need:]:
+                answers[f"{m['id']}.{f['id']}"] = "未提及"
+        assert is_finalizable(answers) is True
+        # 把任一模块的一个真值换成占位 → 该模块跌回 ≤50% → 不可定稿
+        first = MODULES[0]
+        answers[f"{first['id']}.{first['fields'][0]['id']}"] = "未提及"
+        assert is_finalizable(answers) is False
+
+
+class TestClipAnswer:
+    """J4 预算护栏：answer value ≤2000 字（超限截断，配 J3 披露）."""
+
+    def test_short_answer_unchanged(self):
+        value = "蒸汽朋克浮空城" * 100  # 800 字
+        clipped, was_clipped = clip_answer(value)
+        assert clipped == value
+        assert was_clipped is False
+
+    def test_exact_limit_unchanged(self):
+        value = "灵" * 2000
+        clipped, was_clipped = clip_answer(value)
+        assert clipped == value
+        assert was_clipped is False
+
+    def test_over_limit_clipped_to_2000(self):
+        value = "灵" * 2500
+        clipped, was_clipped = clip_answer(value)
+        assert len(clipped) == 2000
+        assert clipped == value[:2000]
+        assert was_clipped is True
+
+    def test_custom_limit(self):
+        clipped, was_clipped = clip_answer("abcdefgh", limit=3)
+        assert clipped == "abc"
+        assert was_clipped is True

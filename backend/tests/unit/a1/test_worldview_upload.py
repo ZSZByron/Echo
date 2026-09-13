@@ -60,6 +60,29 @@ class TestExtractEntities:
         assert out["suspected_works"] == []
         assert out["truncated"] is False
 
+    def test_j4_cap_disclosed(self):
+        """J4：专名每类超 10 项截断 → capped 报告每类丢弃数（配 J3 披露）."""
+        provider = FakeProvider([{
+            "characters": [f"角色{i}" for i in range(13)],
+            "power_systems": [f"体系{i}" for i in range(12)],
+            "world_keywords": ["关键词"],
+            "suspected_works": [],
+        }])
+        out = __import__("asyncio").run(extract_entities(provider, LONG_TEXT))
+        assert len(out["characters"]) == 10
+        assert len(out["power_systems"]) == 10
+        assert out["capped"] == {"characters": 3, "power_systems": 2}
+
+    def test_j4_no_cap_report_when_within_limits(self):
+        provider = FakeProvider([{
+            "characters": ["萧炎"],
+            "power_systems": ["斗气"],
+            "world_keywords": [],
+            "suspected_works": [],
+        }])
+        out = __import__("asyncio").run(extract_entities(provider, LONG_TEXT))
+        assert out["capped"] == {}
+
 
 class TestCheckCopyright:
     def test_high_when_core_term_hit(self):
@@ -126,6 +149,42 @@ class TestParseModules:
         out = __import__("asyncio").run(parse_modules(provider, LONG_TEXT))
         assert len(out["innovations"]) == 5
 
+    def test_j1_placeholder_values_not_written(self):
+        """J1 答案真值闸：LLM 违反铁律回填占位值时，出口统一丢弃.
+
+        级联 A 入口：占位值曾以 truthy 身份进入 answers → 过门禁 →
+        被 graphify 全文嵌入 → 空壳图谱定稿。
+        """
+        k_first, k_second = all_subfield_keys()[0], all_subfield_keys()[1]
+        provider = FakeProvider([{
+            "answers": {
+                k_first: "未提及",
+                k_second: "（暂无）",  # 包裹+全角变体也要拦
+                all_subfield_keys()[2]: "N/A",
+                all_subfield_keys()[3]: "  ",  # 纯空白（旧逻辑已拦，回归保护）
+                all_subfield_keys()[4]: "未知种族的迁徙史",  # 占位词子串=真答案，必须保留
+            },
+            "innovations": [],
+        }])
+        out = __import__("asyncio").run(parse_modules(provider, LONG_TEXT))
+        assert set(out["answers"]) == {all_subfield_keys()[4]}
+        assert out["answers"][all_subfield_keys()[4]] == "未知种族的迁徙史"
+
+    def test_j4_long_answers_clipped_and_reported(self):
+        """J4 预算护栏：>2000 字答案截断写入 + clipped_answers 报告（配 J3 披露）."""
+        key = all_subfield_keys()[0]
+        provider = FakeProvider([{
+            "answers": {
+                key: "灵" * 2500,
+                all_subfield_keys()[1]: "短答案",
+            },
+            "innovations": [],
+        }])
+        out = __import__("asyncio").run(parse_modules(provider, LONG_TEXT))
+        assert len(out["answers"][key]) == 2000
+        assert out["answers"][all_subfield_keys()[1]] == "短答案"
+        assert out["clipped_answers"] == [key]
+
 
 class TestConvertText:
     def test_passes_matches_and_returns_text(self):
@@ -140,3 +199,22 @@ class TestConvertText:
         provider = FakeProvider([{"converted": ""}])
         with pytest.raises(ValueError):
             __import__("asyncio").run(convert_text(provider, LONG_TEXT, []))
+
+    def test_j4_long_input_truncated_in_prompt(self):
+        """J4 预算护栏：convert 输入 ≤20000——超长原文截断后进 prompt + 留痕标记."""
+        from app.domains.creation.a1.worldview_upload import MAX_CONTENT_CHARS
+
+        huge = "星陨大陆设定。" + "灵石矿脉塑造九州秩序。" * 2500  # >20000
+        assert len(huge) > MAX_CONTENT_CHARS
+        provider = FakeProvider([{"converted": "净化后的全文……"}])
+        __import__("asyncio").run(convert_text(provider, huge, []))
+
+        user = provider.calls[0][1]
+        assert "已截断" in user
+        # 原文段被截到预算内（命中列表头部 + 标记行 + 截断的原文 ≤ 合理上界）
+        assert len(user) < MAX_CONTENT_CHARS + 200
+
+    def test_j4_short_input_no_marker(self):
+        provider = FakeProvider([{"converted": "净化后的全文……"}])
+        __import__("asyncio").run(convert_text(provider, LONG_TEXT, []))
+        assert "已截断" not in provider.calls[0][1]

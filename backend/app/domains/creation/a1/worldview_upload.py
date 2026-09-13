@@ -24,6 +24,8 @@ from app.ai.provider import LLMProvider
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
     all_subfield_keys,
+    clip_answer,
+    is_truthy_answer,
 )
 
 # MVP limits (design doc): reject tiny texts, truncate huge ones.
@@ -84,8 +86,21 @@ async def _chat_json(provider: LLMProvider, system: str, user: str) -> dict[str,
 # Stage 1 — entity extraction
 # ---------------------------------------------------------------------------
 
+#: 专名类别 → 中文标签（J4 cap 披露文案用；类别枚举，不允许扩充）
+PROPER_NOUN_LABELS: dict[str, str] = {
+    "characters": "角色",
+    "power_systems": "力量体系",
+    "world_keywords": "世界关键词",
+    "suspected_works": "疑似作品",
+}
+
+
 async def extract_entities(provider: LLMProvider, text: str) -> dict[str, Any]:
-    """LLM call #1: proper nouns used for copyright comparison."""
+    """LLM call #1: proper nouns used for copyright comparison.
+
+    J4: 每类去重后超 MAX_PROPER_NOUN_ITEMS 截断 → ``capped`` 报告每类
+    丢弃数（下游配 J3 披露落 warning ledger）。
+    """
     snippet, truncated = _truncate(text)
     system = (
         "你是版权风险分析助手。从用户提交的世界观文本中提取专有名词，"
@@ -103,15 +118,20 @@ async def extract_entities(provider: LLMProvider, text: str) -> dict[str, Any]:
         "world_keywords": raw.get("world_keywords") or [],
         "suspected_works": raw.get("suspected_works") or [],
     }
+    capped: dict[str, int] = {}
     for key in ("characters", "power_systems", "world_keywords", "suspected_works"):
         raw_list = entities[key]
         if isinstance(raw_list, str) or not isinstance(raw_list, (list, tuple)):
             items: list[str] = []  # tolerate scalar/garbage shapes
         else:
             items = [str(x).strip() for x in raw_list if x]
-        # Dedup (preserve order) then cap.
-        entities[key] = list(dict.fromkeys(items))[:MAX_PROPER_NOUN_ITEMS]
+        # Dedup (preserve order) then cap — J4: 披告截断数。
+        deduped = list(dict.fromkeys(items))
+        if len(deduped) > MAX_PROPER_NOUN_ITEMS:
+            capped[key] = len(deduped) - MAX_PROPER_NOUN_ITEMS
+        entities[key] = deduped[:MAX_PROPER_NOUN_ITEMS]
     entities["truncated"] = truncated
+    entities["capped"] = capped
     return entities
 
 
@@ -199,11 +219,18 @@ async def parse_modules(provider: LLMProvider, text: str) -> dict[str, Any]:
     raw_answers = raw.get("answers") or {}
     valid_keys = set(all_subfield_keys())
     answers: dict[str, str] = {}
+    clipped_answers: list[str] = []
     if isinstance(raw_answers, dict):
         for key, value in raw_answers.items():
             key = str(key)
-            if key in valid_keys and value and str(value).strip():
-                answers[key] = str(value).strip()
+            # J1 答案真值闸（统一出口之一）：占位词典 + 空串不写入 answers，
+            # 视同"文档中没有依据"（与本函数铁律一致）。漏网变体由 J3 披露兜底。
+            if key in valid_keys and is_truthy_answer(str(value)):
+                # J4 预算护栏：>2000 字截断 + 报告（配 J3 披露）
+                clipped, was_clipped = clip_answer(str(value).strip())
+                answers[key] = clipped
+                if was_clipped:
+                    clipped_answers.append(key)
     innovations: list[dict[str, str]] = []
     for item in raw.get("innovations") or []:
         if not isinstance(item, dict):
@@ -214,7 +241,12 @@ async def parse_modules(provider: LLMProvider, text: str) -> dict[str, Any]:
             innovations.append({"field": field, "suggestion": suggestion})
         if len(innovations) >= 5:
             break
-    return {"answers": answers, "innovations": innovations, "truncated": truncated}
+    return {
+        "answers": answers,
+        "innovations": innovations,
+        "truncated": truncated,
+        "clipped_answers": clipped_answers,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +257,12 @@ async def convert_text(
     provider: LLMProvider, text: str, matches: list[dict[str, str]]
 ) -> str:
     """LLM call #4: rewrite preserving structure/causality while replacing
-    matched proper nouns with style-consistent original names."""
+    matched proper nouns with style-consistent original names.
+
+    J4 预算护栏：输入 ≤ MAX_CONTENT_CHARS（20000）——超长截断后进 prompt，
+    并在 prompt 内留痕标记（下游 parse 只见截断文本，属预算取舍）。
+    """
+    snippet, truncated = _truncate(text)
     hit_lines = "\n".join(
         f"- {m['term']}（命中作品：{m.get('work', '未知')}）" for m in matches
     )
@@ -236,7 +273,11 @@ async def convert_text(
         "禁止改变事件因果关系；禁止增删章节。\n"
         "输出 JSON：{\"converted\": \"净化后的全文\"}。"
     )
-    user = f"命中列表：\n{hit_lines}\n\n原文：\n{text}"
+    marker = (
+        f"（注意：原文超{MAX_CONTENT_CHARS}字，已截断，仅改写以上部分）"
+        if truncated else ""
+    )
+    user = f"命中列表：\n{hit_lines}\n\n原文：\n{snippet}{marker}"
     raw = await _chat_json(provider, system, user)
     converted = str(raw.get("converted") or "").strip()
     if not converted:

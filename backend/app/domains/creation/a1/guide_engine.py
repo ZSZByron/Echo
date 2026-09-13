@@ -27,14 +27,17 @@ from app.domains.creation.a1.interviewer import (
     Proposal,
 )
 from app.domains.creation.seed.a1_question_tree import (
+    ANSWER_MAX_CHARS,
     MODULES,
     all_subfield_keys,
+    clip_answer,
     first_module,
     first_subfield,
     get_module,
     get_subfield,
     is_finalizable,
     is_module_over_half,
+    is_truthy_answer,
     module_ids,
     subs_for_module,
 )
@@ -82,6 +85,9 @@ class A1Session(BaseModel):
     # Merge count per field key (module.subfield). After 3 merges,
     # the 'merge' option is removed from future proposals.
     merge_counts: dict[str, int] = Field(default_factory=dict)
+    # J4 预算护栏披露：answer value 超 2000 字被截断的记录（finalize 时
+    # 并入 warning ledger，source=answers）。
+    answer_clips: list[str] = Field(default_factory=list)
     # Fields whose current value came from upload prefill (LLM *guesses*,
     # never user-confirmed). User-spoken fills overwrite these directly
     # (write guard protects user-confirmed content only); the key is
@@ -257,6 +263,17 @@ def _apply_fills(
     seen_keys: set[str] = set()
     for fill in fills:
         key = f"{fill.module}.{fill.subfield}"
+        # J1 答案真值闸（fills 统一出口）：占位值/空串视同"本轮没有提取"——
+        # 不写入、不拦截、不占用 first-write-wins 名额（真值 fill 仍可写同 key）。
+        if not is_truthy_answer(fill.value):
+            continue
+        # J4 预算护栏：>2000 字截断（守卫分支与提案一律用截断后的值），
+        # 截断事实记入 session.answer_clips（J3 披露）。
+        fill_value, was_clipped = clip_answer(fill.value)
+        if was_clipped:
+            session.answer_clips.append(
+                f"答案超{ANSWER_MAX_CHARS}字已截断: {key}（原 {len(fill.value)} 字）"
+            )
         if key in seen_keys:  # first write wins this turn
             continue
         seen_keys.add(key)
@@ -264,11 +281,11 @@ def _apply_fills(
         old = session.answers.get(key, "")
 
         # Branch 2: skip — same value
-        if old and old == fill.value:
+        if old and old == fill_value:
             continue
 
         # Branch 3: intercept — non-empty and different
-        if old and old != fill.value:
+        if old and old != fill_value:
             # Prefill exemption: prefill values are LLM guesses made at
             # upload time and were never confirmed by the user. A fill
             # spoken by the user directly overwrites them (recorded in
@@ -280,19 +297,19 @@ def _apply_fills(
                     "module": fill.module,
                     "section": sf["label"] if sf else fill.subfield,
                     "old": old,
-                    "new": fill.value,
+                    "new": fill_value,
                 })
-                session.answers[key] = fill.value
+                session.answers[key] = fill_value
                 continue
             proposal = Proposal(
                 module=fill.module,
                 subfield=fill.subfield,
                 old=old,
-                new=fill.value,
+                new=fill_value,
                 conflict_note=fill.conflict_note,
             )
             intercepted.append(proposal)
-            pk = _proposal_key(fill.module, fill.subfield, fill.value)
+            pk = _proposal_key(fill.module, fill.subfield, fill_value)
             # Determine available options (merge cap check)
             merge_count = session.merge_counts.get(key, 0)
             options = ["replace", "drop"]
@@ -310,9 +327,9 @@ def _apply_fills(
             "module": fill.module,
             "section": sf["label"] if sf else fill.subfield,
             "old": old,
-            "new": fill.value,
+            "new": fill_value,
         })
-        session.answers[key] = fill.value
+        session.answers[key] = fill_value
 
     return file_diff, intercepted
 

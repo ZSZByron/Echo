@@ -16,14 +16,18 @@ def started(client):
     return client, resp.json()
 
 
-def _fill_all_subs(client, payload):
-    session_id = payload["session_id"]
-    from app.domains.creation.seed.a1_question_tree import total_subfield_count
-    for _ in range(total_subfield_count() + 5):
-        out = client.post("/api/a1/chat", json={"session_id": session_id, "message": "\u8df3\u8fc7"})
-        assert out.status_code == 200
-        if out.json()["phase"] == "completed":
-            return
+def _fill_all_subs(_client, payload):
+    """Fill every subfield with a TRUTHY answer (bypasses chat).
+
+    J1 后占位/空串不再过定稿门禁（原实现靠"跳过"刷空串过门），
+    改为直注真值答案；finalize 只读 session.answers，语义等价。
+    """
+    from app.api import a1_routes
+    from app.domains.creation.seed.a1_question_tree import all_subfield_keys
+
+    session = a1_routes._SESSIONS[payload["session_id"]]
+    for key in all_subfield_keys():
+        session.answers[key] = f"答案-{key}"
 
 
 class TestA1Routes:

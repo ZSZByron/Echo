@@ -11,6 +11,7 @@ Module order is locked (test_module_ids_match_spec):
 """
 from __future__ import annotations
 
+import unicodedata
 from typing import TypedDict
 
 
@@ -414,22 +415,26 @@ def all_subfield_keys() -> list[str]:
 
 
 def is_module_done(mid: str, answers: dict[str, str]) -> bool:
-    """True when every subfield of mid has a key present in answers."""
+    """True when every subfield of mid has a TRUTHY answer (J1)."""
     m = _MODULES_BY_ID.get(mid)
     return m is not None and all(
-        f"{mid}.{f['id']}" in answers for f in m["fields"]
+        is_truthy_answer(answers.get(f"{mid}.{f['id']}")) for f in m["fields"]
     )
 
 
 def module_done_ratio(mid: str, answers: dict[str, str]) -> float:
-    """Fraction (0..1) of mid's subfields that have a key in answers.
+    """Fraction (0..1) of mid's subfields with a TRUTHY answer (J1).
 
-    Unknown modules return 0.0 (never finalizable by accident).
+    Placeholder values (占位词典) and empty strings do not count toward
+    the numerator — they are semantically absent. Unknown modules return
+    0.0 (never finalizable by accident).
     """
     m = _MODULES_BY_ID.get(mid)
     if m is None or not m["fields"]:
         return 0.0
-    done = sum(1 for f in m["fields"] if f"{mid}.{f['id']}" in answers)
+    done = sum(
+        1 for f in m["fields"] if is_truthy_answer(answers.get(f"{mid}.{f['id']}"))
+    )
     return done / len(m["fields"])
 
 
@@ -437,10 +442,101 @@ FINALIZE_MODULE_THRESHOLD = 0.5
 
 
 def is_module_over_half(mid: str, answers: dict[str, str]) -> bool:
-    """Finalize gate: strictly more than 50% of subfields answered."""
+    """Finalize gate: strictly more than 50% of subfields TRUTHY answered."""
     return module_done_ratio(mid, answers) > FINALIZE_MODULE_THRESHOLD
 
 
 def is_finalizable(answers: dict[str, str]) -> bool:
     """True when EVERY module exceeds the 50% finalize threshold."""
     return all(is_module_over_half(mid, answers) for mid in module_ids())
+
+
+# ---------------------------------------------------------------------------
+# J1 答案真值闸（answer truth gate）— 2-A1-v0.5.1 §3 J1
+#
+# 治级联 A「真值链」：parse_modules / interviewer fills 曾把"未提及"类
+# 占位值当 truthy 写入 answers，门禁只查 key 存在即放行，graphify 再把
+# 占位值全文嵌入 → 空壳图谱合法定稿。
+#
+# 修复方式：一个 canonical 谓词 + 各写入出口统一调用（parse_modules /
+# _apply_fills）+ 门禁计数真值感知（本文件 module_done_ratio）。
+# 已接受的权衡（治理文档钦定）：
+#   - 词典法漏新变体 → 由 J3 披露协议兜底可见；
+#   - 不用 LLM 判真值（会再引入方差）；
+#   - "无"不入词典（可能是合法否定答案，如"是否有神"→"无"）。
+# ---------------------------------------------------------------------------
+
+# 归一化后精确匹配的占位词典（不允许随意扩充：误收会吞真实答案）。
+_PLACEHOLDER_ANSWERS: frozenset[str] = frozenset({
+    # 中文占位
+    "未提及", "未明确", "未知", "缺少依据", "未说明", "未指定",
+    "未确定", "未定义", "未给出", "未提供", "未回答", "未涉及",
+    "未透露", "未详述", "不明确", "不适用", "不详", "暂无", "暂缺",
+    "无依据", "无相关内容", "无资料", "无内容", "空缺",
+    "待定", "待补", "待补充", "待确认", "待填写",
+    "文中未提及", "原文未提及", "用户未提及", "资料未提及", "未上传",
+    # 英文/ASCII 占位（casefold 后匹配）
+    "n/a", "n.a", "na", "none", "null", "nil", "unknown",
+    "not mentioned", "not specified", "unspecified", "not applicable",
+    "not determined", "not provided", "not available",
+    "no data", "no evidence", "tbd", "tba", "todo", "missing", "empty",
+    # 纯符号占位
+    "-", "—", "——", "———", "--", "---",
+})
+
+# 归一化时从首尾剥离的字符：空白、包裹符号、标点。
+_TRUTH_NORM_STRIP = (
+    " \t\r\n\"'“”‘’「」『』()（）[]【】{}〈〉《》·*_-—.,，、。．;；:：!！?？…"
+)
+
+
+def _truth_norm(value: str) -> str:
+    """Deterministic normalization for placeholder exact-match.
+
+    NFKC（全角→半角，Ｎ／Ａ→N/A）→ strip → casefold → 剥离首尾空白/
+    包裹符号/标点。纯函数、零 LLM、不折叠内部空白（保持确定性）。
+    """
+    return (
+        unicodedata.normalize("NFKC", value)
+        .strip()
+        .casefold()
+        .strip(_TRUTH_NORM_STRIP)
+    )
+
+
+def is_truthy_answer(value: str | None) -> bool:
+    """J1 canonical predicate: does this answer carry real user semantics?
+
+    False（不写入 answers / 不计入门禁分子）:
+      - None / 空串 / 纯空白
+      - 归一化后精确命中占位词典（未提及/未知/缺少依据/N/A 等变体，
+        含全角、包裹符号、首尾标点等漂移形式）
+
+    True: 其余一切（含"无"、含占位词作子串的长句，如"未知种族的迁徙历史"）。
+    """
+    if not value:
+        return False
+    normalized = _truth_norm(str(value))
+    return bool(normalized) and normalized not in _PLACEHOLDER_ANSWERS
+
+
+# ---------------------------------------------------------------------------
+# J4 预算护栏（answer budget）— 2-A1-v0.5.1 §3 J4
+#
+# 治级联 D「无护栏链」半边：answer value 无上限 → 35×5000 答案炸弹全文
+# 嵌入 graphify prompt。护栏=写入出口截断（_apply_fills / parse_modules）
+# + graphify prompt 层二次防线（直注/存量数据）——截断必配 J3 披露。
+# ---------------------------------------------------------------------------
+
+ANSWER_MAX_CHARS = 2000
+
+
+def clip_answer(value: str, limit: int = ANSWER_MAX_CHARS) -> tuple[str, bool]:
+    """J4 budget gate: cap one answer at ``limit`` chars.
+
+    Returns ``(clipped_value, was_clipped)``. 纯函数；截断必须由调用方
+    披露（session.answer_clips / clipped_answers → warning ledger）。
+    """
+    if len(value) <= limit:
+        return value, False
+    return value[:limit], True

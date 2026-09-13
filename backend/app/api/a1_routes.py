@@ -73,7 +73,18 @@ from app.domains.creation.a1.graphify import (
     dedupe_items,
     depth_id,
     graphify_llm,
+    is_title_truncated,
     validate_anchors,
+)
+from app.domains.creation.a1.warning_ledger import (
+    SOURCE_ASSEMBLE,
+    SOURCE_ANSWERS,
+    SOURCE_FINALIZE,
+    SOURCE_GRAPHIFY,
+    SOURCE_UPLOAD,
+    entry as ledger_entry,
+    from_dead_edges,
+    from_strings,
 )
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import (
@@ -299,6 +310,9 @@ def _assemble_depth_tree(
         kept, dupes = dedupe_items(group.items)
         warnings.extend(f"重复条目去重: {t!r}" for t in dupes)
         for k, item in enumerate(kept, start=1):
+            # J3 披露：32 字静默截断改为有痕（id 仍截断——稳定性契约不动）
+            if is_title_truncated(item.title):
+                warnings.append(f"标题超32字已截断: {item.title[:40]!r}")
             nid = depth_id(group.anchor, item.title)
             if nid not in nodes:
                 nodes[nid] = GraphNode(
@@ -331,6 +345,8 @@ def _assemble_depth_tree(
                         f"children 深度超限(>2层)拒收: "
                         f"{group.anchor} / {child.title!r}"
                     )
+                if is_title_truncated(child.title):
+                    warnings.append(f"标题超32字已截断: {child.title[:40]!r}")
                 cid = depth_id(group.anchor, child.title)
                 if cid in nodes:
                     continue  # 层级内 title 唯一化：冲突保留首条
@@ -955,6 +971,8 @@ def get_file(file_id: str) -> dict:
         "proposed_relations": rec.get("proposed_relations", []),
         # v0.5: finalize warnings 常驻（draft/旧记录为空列表）
         "finalize_warnings": rec.get("finalize_warnings", []),
+        # J3: 结构化警告 ledger 常驻（draft 态为空列表；四通道合并视图）
+        "warnings": rec.get("warnings", []),
         # v0.5 T15: 失效区常驻（draft/旧记录为空列表；条目见 finalize 死区追加）
         "dead_edges": rec.get("dead_edges", []),
     }
@@ -1153,6 +1171,23 @@ def finalize(file_id: str) -> dict:
     # Compute edge_stats from all edges in the graph
     rec["edge_stats"] = _compute_edge_stats(graph.edges)
 
+    # J3 披露协议：四处警告合并为结构化 ledger 落 file_rec["warnings"]。
+    # - upload/answers 条目跨 finalize 存活（写入时落账，重建只动 finalize 时通道）
+    # - graphify 通道仅在 success=True 时并入（degrade 警告已走 finalize
+    #   通道，避免同文案双计）
+    # - J4：session.answer_clips（fills 写入层预算截断）→ answers 通道
+    ledger: list[dict] = [
+        e for e in rec.get("warnings", [])
+        if e.get("source") in (SOURCE_UPLOAD, SOURCE_ANSWERS)
+    ]
+    ledger += from_strings(SOURCE_ANSWERS, session.answer_clips)
+    ledger += from_strings(SOURCE_ASSEMBLE, rec.get("assemble_warnings", []))
+    ledger += from_strings(SOURCE_FINALIZE, warnings)
+    if llm_result.success:
+        ledger += from_strings(SOURCE_GRAPHIFY, llm_result.warnings)
+    ledger += from_dead_edges(rec.get("dead_edges", []))
+    rec["warnings"] = ledger
+
     graph_id = stale_marker.register_graph(
         registry_db, session.user_id, new_code, "W",
         instance_no, version, scene_id=session.session_id,
@@ -1191,7 +1226,10 @@ def finalize(file_id: str) -> dict:
         _visual_bg_tasks[file_id] = thread
 
     _save_store()
+    # 旧 "warnings"（finalize 通道 list[str]）保留向后兼容；"ledger" 为 J3
+    # 结构化全量视图（get_file 的 "warnings" 同源）。
     return {"graph_id": graph_id, "graph_code": new_code, "warnings": warnings,
+            "ledger": ledger,
             "status": "finalized", "concept_terms_count": len(rec.get("concept_terms", []))}
 
 
@@ -1461,6 +1499,11 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         ip_code=f"IP{ip_no:04d}",
     )
     session.answers = dict(parsed["answers"])
+    # J4 预算护栏披露：parse 出口截断的答案记入 session（finalize 并入 ledger）
+    session.answer_clips.extend(
+        f"答案超2000字已截断: {k}（上传解析）"
+        for k in parsed.get("clipped_answers", [])
+    )
     # Mark these as LLM guesses (unconfirmed by the user) so the write
     # guard lets user-spoken fills overwrite them directly instead of
     # converting every topup into a proposal (upload-deadlock fix).
@@ -1577,6 +1620,24 @@ async def upload_worldview(req: UploadRequest) -> dict:
     upload_id = uuid.uuid4().hex
     body = _prefill_session(req.user_id, parsed)
     body.update({"status": "parsed", "upload_id": upload_id})
+    # J3/J4 披露：截断与 cap 有痕落库（此前只在响应里闪现，不持久化）
+    upload_notes: list[dict[str, Any]] = []
+    if parsed.get("truncated"):
+        upload_notes.append(
+            ledger_entry(SOURCE_UPLOAD, "原文超20000字已截断后解析")
+        )
+    if entities.get("capped"):
+        from app.domains.creation.a1.worldview_upload import PROPER_NOUN_LABELS
+
+        cap_detail = "、".join(
+            f"{PROPER_NOUN_LABELS.get(k, k)}超限丢弃 {v} 项"
+            for k, v in entities["capped"].items()
+        )
+        upload_notes.append(
+            ledger_entry(SOURCE_UPLOAD, f"专有名词每类上限10项已截断: {cap_detail}")
+        )
+    if upload_notes:
+        _FILES[body["file_id"]].setdefault("warnings", []).extend(upload_notes)
     # A 触发点：上传填满视觉设计时启动后台预生成
     await _trigger_visual_bg_if_filled(body["session_id"])
     return body
@@ -1614,6 +1675,13 @@ async def upload_convert(req: UploadConvertRequest) -> dict:
     log_event("upload", "convert_used", user_id=req.user_id, upload_id=req.upload_id)
     body = _prefill_session(req.user_id, parsed)
     body.update({"status": "parsed"})
+    # J4 披露：convert 输入超预算截断 → upload ledger 条目
+    from app.domains.creation.a1.worldview_upload import MAX_CONTENT_CHARS
+
+    if len(rec["content"]) > MAX_CONTENT_CHARS:
+        _FILES[body["file_id"]].setdefault("warnings", []).append(
+            ledger_entry(SOURCE_UPLOAD, "原文超20000字已截断后转换")
+        )
     # A 触发点：上传填满视觉设计时启动后台预生成
     await _trigger_visual_bg_if_filled(body["session_id"])
     return body

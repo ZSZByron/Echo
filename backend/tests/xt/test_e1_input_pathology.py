@@ -2,8 +2,12 @@
 
 打击面（用户投票定案 #2/#3/#4）：
   #2  20000 字符硬截断 —— 后半设定对解析永不可见；响应仅弱披露布尔
+      → J3/J4 后已补强：upload 落 ledger（响应布尔仍在）；截断线本身
+        是钦定预算，属设计取舍（非 bug）
   #3  convert_text 唯一不截断入口 —— 全文直灌 prompt
+      → J4 已修复（2026-09-11）：输入 ≤20000 + prompt 留痕，TestE17 已翻转
   #4  专有名词每类 cap=10 —— 第 11 个起静默丢弃且无披露
+      → J4 已修复（2026-09-11）：capped 披露 + 上传落 ledger，TestE15 已翻转
 
 判据：B（看不见的丢失）。确诊条件 = 数据缺失且无警告落库/响应。
 """
@@ -73,9 +77,13 @@ class TestE14TruncationBlindSpot:
 
 
 class TestE15NounCapSilentDrop:
-    """#4 专名洪水：每类 cap=10，第 11 个起静默丢弃。"""
+    """#4 专名洪水：每类 cap=10，第 11 个起静默丢弃。
 
-    def test_cap_drops_20_nouns_without_disclosure(self):
+    J4 已落地（2026-09-11）：capped 报告每类丢弃数（配 J3 披露落
+    warning ledger）——断言翻转为期望行为。
+    """
+
+    def test_cap_drops_20_nouns_with_disclosure(self):
         thirty_names = [f"重要角色{chr(0x4E00 + i)}号" for i in range(30)]
         fake = FakeProvider(
             {
@@ -89,32 +97,31 @@ class TestE15NounCapSilentDrop:
 
         # cap 是确定性生效的：30 → 10
         assert len(result["characters"]) == 10
-        # BUG(#4): 被丢弃的 20 个专名没有任何披露字段（无 dropped 计数、无警告）
-        # —— 后果：版权审查对第 11 个之后的知名 IP 名永久失明
-        assert set(result) == {
-            "characters",
-            "power_systems",
-            "world_keywords",
-            "suspected_works",
-            "truncated",
-        }
+        # J4 fixed(#4): 被丢弃的 20 个专名有 capped 披露字段（版权审查
+        # 失明范围可见——上传路由将其落 warning ledger，source=upload）
+        assert result["capped"] == {"characters": 20}
 
 
 class TestE17ConvertFullTextBomb:
-    """#3 convert 炸弹：唯一不做截断的全文入口。"""
+    """#3 convert 炸弹：唯一不做截断的全文入口。
 
-    def test_convert_swallows_full_100k_text(self):
-        doc = "这个世界以灵石为本位货币，剑修与妖魔共存。" * 5500  # ≈104k 字符
+    J4 已落地（2026-09-11）：输入 ≤20000 + prompt 内截断留痕标记
+    ——断言翻转为期望行为。
+    """
+
+    def test_convert_input_truncated_with_marker(self):
+        doc = "灵石大陆以灵石为本位货币，修行者以灵养魔躯壳。" * 5500  # 约104k 字符
         fake = FakeProvider({"converted": "净化后的全文"})
         out = asyncio.run(
             convert_text(
                 fake,
                 doc,
-                [{"term": "哈利波特", "work": "哈利·波特系列", "evidence": "同名"}],
+                [{"term": "灵石大陆", "work": "灵石大陆体系", "evidence": "同名"}],
             )
         )
         user_msg = fake.calls[0][1]["content"]
-        # BUG(#3): extract/parse 都有 _truncate(20000)，唯独 convert_text 直灌全文
-        # —— 10 万字文档的改写请求会把全文塞进 user prompt（token 爆炸/400/成本）
-        assert len(user_msg) > 100_000
+        # J4 fixed(#3): convert 不再全文直灌（曾 10 万字文档全文进 user
+        # prompt → token 爆炸/400/秒杀预算）；截断至 20000 + 留痕标记
+        assert len(user_msg) < 21_000
+        assert "已截断" in user_msg
         assert out == "净化后的全文"

@@ -326,3 +326,100 @@ class TestConflictNotePassthrough:
         assert s.pending_proposals[key]["proposal"].conflict_note == (
             "灵韵海是核心地理，与地壳阴面矛盾"
         )
+
+
+class TestApplyFillsJ1TruthGate:
+    """J1 答案真值闸（2-A1-v0.5.1 §3 J1）：fills 统一出口拦截占位值.
+
+    占位 fill 既不写入空字段，也不对非空字段产生拦截提案——
+    语义为空的提取结果视同"本轮没有提取"。
+    """
+
+    def test_placeholder_fill_on_empty_field_not_written(self):
+        s = make_session()
+        fills = [InterviewFill(module="IP定位", subfield="name", value="未提及")]
+        file_diff, proposals = _apply_fills(s, fills)
+
+        assert "IP定位.name" not in s.answers
+        assert file_diff == []
+        assert proposals == []
+
+    def test_placeholder_fill_on_nonempty_field_not_intercepted(self):
+        s = make_session()
+        s.answers["IP定位.name"] = "星陨大陆"
+        fills = [InterviewFill(module="IP定位", subfield="name", value="缺少依据")]
+        file_diff, proposals = _apply_fills(s, fills)
+
+        # 占位值不允许触发改写提案（否则会把真答案污染成占位）
+        assert s.answers["IP定位.name"] == "星陨大陆"
+        assert s.pending_proposals == {}
+        assert file_diff == []
+        assert proposals == []
+
+    def test_mixed_fills_placeholder_skipped_real_applied(self):
+        s = make_session()
+        fills = [
+            InterviewFill(module="IP定位", subfield="name", value="（暂无）"),
+            InterviewFill(module="IP定位", subfield="concept", value="因果轮回"),
+        ]
+        file_diff, proposals = _apply_fills(s, fills)
+
+        assert "IP定位.name" not in s.answers
+        assert s.answers["IP定位.concept"] == "因果轮回"
+        assert [d["field"] for d in file_diff] == [
+            get_subfield("IP定位", "concept")["label"]
+        ]
+        assert proposals == []
+
+    def test_prefill_exempt_placeholder_still_blocked(self):
+        """prefill 豁免通道也不能被占位值借道覆写真答案."""
+        s = make_session()
+        s.answers["IP定位.name"] = "星陨大陆"
+        s.prefill_fields = ["IP定位.name"]
+        fills = [InterviewFill(module="IP定位", subfield="name", value="N/A")]
+        file_diff, proposals = _apply_fills(s, fills)
+
+        assert s.answers["IP定位.name"] == "星陨大陆"
+        assert file_diff == []
+        assert proposals == []
+
+
+class TestApplyFillsJ4Budget:
+    """J4 预算护栏：fill.value 超 2000 字 → 截断写入 + session.answer_clips 披露."""
+
+    def test_long_fill_clipped_and_disclosed(self):
+        from app.domains.creation.seed.a1_question_tree import ANSWER_MAX_CHARS
+
+        s = make_session()
+        long_value = "灵" * 2500
+        fills = [InterviewFill(module="IP定位", subfield="name", value=long_value)]
+        file_diff, _proposals = _apply_fills(s, fills)
+
+        assert len(s.answers["IP定位.name"]) == ANSWER_MAX_CHARS
+        assert s.answers["IP定位.name"] == long_value[:ANSWER_MAX_CHARS]
+        assert len(file_diff) == 1
+        assert len(file_diff[0]["new"]) == ANSWER_MAX_CHARS
+        # 披露：session.answer_clips 记一条（finalize 时并入 ledger source=answers）
+        assert len(s.answer_clips) == 1
+        assert "IP定位.name" in s.answer_clips[0]
+        assert "截断" in s.answer_clips[0]
+
+    def test_short_fill_no_clip_no_disclosure(self):
+        s = make_session()
+        fills = [InterviewFill(module="IP定位", subfield="name", value="星陨大陆")]
+        _apply_fills(s, fills)
+
+        assert s.answers["IP定位.name"] == "星陨大陆"
+        assert s.answer_clips == []
+
+    def test_clipped_value_participates_in_guard_branches(self):
+        """截断发生在守卫判定之前：分支比较/提案都用截断后的值."""
+        s = make_session()
+        s.answers["IP定位.name"] = "星" * 2000  # 恰好上限
+        long_fill = "星" * 2000 + "陨" * 500   # 截断后 == 旧值 → 分支2 skip
+        fills = [InterviewFill(module="IP定位", subfield="name", value=long_fill)]
+        file_diff, proposals = _apply_fills(s, fills)
+
+        assert proposals == []
+        assert file_diff == []
+        assert len(s.answer_clips) == 1  # 仍披露（输入确实超限）
