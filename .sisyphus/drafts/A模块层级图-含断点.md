@@ -1,3 +1,9 @@
+> 📌 **现行参考文档**（2026-09-11 · 矛盾#7 处置标注，用户批准保留原位）
+> **保留原因**: 被活代码引用为设计权威——
+> - `backend/app/domains/creation/seed/a1_question_tree.py`（A1 问卷树 Authority，本文档"第4套·世界观拓扑维度"）
+> - `backend/app/domains/creation/graph/constraint_topology.py`（边类型语义引自本文档 L299-314）
+> **概念权威链**: 现行 = `docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md`（本文档为其前身设计底稿；v0.5 已收编并修订其拓扑语义）
+
 # A模块层级图（含断点）
 
 > **格式说明**: 缩进树格式，可直接导入 Xmind（每级缩进 = 子节点）
