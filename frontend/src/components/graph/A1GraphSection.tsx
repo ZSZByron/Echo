@@ -13,7 +13,7 @@ import { confirmEdge, rejectEdge, confirmConceptTerms, extractConceptRelations, 
 import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
 import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
-import type { ConceptTerm, ProposedRelation } from '../../types/a1';
+import type { ConceptTerm, ProposedRelation, WarningLedgerEntry } from '../../types/a1';
 import type { OpenQuestionRecord } from '../../pages/a1/A1Workspace';
 
 interface A1GraphSectionProps {
@@ -38,6 +38,18 @@ function warningDomainLabel(w: string): string | null {
 /** T16: strip the machine prefix so the popover shows clean Chinese text. */
 function stripWarningPrefix(w: string): string {
   return w.replace(/^\[(entries|edges|constraint_fields)\]\s*/, '');
+}
+
+/** J3: Chinese label for each ledger source channel. */
+function ledgerSourceLabel(source: string): string {
+  switch (source) {
+    case 'assemble': return '组装';
+    case 'finalize': return '定稿';
+    case 'graphify': return '图谱化';
+    case 'dead_edges': return '失效边';
+    case 'upload': return '上传';
+    default: return source;
+  }
 }
 
 /** Fullscreen shell (T-C): absolutely fills its positioned parent — the
@@ -83,6 +95,15 @@ export function A1GraphSection({
   // T16: degradation warnings from finalize (graphify degradation report)
   const [finalizeWarnings, setFinalizeWarnings] = useState<string[]>([]);
   const [showWarningsPopover, setShowWarningsPopover] = useState(false);
+  // J3: structured warning ledger (four-channel merged view) from GET /api/a1/file/{id}
+  const [warningsLedger, setWarningsLedger] = useState<WarningLedgerEntry[]>([]);
+
+  // J3: split ledger by severity — warn entries drive the prominent badge,
+  // info entries render weakened below them in the popover.
+  const warnLedgerEntries = useMemo(() => warningsLedger.filter((e) => e.level === 'warn'), [warningsLedger]);
+  const infoLedgerEntries = useMemo(() => warningsLedger.filter((e) => e.level !== 'warn'), [warningsLedger]);
+  // Legacy fallback: old records only carry finalize_warnings (no ledger yet).
+  const showLegacyFinalizeBadge = warningsLedger.length === 0 && finalizeWarnings.length > 0;
   // F2: dead edges from get_file response, surfaced in EdgeReviewPanel
   const [deadEdges, setDeadEdges] = useState<DeadEdge[]>([]);
 
@@ -142,11 +163,13 @@ export function A1GraphSection({
         proposed_relations?: ProposedRelation[];
         finalize_warnings?: string[];
         dead_edges?: DeadEdge[];
+        warnings?: WarningLedgerEntry[];
       }>(`/api/a1/file/${fileId}`);
       setConceptTerms(file.concept_terms ?? []);
       setProposedRelations(file.proposed_relations ?? []);
       setFinalizeWarnings(file.finalize_warnings ?? []);
       setDeadEdges(file.dead_edges ?? []);
+      setWarningsLedger(file.warnings ?? []);
     } catch (err) {
       console.error('Failed to load concept terms:', err);
     }
@@ -484,8 +507,78 @@ export function A1GraphSection({
             <span className="text-amber-400">待确认 <b>{stats.pending}</b></span>
             <span className="text-emerald-400">已确认 <b>{stats.confirmed}</b></span>
             <span className="text-blue-400">待问 <b>{pendingOpenQuestions.length}</b></span>
-            {/* T16: degradation badge — only when finalize produced warnings */}
-            {finalizeWarnings.length > 0 && (
+            {/* T16/J3: degradation badge — structured ledger takes precedence;
+                legacy finalizeWarnings badge only shown as fallback for old data */}
+            {warningsLedger.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowWarningsPopover(v => !v)}
+                  className={
+                    warnLedgerEntries.length > 0
+                      ? 'px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/50 text-amber-400 text-xs whitespace-nowrap hover:bg-amber-500/25 transition-colors'
+                      : 'px-2 py-0.5 rounded bg-void-800/60 border border-white/15 text-void-300 text-xs whitespace-nowrap hover:bg-void-700/60 transition-colors'
+                  }
+                  data-testid="degradation-badge"
+                >
+                  {warnLedgerEntries.length > 0
+                    ? <>⚠ 警告 {warnLedgerEntries.length} 项</>
+                    : <>提示 {infoLedgerEntries.length} 项</>}
+                </button>
+                {showWarningsPopover && (
+                  <div
+                    className="absolute right-0 top-full mt-2 z-20 w-96 max-h-80 overflow-y-auto glass-panel p-4 bg-space-800/95 border-amber-500/30 text-left"
+                    data-testid="degradation-popover"
+                  >
+                    <h3 className="text-amber-400 text-sm font-medium mb-2">降级明细</h3>
+                    {warnLedgerEntries.length > 0 && (
+                      <>
+                        <p className="text-amber-400 text-xs mb-1.5 font-medium">警告</p>
+                        <ul className="space-y-1.5 mb-3">
+                          {warnLedgerEntries.map((e, i) => (
+                            <li key={`warn-${i}`} className="flex items-start gap-2 text-xs">
+                              <span className="text-amber-500 mt-0.5">•</span>
+                              <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                                {ledgerSourceLabel(e.source)}
+                              </span>
+                              <span className="text-gray-200 break-all">
+                                {e.detail}
+                                {e.count > 1 && <span className="text-amber-500"> ×{e.count}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {infoLedgerEntries.length > 0 && (
+                      <>
+                        <p className="text-void-300 text-xs mb-1.5 font-medium">提示</p>
+                        <ul className="space-y-1.5">
+                          {infoLedgerEntries.map((e, i) => (
+                            <li key={`info-${i}`} className="flex items-start gap-2 text-xs opacity-70">
+                              <span className="text-void-300 mt-0.5">•</span>
+                              <span className="shrink-0 px-1.5 py-0.5 rounded bg-void-800 border border-white/15 text-void-300">
+                                {ledgerSourceLabel(e.source)}
+                              </span>
+                              <span className="text-gray-400 break-all">
+                                {e.detail}
+                                {e.count > 1 && <span> ×{e.count}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    <button
+                      onClick={() => setShowWarningsPopover(false)}
+                      className="mt-3 text-xs text-void-300 hover:text-stardust-300 transition-colors"
+                    >
+                      收起
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {showLegacyFinalizeBadge && (
               <div className="relative">
                 <button
                   onClick={() => setShowWarningsPopover(v => !v)}

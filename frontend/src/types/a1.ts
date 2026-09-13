@@ -94,3 +94,19 @@ export interface ProposedRelation {
   /** Rationale for why this relation was proposed */
   rationale: string;
 }
+
+/**
+ * Structured warning ledger entry — merged view of degradation disclosures
+ * from five channels (assemble / finalize / graphify / dead_edges / upload).
+ * Returned by GET /api/a1/file/{id} as `warnings`.
+ */
+export interface WarningLedgerEntry {
+  /** Origin channel of the warning */
+  source: string;
+  /** Human-readable detail (Chinese, full text) */
+  detail: string;
+  /** Number of occurrences (display ×N when > 1) */
+  count: number;
+  /** Severity: "warn" (prominent) or "info" (weakened) */
+  level: string;
+}

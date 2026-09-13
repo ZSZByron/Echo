@@ -578,3 +578,103 @@ describe('A1GraphSection - Fullscreen Layout + Guide (T-C)', () => {
     expect(panel.textContent).toContain('死亡转生');
   });
 });
+
+describe('A1GraphSection - Warning Ledger (J3)', () => {
+  const mockFileId = 'test-file-123';
+  const mockReturnToChat = vi.fn();
+
+  const mockGraph: KnowledgeGraph = {
+    scene_id: 'test-scene',
+    nodes: {},
+    edges: [],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(() => {}),
+      removeItem: vi.fn(() => {}),
+      clear: vi.fn(() => {}),
+      length: 0,
+      key: vi.fn(() => null),
+    };
+  });
+
+  /** Mock by URL: /graph → graph, /file/{id} → file record with warnings. */
+  function mockFetchWithFile(fileRecord: Record<string, unknown>) {
+    vi.mocked(fetchJson).mockImplementation(async (url: string) => {
+      const u = typeof url === 'string' ? url : '';
+      if (u.includes('/graph')) return mockGraph;
+      return fileRecord;
+    }) as never;
+  }
+
+  it('shows prominent warn badge with warn-level count when ledger has warn entries', async () => {
+    mockFetchWithFile({
+      warnings: [
+        { source: 'finalize', detail: '图谱化失败，已降级为规则图谱', count: 1, level: 'warn' },
+        { source: 'graphify', detail: '幻觉端点丢边', count: 3, level: 'warn' },
+        { source: 'upload', detail: '原文超长已截断', count: 1, level: 'info' },
+      ],
+    });
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={false} />);
+
+    const badge = await screen.findByTestId('degradation-badge');
+    expect(badge.textContent).toContain('警告 2 项');
+    // Legacy badge must NOT coexist when ledger is non-empty
+    expect(badge.textContent).not.toContain('本轮降级');
+
+    fireEvent.click(badge);
+    const popover = await screen.findByTestId('degradation-popover');
+    expect(popover.textContent).toContain('定稿');
+    expect(popover.textContent).toContain('图谱化');
+    expect(popover.textContent).toContain('图谱化失败，已降级为规则图谱');
+    expect(popover.textContent).toContain('幻觉端点丢边');
+    expect(popover.textContent).toContain('×3');
+    // info entry rendered weakened but present
+    expect(popover.textContent).toContain('原文超长已截断');
+  });
+
+  it('shows weakened info-only badge when ledger has only info entries', async () => {
+    mockFetchWithFile({
+      warnings: [
+        { source: 'assemble', detail: '重复条目已去重', count: 2, level: 'info' },
+      ],
+    });
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={false} />);
+
+    const badge = await screen.findByTestId('degradation-badge');
+    expect(badge.textContent).toContain('提示 1 项');
+    expect(badge.textContent).not.toContain('警告');
+
+    fireEvent.click(badge);
+    const popover = await screen.findByTestId('degradation-popover');
+    expect(popover.textContent).toContain('组装');
+    expect(popover.textContent).toContain('重复条目已去重');
+    expect(popover.textContent).toContain('×2');
+  });
+
+  it('falls back to legacy finalize badge when ledger is empty but finalize_warnings exist', async () => {
+    mockFetchWithFile({
+      warnings: [],
+      finalize_warnings: ['[entries] 3 条条目被截断'],
+    });
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={false} />);
+
+    const badge = await screen.findByTestId('degradation-badge');
+    expect(badge.textContent).toContain('本轮降级：1 项');
+  });
+
+  it('renders no badge when warnings and finalize_warnings are both empty', async () => {
+    mockFetchWithFile({ warnings: [] });
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={1} isStale={false} />);
+
+    await screen.findByText(/已定稿 v1/);
+    expect(screen.queryByTestId('degradation-badge')).not.toBeInTheDocument();
+  });
+});
