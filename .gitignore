@@ -89,3 +89,6 @@ chk1.py
 .env.production
 .env.staging
 .env.development
+
+# A1 store backup rotation (J4, runtime artifacts)
+backend/data/*.bak*
