@@ -84,3 +84,8 @@ chk1.py
 
 # Mind maps / binary working files
 *.xmind
+
+# Local deployment secrets (deploy.ps1 expects .env.production)
+.env.production
+.env.staging
+.env.development

@@ -1,0 +1,21 @@
+# Build context hygiene (repo-root context for backend/frontend Dockerfiles)
+.git/
+.venv/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
+htmlcov/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+.sisyphus/
+docs/
+*.md
+.env
+.env.*
+!.env.example.production
+backups/
+experiments/
