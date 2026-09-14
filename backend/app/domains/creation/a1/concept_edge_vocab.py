@@ -360,3 +360,47 @@ def is_known_relation(name: str) -> bool:
         True if the edge exists in EDGE_VOCAB, False otherwise
     """
     return name in VOCAB_RELATION_NAMES
+
+
+# =============================================================================
+# Display-only Chinese labels for relation codes (user-facing surfaces)
+# =============================================================================
+# 背景：词汇表两代命名混居——tier 间新边已是中文短名，旧代结构/规则边与
+# application_tree target_edge_type 仍是英文码。本字典只做**展示层翻译**：
+# 键匹配（VOCAB_RELATION_NAMES / confirmed / dead_edges 的 from-to-relation
+# 三元组键）一律继续使用原码，本表不得进入任何匹配/校验逻辑。
+# 未知码原样返回（诚实降级）。前端 frontend/src/labels/relationLabel.ts 逐字对齐。
+
+RELATION_LABELS: dict[str, str] = {
+    # ◇ 结构边（EDGE_VOCAB 复合名的单一码拆解）
+    "GEO_CONTAINS": "地理包含",
+    "GEO_ABOVE": "垂直上位",
+    "GEO_BELOW": "垂直下位",
+    "POWER_SATURATES_GEO": "力量浸润地理",
+    "POWER_SOURCES_FROM_GEO": "力量源自地理",
+    "RULE_SHAPES_GEO": "法则塑形地理",
+    "EVENT_CAUSED_BY": "事件因果",
+    "GEO_HOSTS_EVENT": "地理承载事件",
+    "FACTION_OPPOSES": "阵营对立",
+    "ALLIED": "阵营结盟",
+    # ★ 规则边
+    "CONSTRAINT_LIMITS": "边界锚定",
+    # application_tree.yaml target_edge_type（cst 边 visual_description 域）
+    "RULE_CULTURE_ORDER": "文化秩序",
+    "RULE_ERA_MARK": "纪元标记",
+    "RULE_CONTENT_GATE": "内容红线",
+    "RULE_CLIMATE_ZONE": "气候分区",
+    "RULE_ACTION_SCOPE": "行为边界",
+    "RULE_POWER_SATURATION": "力量饱和",
+    "RULE_ENV_STATE": "环境状态",
+}
+
+
+def relation_label(code: str) -> str:
+    """展示层中文标签；未知码原样返回（不猜测）。
+
+    仅用于拼装用户可见文案（开放问题句、审台列表），任何键匹配
+    （VOCAB_RELATION_NAMES、edge confirm/reject、dead_edge 三元组）
+    必须继续使用原始 code。
+    """
+    return RELATION_LABELS.get(code, code)

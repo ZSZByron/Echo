@@ -74,6 +74,8 @@ def from_dead_edges(dead_edges: list[dict[str, Any]]) -> list[LedgerEntry]:
     """
     if not dead_edges:
         return []
+    # 展示层 reason 中文化（键聚合仍按原 reason 分组）
+    reason_labels = {"endpoint_missing": "端点缺失"}
     by_reason: dict[str, int] = {}
     for d in dead_edges:
         reason = str(d.get("reason") or "unknown")
@@ -81,7 +83,7 @@ def from_dead_edges(dead_edges: list[dict[str, Any]]) -> list[LedgerEntry]:
     return [
         entry(
             SOURCE_DEAD_EDGES,
-            f"失效边入死区({reason}): {count} 条",
+            f"失效边入死区({reason_labels.get(reason, reason)}): {count} 条",
             count=count,
         )
         for reason, count in sorted(by_reason.items())

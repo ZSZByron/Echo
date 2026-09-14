@@ -29,7 +29,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.ai.provider import LLMProvider
-from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES
+from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES, relation_label
 from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
 
 
@@ -328,7 +328,7 @@ def _translate_out_of_vocab_relation(
         question = question.replace(term, "")
         relation = relation.replace(term, "")
 
-    question += f"（系统识别关系：{relation}，推理依据：{rationale}）"
+    question += f"（系统识别关系：{relation_label(relation)}，推理依据：{rationale}）"
     return question
 
 

@@ -82,7 +82,8 @@ class TestFromDeadEdges:
         assert len(out) == 2
         by_reason = {e["detail"]: e for e in out}
         assert all(e["source"] == "dead_edges" for e in out)
-        missing = next(e for e in out if "endpoint_missing" in e["detail"])
+        # 展示层 reason 已中文化（endpoint_missing → 端点缺失），聚合仍按原 reason 分组
+        missing = next(e for e in out if "端点缺失" in e["detail"])
         assert missing["count"] == 2
         assert missing["level"] == LEVEL_WARN
         rejected = next(e for e in out if "rejected" in e["detail"])

@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES
+from app.domains.creation.a1.concept_edge_vocab import VOCAB_RELATION_NAMES, relation_label
 from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.domains.creation.graph.constraint_topology import STRUCTURED_FIELDS
@@ -508,7 +508,7 @@ def apply_graphify_validation(result: GraphifyResult) -> GraphifyResult:
                 OpenQuestions(
                     question=(
                         f"「{edge.from_}」与「{edge.to}」之间是否存在"
-                        f"「{edge.relation}」这样的关系？请用世界观设定描述。"
+                        f"「{relation_label(edge.relation)}」这样的关系？请用世界观设定描述。"
                     )
                 )
             )

@@ -132,7 +132,8 @@ class TestFinalizeLedgerAssembly:
         assert _finalize(client, payload).status_code == 200
 
         led = _ledger(payload)
-        assert _has(led, "dead_edges", "endpoint_missing")
+        # 展示层 reason 已中文化（endpoint_missing → 端点缺失）
+        assert _has(led, "dead_edges", "端点缺失")
         dead_entry = next(e for e in led if e["source"] == "dead_edges")
         assert dead_entry["count"] == 1
         assert dead_entry["level"] == "warn"
