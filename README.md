@@ -278,17 +278,24 @@ npx playwright test       # E2E
 
 ---
 
-## 部署状态（如实标注）
+## 部署（容器化，2026-09-13 批次四修复并实测）
 
-> ⚠️ **当前不可直接部署**。部署三件套均为纸面文章，修复计划见审计报告（批次 4，可选）：
+```powershell
+# 1. 准备环境文件（gitignored，不入库）
+Copy-Item .env.example.production .env.production   # 填入真实 LLM key
 
-| 问题 | 详情 |
-|------|------|
-| Dockerfile 不存在 | `docker-compose.production.yml` 引用的 backend/frontend 构建目标无对应 Dockerfile |
-| nginx.conf 拼写错误 | 变量名 `$proxy_add_x_forwarded_to` 应为 `$proxy_add_x_forwarded_for` |
-| deploy.ps1 空壳 | production 分支只备份 dist + 注释掉的 S3 命令，不调用 compose |
-| compose 引用缺失文件 | `docker-compose.yml` COPY 了不存在的 `backend/README.md` |
-| .env.example.production 不完整 | 数据库仍是 sqlite，无 JWT/密钥配置项 |
+# 2. 一键部署（构建镜像 + 起栈 + 健康检查）
+.\deploy.ps1 -Environment production -SkipTests
+
+# 或直接 compose
+docker compose -f docker-compose.production.yml --env-file .env.production up -d --build
+```
+
+- **backend**：`python:3.11-slim`（uvicorn :8000；健康检查 `/api/health`；数据卷 `./data:/data`）
+- **frontend**：`node:24` 构建 → `nginx:alpine`（:80；同源反代 `/api/`，SPA fallback）
+- 端口可用 `WEB_PORT` / `API_PORT` 覆盖（.env.production）
+- 已实测全链路：静态页 ✅ / 反代健康 ✅ / A1 端点（`/api/a1/seeds`）✅
+- 已知边界：用户体系未建（`JWT_SECRET` 为占位）；前端测试套件有存量失败（部署时 `-SkipTests` 或先修）；前端镜像用 `npm install` 而非 `npm ci`（Windows 生成的锁缺 Linux 平台变体，见 PROJECT_STATE 技术债记录）
 
 本地开发（start.ps1 / 手动启动）不受影响。
 
