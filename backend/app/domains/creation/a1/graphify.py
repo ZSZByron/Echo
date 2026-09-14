@@ -321,6 +321,18 @@ def _vocab_block() -> str:
     return "\n".join(f"  - {name}" for name in sorted(VOCAB_RELATION_NAMES))
 
 
+def _whitelist_block() -> str:
+    """Closed constraint whitelist (5 dims / 21 tags; mirrors STRUCTURED_FIELDS).
+
+    提示词缺口修复（2026-09-14）：此前规则只说"必须在白名单内"却从不列出，
+    LLM 只能模仿答案块里的问卷键（immutable_core/ai_fill）自造维度
+    （CORE.immutable / AI_FILL.scope 即由此而来）。
+    """
+    return "\n".join(
+        f"  - {dim}: {', '.join(tags)}" for dim, tags in STRUCTURED_FIELDS.items()
+    )
+
+
 def _evidence_block(answered_evidence: list[str] | None) -> str:
     """C7 promotion-evidence block (T17 wires this; empty slot for now)."""
     if not answered_evidence:
@@ -358,11 +370,16 @@ def build_graphify_prompt(
             "【模块层级映射表】（10个模块的语义层级，封闭）：",
             _tier_block(),
             "",
+            "【约束白名单】（constraint_fields 与 cst 节点唯一可用的 DIM.tag 全集，",
+            "  不得自造维度名；问卷的 模块.子字段 键（如 immutable_core / ai_fill）",
+            "  是条目锚点，不是约束维度）：",
+            _whitelist_block(),
+            "",
             "【节点引用规则】",
             "1. 深度树条目节点 id 用内容锚定编码：d:{锚点}:{条目标题}，",
             "   例如 d:力量体系.acquire:斗气分裂。锚点必须是合法的 模块.子字段 键。",
             "2. 概念树节点直接引用 模块id 或 模块id.子字段id。",
-            "3. 约束节点 id 格式：cst_{DIM}_{tag}，DIM.tag 必须在白名单内。",
+            "3. 约束节点 id 格式：cst_{DIM}_{tag}，DIM.tag 只能取自上方【约束白名单】。",
             "4. 边的 from/to 只能引用上述三类节点，不得引用不存在的节点。",
             "",
             "【你的任务】",
@@ -372,7 +389,8 @@ def build_graphify_prompt(
             "3. edges：只使用封闭词表内的关系名；confidence 取 semantic/rule/structure。",
             "   若发现词表外的关系，不要放进 edges，转译为世界观问句放进 open_questions",
             "   （禁止使用拓扑/槽位/派生等术语，用用户可理解的设定式表述）。",
-            "4. constraint_fields：把可归类为约束的内容按 DIM.tag 白名单归类。",
+            "4. constraint_fields：把可归类为约束的内容按上方【约束白名单】归类；",
+            "   归不进白名单的内容不要硬塞（留在答案原文即可），更不得自造维度名。",
             "5. open_questions：词表外关系、悬而未决的设定问题，转译为问句。",
             "",
             "【返回格式】严格JSON（不要输出其他内容）：",

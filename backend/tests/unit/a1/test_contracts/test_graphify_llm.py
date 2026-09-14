@@ -111,6 +111,17 @@ class TestHappyPath:
         assert "模块层级映射表" in prompt
         for mid in TIER_MAP:
             assert mid in prompt
+        # closed constraint whitelist (prompt-gap fix 2026-09-14):
+        # 全部 5 维 21 tag 必须逐条出现在提示词中（与关系词表同级枚举）
+        assert "约束白名单" in prompt
+        for dim, tags in STRUCTURED_FIELDS.items():
+            assert dim in prompt
+            for tag in tags:
+                assert f"{dim}: {', '.join(tags)}" in prompt or tag in prompt
+        # 反污染明示：问卷键不是约束维度（ai_fill 不在本次 answers 里，
+        # 出现即证明来自白名单块的明示句）
+        assert "不是约束维度" in prompt
+        assert "ai_fill" in prompt
         # d: node reference rule
         assert "d:{锚点}:{条目标题}" in prompt
         assert "d:" in prompt
