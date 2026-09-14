@@ -11,7 +11,6 @@ from typing import Protocol, runtime_checkable
 
 from app.ai.config import load_provider_config
 from app.ai.provider import LLMProvider, create_provider
-from app.domains.creation.constraint.dimension_generator import DimensionGenerator
 from app.engine.rules_engine import RulesEngine
 from app.engine.world_loader import WorldLoader
 from app.models.action import JudgmentResult, ParsedIntent
@@ -88,13 +87,4 @@ def get_intent_parser() -> IntentParser:
 
 def get_narrative_renderer() -> NarrativeRenderer:
     from app.ai.renderer import NarrativeRenderer as _NR
-
     return _NR(get_llm_provider())
-
-
-@lru_cache(maxsize=1)
-def get_dimension_generator() -> DimensionGenerator:
-    """Singleton DimensionGenerator for constraint generation."""
-    from app.domains.creation.constraint.dimension_generator import DimensionGenerator
-    
-    return DimensionGenerator(provider=get_llm_provider())
