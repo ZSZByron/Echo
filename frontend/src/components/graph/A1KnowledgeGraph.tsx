@@ -23,6 +23,7 @@ import NodeDetailPanel, {
   type SearchHit,
 } from './NodeDetailPanel';
 import 'reactflow/dist/style.css';
+import { relationLabel } from '../../labels/relationLabel';
 
 export interface A1KnowledgeGraphProps {
   graph: KnowledgeGraph | null;
@@ -1069,7 +1070,7 @@ export function A1KnowledgeGraph({
         animation: 'breathing 2s ease-in-out infinite'
       };
       animated = true;
-      label = `? ${edge.relation || edge.visual_description}`;
+      label = `? ${relationLabel(edge.relation || edge.visual_description)}`;
       labelStyle = {
         fontSize: '11px',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
@@ -1084,7 +1085,7 @@ export function A1KnowledgeGraph({
         strokeWidth: 2,
         strokeDasharray: undefined
       };
-      label = edge.relation || edge.visual_description;
+      label = relationLabel(edge.relation || edge.visual_description);
       labelStyle = {
         fontSize: '11px',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
@@ -1098,7 +1099,7 @@ export function A1KnowledgeGraph({
         strokeWidth: 1.5,
         strokeDasharray: '2,2'
       };
-      label = `★ ${edge.relation || edge.visual_description}`;
+      label = `★ ${relationLabel(edge.relation || edge.visual_description)}`;
       labelStyle = {
         fontSize: '11px',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
@@ -1113,7 +1114,7 @@ export function A1KnowledgeGraph({
         strokeWidth: 1.5,
         strokeDasharray: undefined
       };
-      label = `◇ ${edge.relation || edge.visual_description}`;
+      label = `◇ ${relationLabel(edge.relation || edge.visual_description)}`;
       labelStyle = {
         fontSize: '10px',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
@@ -1634,7 +1635,7 @@ export function A1KnowledgeGraph({
                   ◆ 语义边待确认
                 </div>
                 <div className="text-xs text-void-400 mb-2">
-                  {selectedEdge.relation || selectedEdge.visual_description}
+                  {relationLabel(selectedEdge.relation || selectedEdge.visual_description)}
                 </div>
                 <div className="text-xs text-void-300 leading-relaxed">
                   推理依据：{selectedEdge.visual_description}

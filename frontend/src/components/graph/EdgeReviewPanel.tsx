@@ -19,6 +19,7 @@ import type { GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation } from '../../types/a1';
 import type { DeadEdge } from '../../api/a1';
 import { getDeadEdgeKey } from '../../api/a1';
+import { relationLabel } from '../../labels/relationLabel';
 
 export interface EdgeReviewPanelProps {
   /** Concept edges to review (semantic/rule/structure) */
@@ -264,7 +265,7 @@ export function EdgeReviewPanel({
                 <div className="text-sm text-gray-300 break-words">
                   <span>{fromLabel}</span>
                   <span className="text-void-400 mx-1">→</span>
-                  <span className="text-void-300 text-xs">[{dead.relation}]</span>
+                  <span className="text-void-300 text-xs">[{relationLabel(dead.relation)}]</span>
                   <span className="ml-1">{toLabel}</span>
                 </div>
                 <div className="text-void-400 text-xs mt-1">上轮已确认，本轮源节点未再出现</div>
@@ -341,7 +342,7 @@ export function EdgeReviewPanel({
           <div className="text-sm text-gray-300 break-words mb-2">
             <span>{fromLabel}</span>
             <span className="text-void-400 mx-1">→</span>
-            <span className="text-void-300 text-xs">[{discardCandidate.relation}]</span>
+            <span className="text-void-300 text-xs">[{relationLabel(discardCandidate.relation)}]</span>
             <span className="ml-1">{toLabel}</span>
           </div>
           <p className="text-void-400 text-xs leading-relaxed mb-3">
@@ -431,7 +432,7 @@ export function EdgeReviewPanel({
             <div className={`text-sm break-words ${isConfirmed ? 'text-white font-bold' : 'text-gray-200'}`}>
               <span className={isConfirmed ? 'font-bold' : ''}>{fromLabel}</span>
               <span className="text-void-400 mx-1">→</span>
-              <span className="text-void-300 text-xs">[{edge.relation || edge.visual_description}]</span>
+              <span className="text-void-300 text-xs">[{relationLabel(edge.relation || edge.visual_description)}]</span>
               <span className={`ml-1 ${isConfirmed ? 'font-bold' : ''}`}>{toLabel}</span>
             </div>
               <div className="text-void-400 text-xs mt-1 line-clamp-3">{edge.visual_description}</div>

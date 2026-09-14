@@ -3,6 +3,7 @@ import '../theme.css';
 import type { A1Proposal } from '../../types/a1';
 import { ProposalCard } from './ProposalCard';
 import { ProposalTray } from './ProposalTray';
+import { translateRelationInProse } from '../../labels/relationLabel';
 
 export interface DiceRecommendation {
   field: string;
@@ -167,7 +168,7 @@ export function GuidedChat({
                   : 'bg-slate-800 text-slate-100 border border-slate-700'
               }`}
             >
-              {message.text}
+              {translateRelationInProse(message.text)}
               {message.diceRecommendation && (
                 <DiceRecommendationCard recommendation={message.diceRecommendation} />
               )}

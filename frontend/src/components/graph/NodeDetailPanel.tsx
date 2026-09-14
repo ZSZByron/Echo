@@ -10,6 +10,7 @@
 
 import React, { useMemo } from 'react';
 import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
+import { relationLabel } from '../../labels/relationLabel';
 
 /** Depth-tree node id prefix (form `d:{anchor}:{title}`). */
 export const isDepthId = (id: string): boolean => id.startsWith('d:');
@@ -289,6 +290,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, graph, onClose,
               {relatedEdges.map(({ edge, peerId }) => {
                 const peer = graph.nodes[peerId];
                 const rel = edge.relation || edge.visual_description;
+                const relLabel = relationLabel(rel); // 展示层；key 仍用原码
                 return (
                   <li key={`${edge.from_node_id}-${edge.to_node_id}-${rel}`}>
                     <button
@@ -297,7 +299,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, graph, onClose,
                       onClick={() => onNavigate?.(peerId)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-void-800/70 border border-void-700 hover:border-nebula-400 transition-colors text-left"
                     >
-                      <span className="text-xs text-nebula-300 shrink-0">{rel}</span>
+                      <span className="text-xs text-nebula-300 shrink-0">{relLabel}</span>
                       <span className="text-xs text-white truncate flex-1">
                         {peer ? nodeTitle(peer) : peerId}
                       </span>

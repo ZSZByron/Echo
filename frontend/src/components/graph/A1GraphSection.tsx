@@ -15,6 +15,7 @@ import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation, WarningLedgerEntry } from '../../types/a1';
 import type { OpenQuestionRecord } from '../../pages/a1/A1Workspace';
+import { relationLabel, translateRelationInProse } from '../../labels/relationLabel';
 
 interface A1GraphSectionProps {
   fileId: string;
@@ -541,7 +542,7 @@ export function A1GraphSection({
                                 {ledgerSourceLabel(e.source)}
                               </span>
                               <span className="text-gray-200 break-all">
-                                {e.detail}
+                                {translateRelationInProse(e.detail).replace(/endpoint_missing/g, '端点缺失')}
                                 {e.count > 1 && <span className="text-amber-500"> ×{e.count}</span>}
                               </span>
                             </li>
@@ -560,7 +561,7 @@ export function A1GraphSection({
                                 {ledgerSourceLabel(e.source)}
                               </span>
                               <span className="text-gray-400 break-all">
-                                {e.detail}
+                                {translateRelationInProse(e.detail).replace(/endpoint_missing/g, '端点缺失')}
                                 {e.count > 1 && <span> ×{e.count}</span>}
                               </span>
                             </li>
@@ -719,7 +720,7 @@ export function A1GraphSection({
                 {pendingOpenQuestions.map((q, index) => (
                   <li key={q.id || index} className="flex items-start gap-2">
                     <span className="text-nebula-400 mt-1">•</span>
-                    <span className="text-gray-300 flex-1 text-xs">{q.question}</span>
+                    <span className="text-gray-300 flex-1 text-xs">{translateRelationInProse(q.question)}</span>
                     <button
                       onClick={handleGoAnswer}
                       className="text-stardust-400 hover:text-stardust-300 text-xs font-medium transition-colors"
@@ -781,7 +782,7 @@ export function A1GraphSection({
                     <div className="text-gray-300 text-xs truncate">
                       {edge.from_node_id} → {edge.to_node_id}
                     </div>
-                    <div className="text-void-400 text-xs">{edge.relation}</div>
+                    <div className="text-void-400 text-xs">{relationLabel(edge.relation)}</div>
                   </div>
                   <button
                     onClick={() => handleRestoreEdge(edgeKey)}
