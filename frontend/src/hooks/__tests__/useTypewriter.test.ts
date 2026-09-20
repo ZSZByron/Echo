@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 import { useTypewriter } from '../useTypewriter';
 
 describe('useTypewriter', () => {
@@ -7,20 +7,20 @@ describe('useTypewriter', () => {
     vi.useFakeTimers();
   });
 
-  it('starts with empty text', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reveals the first character immediately on mount', () => {
     const { result } = renderHook(() => useTypewriter('test'));
-    expect(result.current.displayedText).toBe('');
+    // The effect calls tick() synchronously, so char #1 is already shown.
+    expect(result.current.displayedText).toBe('t');
     expect(result.current.isTyping).toBe(true);
     expect(result.current.isComplete).toBe(false);
   });
 
-  it('progressively reveals characters', async () => {
+  it('progressively reveals characters', () => {
     const { result } = renderHook(() => useTypewriter('ABC', { speed: 100 }));
-    expect(result.current.displayedText).toBe('');
-
-    act(() => {
-      vi.advanceTimersByTime(100);
-    });
     expect(result.current.displayedText).toBe('A');
 
     act(() => {
@@ -32,13 +32,18 @@ describe('useTypewriter', () => {
       vi.advanceTimersByTime(100);
     });
     expect(result.current.displayedText).toBe('ABC');
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(result.current.displayedText).toBe('ABC');
     expect(result.current.isTyping).toBe(false);
     expect(result.current.isComplete).toBe(true);
   });
 
   it('skip() shows full text immediately', () => {
     const { result } = renderHook(() => useTypewriter('ABC', { speed: 100 }));
-    expect(result.current.displayedText).toBe('');
+    expect(result.current.displayedText).toBe('A');
 
     act(() => {
       result.current.skip();
@@ -49,22 +54,21 @@ describe('useTypewriter', () => {
     expect(result.current.isComplete).toBe(true);
   });
 
-  it('onComplete callback fires when typing finishes', async () => {
+  it('onComplete callback fires when typing finishes', () => {
     const onComplete = vi.fn();
     renderHook(() => useTypewriter('AB', { speed: 100, onComplete }));
 
     expect(onComplete).not.toHaveBeenCalled();
 
+    // Sync tick reveals 'A'; two more ticks finish 'B' then complete.
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    await waitFor(() => {
-      expect(onComplete).toHaveBeenCalled();
-    });
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('onComplete callback fires when skip is called', async () => {
+  it('onComplete callback fires when skip is called', () => {
     const onComplete = vi.fn();
     const { result } = renderHook(() => useTypewriter('ABC', { speed: 100, onComplete }));
 
@@ -74,20 +78,25 @@ describe('useTypewriter', () => {
       result.current.skip();
     });
 
-    await waitFor(() => {
-      expect(onComplete).toHaveBeenCalled();
-    });
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
   it('resets when text prop changes', () => {
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ text }) => useTypewriter(text, { speed: 100 }),
       { initialProps: { text: 'ABC' } }
     );
 
-    rerender({ text: 'XYZ' });
-    const { result } = renderHook(() => useTypewriter('XYZ', { speed: 100 }));
-    expect(result.current.displayedText).toBe('');
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(result.current.isComplete).toBe(true);
+
+    act(() => {
+      rerender({ text: 'XYZ' });
+    });
+    // Effect resets state then ticks once synchronously: shows char #1 of new text.
+    expect(result.current.displayedText).toBe('X');
     expect(result.current.isTyping).toBe(true);
     expect(result.current.isComplete).toBe(false);
   });
