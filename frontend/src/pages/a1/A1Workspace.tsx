@@ -7,7 +7,7 @@
  * 3. PosterView - Display generated poster with link to poster page
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
@@ -16,6 +16,11 @@ import { PosterBoard } from '../../components/poster/PosterBoard';
 import { A1GraphSection } from '../../components/graph/A1GraphSection';
 import { UploadToolbar } from './UploadToolbar';
 import { CopyrightDialog, type CopyrightReport } from './CopyrightDialog';
+import { ImpulseCards } from './impulse/ImpulseCards';
+import { NostalgiaConfirmPage } from './impulse/NostalgiaConfirmPage';
+import { groupSeedsByType } from './impulse/seedGrouping';
+import { logImpulseEvent } from './impulse/telemetry';
+import type { ImpulseTypeId } from './impulse/impulseCards.config';
 import type { A1Proposal } from '../../types/a1';
 import '../../components/theme.css';
 
@@ -258,7 +263,7 @@ interface ConvertResponse {
 }
 
 // Workspace States
-type WorkspaceState = 'seed_selector' | 'guided_chat' | 'graph_view';
+type WorkspaceState = 'seed_selector' | 'guided_chat' | 'graph_view' | 'impulse_cards';
 
 // Format a question payload for display, with example hint for the user.
 function formatQuestion(nq: QuestionPayload | null): string {
@@ -293,7 +298,9 @@ export function A1Workspace() {
       return 'guided_chat';
     }
 
-    return (persistedState as WorkspaceState) || 'seed_selector';
+    // E0: 仅当无持久化状态（无值或解析失败）时默认落入冲动卡屏；返回用户照旧恢复，不被劫持
+    if (!persistedState) return 'impulse_cards';
+    return persistedState as WorkspaceState;
   });
   const [userId] = useState<string>(() => localStorage.getItem('user_id') || '');
   
@@ -364,14 +371,37 @@ export function A1Workspace() {
   const [error, setError] = useState<string | null>(null);
   const [missingSections, setMissingSections] = useState<string[] | null>(null);
 
+  // E0 冲动入口：卡片屏接线状态
+  const [groupedSeeds, setGroupedSeeds] = useState<ReturnType<typeof groupSeedsByType> | null>(null);
+  const [pendingUploadConfirm, setPendingUploadConfirm] = useState<{ prefillCount: number; seedName: string } | null>(null);
+  const [uploadHighlight, setUploadHighlight] = useState(false);
+  const [healingNotice, setHealingNotice] = useState(false);
+  const cardShownTsRef = useRef<number | null>(null);
+  const firstAnswerLoggedRef = useRef(false);
+  const moduleCompletedRef = useRef<Set<string>>(new Set());
+  const uploadEntryRef = useRef<HTMLDivElement | null>(null);
+
   // Persist key state to localStorage (survive reload / tab switch)
   useEffect(() => {
+    // E0: 冲动卡屏不持久化（刷新重显卡片）；曝光时打点 cardShownTsRef（ref，不持久化）
+    if (workspaceState === 'impulse_cards') { cardShownTsRef.current = Date.now(); return; }
     try {
       localStorage.setItem(A1_STORAGE_KEY, JSON.stringify({
         workspaceState, sessionId, fileId, ipCode, seedInfo, messages,
       }));
     } catch { /* quota exceeded, ignore */ }
   }, [workspaceState, sessionId, fileId, ipCode, seedInfo, messages]);
+
+  // E0 埋点：模块 done ratio 首达 ≥0.5 时发一次 module_completed（Set 去重）
+  useEffect(() => {
+    for (const s of progressSections) {
+      const subs = s.subs ?? [];
+      if (subs.length && !moduleCompletedRef.current.has(s.id) && subs.filter(b => b.done).length / subs.length >= 0.5) {
+        moduleCompletedRef.current.add(s.id);
+        logImpulseEvent('module_completed', { module_id: s.id });
+      }
+    }
+  }, [progressSections]);
 
   // Load seeds on mount (skip in graph_view — not needed and would trigger re-renders)
   useEffect(() => {
@@ -539,6 +569,26 @@ export function A1Workspace() {
     }
   };
 
+  // E0 冲动卡提交路由（规则逐字：怀旧→聚焦上传；疗愈→破晓之剑直达；其余→分组种子页）
+  const handleImpulseCommit = (selection: { primary: ImpulseTypeId; secondary: ImpulseTypeId | null }) => {
+    const { primary } = selection;
+    if (primary === 'nostalgia') {
+      setGroupedSeeds(null);
+      setWorkspaceState('seed_selector');
+      setTimeout(() => {
+        uploadEntryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setUploadHighlight(true);
+        setTimeout(() => setUploadHighlight(false), 3000);
+      }, 50);
+    } else if (primary === 'healing') {
+      setHealingNotice(true);
+      startSession('7');
+    } else {
+      setGroupedSeeds(groupSeedsByType(seeds, primary));
+      setWorkspaceState('seed_selector');
+    }
+  };
+
   // Refresh the structured file panel from the server (single source of
   // truth). Called after each chat turn so refinements show up immediately.
   const refreshFile = async (id: string) => {
@@ -603,7 +653,13 @@ export function A1Workspace() {
       text,
     };
     setMessages(prev => [...prev, userMessage]);
-    
+
+    // E0 埋点：首问作答（卡片屏→首答完成率分子，elapsed_ms 自卡片曝光起算）
+    if (!firstAnswerLoggedRef.current) {
+      firstAnswerLoggedRef.current = true;
+      logImpulseEvent('first_question_answered', { elapsed_ms: cardShownTsRef.current ? Date.now() - cardShownTsRef.current : 0 });
+    }
+
     try {
       const response = await fetchJson<ChatResponse>('/api/a1/chat', {
         method: 'POST',
@@ -916,13 +972,21 @@ export function A1Workspace() {
       }));
     }
 
-    // Initialize chat with welcome message
+    // Initialize chat with welcome message (moved to confirm — E0 上传确认页)
+    setPendingUploadConfirm({
+      prefillCount: Object.values(response.answers).filter(v => Boolean(v && v.trim()) && !/^(待补充|占位|todo|n\/a|none|无)$/i.test(v.trim())).length,
+      seedName: filename || '你的世界观文档',
+    });
+  };
+
+  // E0: 上传预填确认后，执行原 handleUploadSuccess 后半段（进访谈）
+  const confirmUploadEnterChat = () => {
+    setPendingUploadConfirm(null);
     setMessages([{
       id: Date.now().toString(),
       type: 'assistant',
       text: '已成功解析您的世界观文档。我已预填了基础信息，您可以查看右侧面板并继续完善细节。',
     }]);
-
     setWorkspaceState('guided_chat');
   };
 
@@ -1001,8 +1065,11 @@ export function A1Workspace() {
         ) : (
           <>
             {/* Seed Cards */}
+            {groupedSeeds && !groupedSeeds.degraded && groupedSeeds.matched.length > 0 && (
+              <h3 className="text-nebula-400 text-sm mb-3">✦ 为你推荐</h3>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              {seeds.map(seed => (
+              {(groupedSeeds && !groupedSeeds.degraded ? [...groupedSeeds.matched, ...groupedSeeds.rest] : seeds).map(seed => (
                 <div
                   key={seed.id}
                   onClick={() => startSession(seed.id)}
@@ -1019,21 +1086,27 @@ export function A1Workspace() {
             </div>
             
             {/* Upload Toolbar */}
-            <UploadToolbar
-              onUpload={handleFileUpload}
-              isUploading={isUploading}
-              uploadError={uploadError}
-            />
-            
+            <div
+              ref={uploadEntryRef}
+              data-testid="upload-entry"
+              className={uploadHighlight ? 'rounded-xl ring-2 ring-stardust-400 transition-all' : ''}
+            >
+              <UploadToolbar
+                onUpload={handleFileUpload}
+                isUploading={isUploading}
+                uploadError={uploadError}
+              />
+            </div>
+
             {/* Custom Input */}
             <div className="glass-panel p-8">
-              <h2 className="text-stardust-300 text-xl font-medium mb-4">Or start with your own idea</h2>
+              <h2 className="text-stardust-300 text-xl font-medium mb-4">或者，从一个念头开始</h2>
               <div className="flex gap-4">
                 <input
                   type="text"
                   value={customIdea}
                   onChange={(e) => setCustomIdea(e.target.value)}
-                  placeholder="Describe your creative concept..."
+                  placeholder="用一句话描述你想创造的世界…"
                   className="flex-1 bg-space-800 text-white placeholder-void-500 rounded-lg px-4 py-3 border border-white/10 focus:border-stardust-400 focus:outline-none"
                 />
                 <button
@@ -1041,7 +1114,7 @@ export function A1Workspace() {
                   disabled={!customIdea.trim()}
                   className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Start
+                  开始
                 </button>
               </div>
             </div>
@@ -1361,8 +1434,24 @@ export function A1Workspace() {
           </button>
         </div>
       )}
-      {workspaceState === 'seed_selector' && renderSeedSelector()}
-      {workspaceState === 'guided_chat' && renderGuidedChat()}
+      {healingNotice && (
+        <div role="status" className="glass-panel flex items-center justify-between gap-4 px-4 py-3 border border-stardust-400/30">
+          <p className="text-stardust-300 text-sm">好，那就轻松一点——不想答的问题都可以跳过，我们慢慢来。</p>
+          <button onClick={() => setHealingNotice(false)} className="text-void-400 hover:text-stardust-300 text-sm transition-colors">知道了</button>
+        </div>
+      )}
+      {workspaceState === 'impulse_cards' && (
+        <ImpulseCards seeds={seeds} onCardCommit={handleImpulseCommit} onSkip={() => setWorkspaceState('seed_selector')} />
+      )}
+      {pendingUploadConfirm && workspaceState !== 'graph_view' && (
+        <NostalgiaConfirmPage
+          prefillCount={pendingUploadConfirm.prefillCount}
+          seedName={pendingUploadConfirm.seedName}
+          onContinue={confirmUploadEnterChat}
+        />
+      )}
+      {workspaceState === 'seed_selector' && !pendingUploadConfirm && renderSeedSelector()}
+      {workspaceState === 'guided_chat' && !pendingUploadConfirm && renderGuidedChat()}
       {workspaceState === 'graph_view' && renderGraphView()}
     </div>
   );
