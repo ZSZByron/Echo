@@ -126,10 +126,34 @@ const readMe = (page: Page) => page.locator('div.grid h3').first(); // 种子网
 // SUITE 1: 9 卡路由矩阵
 // ==========================================
 
-test.describe('9 卡路由矩阵（推荐分组首位逐字 + 型特化路由）', () => {
-  // 8 型逐型：7 型分组序 + nostalgia/healing 特化单独用例
+test.describe('9 卡路由矩阵（E0.1 分流：故事侧直达访谈 / 设定侧种子分组 + 型特化路由）', () => {
+  // E0.1 故事侧 5 型：确认后直达访谈（custom_idea 通道）
+  const STORY_SIDE: ImpulseTypeId[] = ['plot', 'romance', 'philosophy', 'unsure', 'character_driven'];
   for (const card of IMPULSE_CARDS) {
-    if (card.id === 'nostalgia' || card.id === 'healing') continue;
+    if (!STORY_SIDE.includes(card.id)) continue;
+    test(`型 ${card.id} → 直达访谈（entryNotice + custom_idea 含 tagline）`, async ({ page }) => {
+      const capture: { start?: StartCapture } = {};
+      await installApiMocks(page, capture);
+      await freshVisit(page);
+
+      await pickAndConfirm(page, card.id);
+
+      // 引导横幅可见（含该型 tagline 文本）
+      await expect(page.getByTestId('impulse-entry-notice')).toBeVisible();
+      await expect(page.getByTestId('impulse-entry-notice')).toContainText(card.tagline);
+      // 直达 guided_chat（聊天输入框可见，不落种子页）
+      await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+      // session/start body.custom_idea 含 tagline 关键词；unsure 特殊断言含"说不清"引导文本
+      expect(capture.start).toBeDefined();
+      const customIdea = String(capture.start!.body!.custom_idea);
+      expect(customIdea).toContain(card.tagline);
+      if (card.id === 'unsure') expect(customIdea).toContain('说不清');
+    });
+  }
+
+  // 设定侧 2 型：保持分组种子页（世界观模板是他们的真实需求）
+  for (const card of IMPULSE_CARDS) {
+    if (card.id !== 'setting_heavy' && card.id !== 'exploration') continue;
     test(`型 ${card.id} → 推荐首位「${TYPE_SEED_NAMES[card.id][0]}」`, async ({ page }) => {
       const capture: { start?: StartCapture } = {};
       await installApiMocks(page, capture);
@@ -294,11 +318,10 @@ test.describe('埋点导出与模块完成', () => {
     await installApiMocks(page, capture);
     await freshVisit(page);
 
-    // 真实事件流：shown → selected(plot) → custom_idea → 首答
+    // 真实事件流：shown → selected(plot，E0.1 直达访谈) → 首答
     await page.getByTestId('impulse-card-plot').click();
     await page.getByTestId('impulse-confirm').click();
-    await page.fill('input[placeholder*="一句话描述"]', '一座会移动的山');
-    await page.getByRole('button', { name: '开始' }).click();
+    await page.locator('input[placeholder="Type your message..."]').waitFor({ timeout: 10000 });
     await page.fill('input[placeholder="Type your message..."]', '山叫负岳');
     await page.getByRole('button', { name: 'Send' }).click();
 

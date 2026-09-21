@@ -20,7 +20,7 @@ import { ImpulseCards } from './impulse/ImpulseCards';
 import { NostalgiaConfirmPage } from './impulse/NostalgiaConfirmPage';
 import { groupSeedsByType } from './impulse/seedGrouping';
 import { logImpulseEvent } from './impulse/telemetry';
-import type { ImpulseTypeId } from './impulse/impulseCards.config';
+import { IMPULSE_CARDS, type ImpulseTypeId } from './impulse/impulseCards.config';
 import type { A1Proposal } from '../../types/a1';
 import '../../components/theme.css';
 
@@ -277,6 +277,10 @@ function formatQuestion(nq: QuestionPayload | null): string {
 
 const A1_STORAGE_KEY = 'a1_workspace_v1';
 
+// E0.1 分流：故事侧 5 型确认后走 custom_idea 直达访谈（不看种子页）；设定侧 2 型走种子分组页
+const STORY_SIDE_TYPES: ImpulseTypeId[] = ['plot', 'romance', 'philosophy', 'unsure', 'character_driven'];
+const cardTextById = (id: ImpulseTypeId): string => IMPULSE_CARDS.find(c => c.id === id)?.tagline ?? '';
+
 export function A1Workspace() {
   // Persisted state: survive page reload / tab switch (auto-restores session)
   const [persisted] = useState<Record<string, unknown>>(() => {
@@ -375,7 +379,7 @@ export function A1Workspace() {
   const [groupedSeeds, setGroupedSeeds] = useState<ReturnType<typeof groupSeedsByType> | null>(null);
   const [pendingUploadConfirm, setPendingUploadConfirm] = useState<{ prefillCount: number; seedName: string } | null>(null);
   const [uploadHighlight, setUploadHighlight] = useState(false);
-  const [healingNotice, setHealingNotice] = useState(false);
+  const [entryNotice, setEntryNotice] = useState<string | null>(null);
   const cardShownTsRef = useRef<number | null>(null);
   const firstAnswerLoggedRef = useRef(false);
   const moduleCompletedRef = useRef<Set<string>>(new Set());
@@ -569,7 +573,7 @@ export function A1Workspace() {
     }
   };
 
-  // E0 冲动卡提交路由（规则逐字：怀旧→聚焦上传；疗愈→破晓之剑直达；其余→分组种子页）
+  // E0 冲动卡提交路由（E0.1：怀旧→聚焦上传；疗愈→破晓之剑直达；故事侧 5 型→custom_idea 直达访谈；设定侧 2 型→分组种子页）
   const handleImpulseCommit = (selection: { primary: ImpulseTypeId; secondary: ImpulseTypeId | null }) => {
     const { primary } = selection;
     if (primary === 'nostalgia') {
@@ -581,8 +585,14 @@ export function A1Workspace() {
         setTimeout(() => setUploadHighlight(false), 3000);
       }, 50);
     } else if (primary === 'healing') {
-      setHealingNotice(true);
+      setEntryNotice('好，那就轻松一点——不想答的问题都可以跳过，我们慢慢来。');
       startSession('7');
+    } else if (STORY_SIDE_TYPES.includes(primary)) {
+      // E0.1 故事侧直达：以主冲动 tagline 为念头起点走 custom_idea 通道，次冲动追加
+      const primaryText = cardTextById(primary);
+      const secondaryText = selection.secondary ? cardTextById(selection.secondary) : null;
+      setEntryNotice(`好——${primaryText}。我们从这里开始聊。`);
+      startSession(undefined, secondaryText ? `${primaryText}，其次${secondaryText}` : primaryText);
     } else {
       setGroupedSeeds(groupSeedsByType(seeds, primary));
       setWorkspaceState('seed_selector');
@@ -1434,10 +1444,10 @@ export function A1Workspace() {
           </button>
         </div>
       )}
-      {healingNotice && (
-        <div role="status" className="glass-panel flex items-center justify-between gap-4 px-4 py-3 border border-stardust-400/30">
-          <p className="text-stardust-300 text-sm">好，那就轻松一点——不想答的问题都可以跳过，我们慢慢来。</p>
-          <button onClick={() => setHealingNotice(false)} className="text-void-400 hover:text-stardust-300 text-sm transition-colors">知道了</button>
+      {entryNotice && (
+        <div data-testid="impulse-entry-notice" role="status" className="glass-panel flex items-center justify-between gap-4 px-4 py-3 border border-stardust-400/30">
+          <p className="text-stardust-300 text-sm">{entryNotice}</p>
+          <button onClick={() => setEntryNotice(null)} className="text-void-400 hover:text-stardust-300 text-sm transition-colors">知道了</button>
         </div>
       )}
       {workspaceState === 'impulse_cards' && (
