@@ -19,7 +19,7 @@ import { CopyrightDialog, type CopyrightReport } from './CopyrightDialog';
 import { ImpulseCards } from './impulse/ImpulseCards';
 import { NostalgiaConfirmPage } from './impulse/NostalgiaConfirmPage';
 import { groupSeedsByType } from './impulse/seedGrouping';
-import { logImpulseEvent } from './impulse/telemetry';
+import { logImpulseEvent, attachSessionId } from './impulse/telemetry';
 import { IMPULSE_CARDS, type ImpulseTypeId } from './impulse/impulseCards.config';
 import type { A1Proposal } from '../../types/a1';
 import '../../components/theme.css';
@@ -281,6 +281,9 @@ const A1_STORAGE_KEY = 'a1_workspace_v1';
 const STORY_SIDE_TYPES: ImpulseTypeId[] = ['plot', 'romance', 'philosophy', 'unsure', 'character_driven'];
 const cardTextById = (id: ImpulseTypeId): string => IMPULSE_CARDS.find(c => c.id === id)?.tagline ?? '';
 
+// T4 结构化上送：session/start 附带冲动 primary/secondary（次冲动为空不含 impulse_secondary 键）
+type ImpulsePayload = { primary: ImpulseTypeId; secondary?: string };
+
 export function A1Workspace() {
   // Persisted state: survive page reload / tab switch (auto-restores session)
   const [persisted] = useState<Record<string, unknown>>(() => {
@@ -384,6 +387,8 @@ export function A1Workspace() {
   const firstAnswerLoggedRef = useRef(false);
   const moduleCompletedRef = useRef<Set<string>>(new Set());
   const uploadEntryRef = useRef<HTMLDivElement | null>(null);
+  // T4：设定侧冲动暂存（不开 session），待分组种子页点击种子时随 startSession 上送
+  const pendingImpulseRef = useRef<ImpulsePayload | null>(null);
 
   // Persist key state to localStorage (survive reload / tab switch)
   useEffect(() => {
@@ -525,16 +530,17 @@ export function A1Workspace() {
   }, [fileId]); // Run when fileId changes
 
   // Start session from seed or custom idea
-  const startSession = async (seedId?: string, customIdeaText?: string) => {
+  const startSession = async (seedId?: string, customIdeaText?: string, impulse?: ImpulsePayload) => {
     setIsChatLoading(true);
     setError(null);
     setStaleSessionNotice(false);
-    
+
     try {
       const request = {
         user_id: userId,
         ...(seedId && { seed_id: seedId }),
-        ...(customIdeaText && { custom_idea: customIdeaText })
+        ...(customIdeaText && { custom_idea: customIdeaText }),
+        ...(impulse && { impulse_primary: impulse.primary, ...(impulse.secondary ? { impulse_secondary: impulse.secondary } : {}) })
       };
       
       const response = await fetchJson<SessionStartResponse>('/api/a1/session/start', {
@@ -544,6 +550,8 @@ export function A1Workspace() {
       });
       
       setSessionId(response.session_id);
+      attachSessionId(response.session_id);
+      pendingImpulseRef.current = null;
       setFileId(response.file_id);
       setIpCode(response.ip_code);
       setSeedInfo(response.seed ?? null);
@@ -586,14 +594,16 @@ export function A1Workspace() {
       }, 50);
     } else if (primary === 'healing') {
       setEntryNotice('好，那就轻松一点——不想答的问题都可以跳过，我们慢慢来。');
-      startSession('7');
+      startSession('7', undefined, { primary: 'healing' });
     } else if (STORY_SIDE_TYPES.includes(primary)) {
       // E0.1 故事侧直达：以主冲动 tagline 为念头起点走 custom_idea 通道，次冲动追加
       const primaryText = cardTextById(primary);
       const secondaryText = selection.secondary ? cardTextById(selection.secondary) : null;
       setEntryNotice(`好——${primaryText}。我们从这里开始聊。`);
-      startSession(undefined, secondaryText ? `${primaryText}，其次${secondaryText}` : primaryText);
+      startSession(undefined, secondaryText ? `${primaryText}，其次${secondaryText}` : primaryText, { primary, secondary: selection.secondary ?? undefined });
     } else {
+      // T4：设定侧不开 session，暂存冲动，待种子点击时随 startSession 上送
+      pendingImpulseRef.current = { primary };
       setGroupedSeeds(groupSeedsByType(seeds, primary));
       setWorkspaceState('seed_selector');
     }
@@ -1082,7 +1092,7 @@ export function A1Workspace() {
               {(groupedSeeds && !groupedSeeds.degraded ? [...groupedSeeds.matched, ...groupedSeeds.rest] : seeds).map(seed => (
                 <div
                   key={seed.id}
-                  onClick={() => startSession(seed.id)}
+                  onClick={() => startSession(seed.id, undefined, pendingImpulseRef.current ?? undefined)}
                   className="glass-card p-6 cursor-pointer hover:border-stardust-400/40 transition-all"
                 >
                   <div className="flex items-center gap-2 mb-3">
