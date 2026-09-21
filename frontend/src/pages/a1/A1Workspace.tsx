@@ -1441,7 +1441,14 @@ export function A1Workspace() {
         </div>
       )}
       {workspaceState === 'impulse_cards' && (
-        <ImpulseCards seeds={seeds} onCardCommit={handleImpulseCommit} onSkip={() => setWorkspaceState('seed_selector')} />
+        <>
+          {error && (
+            <div data-testid="impulse-error" role="alert" className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 mb-8">
+              <p className="text-cosmos-error">{error}</p>
+            </div>
+          )}
+          <ImpulseCards seeds={seeds} onCardCommit={handleImpulseCommit} onSkip={() => setWorkspaceState('seed_selector')} />
+        </>
       )}
       {pendingUploadConfirm && workspaceState !== 'graph_view' && (
         <NostalgiaConfirmPage
