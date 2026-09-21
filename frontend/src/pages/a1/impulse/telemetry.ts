@@ -71,6 +71,24 @@ export function logImpulseEvent(
 }
 
 /**
+ * 回填会话 id：遍历存储全量事件，session_id 为空的就地补 sessionId（含重写 localStorage）。
+ * 已有值不覆盖；幂等可重复调用。零网络：仅本地存储操作。
+ */
+export function attachSessionId(sessionId: string): void {
+  const events = getImpulseTelemetry();
+  let changed = false;
+  for (const e of events) {
+    if (e.session_id === undefined) {
+      e.session_id = sessionId;
+      changed = true;
+    }
+  }
+  if (changed) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+  }
+}
+
+/**
  * 将存储全量导出为 JSON 文件下载。导出后不清空存储。
  * 无事件时静默返回（不下载）。
  */

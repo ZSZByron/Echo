@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  attachSessionId,
   exportImpulseTelemetry,
   getImpulseTelemetry,
   logImpulseEvent,
@@ -99,5 +100,28 @@ describe('telemetry (a1_telemetry_v1)', () => {
     const events = getImpulseTelemetry();
     expect(events[0].user_id).toBe('u-123');
     expect(typeof events[0].ts).toBe('number');
+  });
+
+  it('backfills session_id on events missing it', () => {
+    logImpulseEvent('impulse_card_shown');
+    logImpulseEvent('impulse_card_selected', { primary: 'plot', secondary: null });
+    attachSessionId('a1_abc123');
+    const events = getImpulseTelemetry();
+    expect(events).toHaveLength(2);
+    expect(events[0].session_id).toBe('a1_abc123');
+    expect(events[1].session_id).toBe('a1_abc123');
+  });
+
+  it('does not overwrite an existing session_id (idempotent)', () => {
+    logImpulseEvent('impulse_card_shown');
+    attachSessionId('a1_abc123');
+    attachSessionId('a1_def456');
+    expect(getImpulseTelemetry()[0].session_id).toBe('a1_abc123');
+  });
+
+  it('tolerates corrupted storage without throwing', () => {
+    localStorage.setItem('a1_telemetry_v1', '{broken json');
+    expect(() => attachSessionId('a1_abc123')).not.toThrow();
+    expect(getImpulseTelemetry()).toHaveLength(0);
   });
 });
