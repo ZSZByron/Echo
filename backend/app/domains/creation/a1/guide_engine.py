@@ -49,6 +49,41 @@ from app.domains.creation.shared.semantic_compiler import (
 PHASE_ASKING = "asking"
 PHASE_COMPLETED = "completed"
 
+# E1-Lite T2 — type-driven queue (spec §5.2, R6 conservative mode).
+# Module ids are the Chinese ids from the questionnaire tree; priority
+# lists only *move modules forward* — never skip them.
+TYPE_MODULE_PRIORITY: dict[str, list[str]] = {
+    "plot":             ["历史时间线", "文明与社会", "世界本体"],
+    "unsure":           ["历史时间线", "文明与社会", "世界本体"],
+    "philosophy":       ["世界本体", "文明与社会", "力量体系", "历史时间线"],
+    "romance":          ["IP定位", "历史时间线", "视觉设计"],
+    "character_driven": ["文明与社会", "历史时间线", "世界本体", "力量体系"],
+    "setting_heavy":    ["视觉设计"],
+    "exploration":      ["玩法设计DNA", "骰子设定", "力量体系", "世界本体"],
+    # nostalgia / healing 不入表 → 原序（§5.2 两行未定义前移序）
+}
+# 入口子字段前置（模块内置换，仅 plot/unsure——否则首问是 time_span 非故事问题）
+TYPE_ENTRY_SUBFIELD: dict[str, tuple[str, str]] = {
+    "plot":   ("历史时间线", "main_plot"),
+    "unsure": ("历史时间线", "main_plot"),
+}
+
+
+def _type_ordered_modules(session: A1Session) -> list[str]:
+    """Type-driven module order: forward-only permutation of module_ids().
+
+    creator_primary present in TYPE_MODULE_PRIORITY → its priority list
+    comes first, remaining modules keep their questionnaire-tree order
+    (deduped). No profile / unknown type → original order. Pure
+    permutation: every module still appears exactly once.
+    """
+    priority = TYPE_MODULE_PRIORITY.get(session.creator_primary or "")
+    if not priority:
+        return module_ids()
+    head = list(priority)
+    rest = [mid for mid in module_ids() if mid not in head]
+    return head + rest
+
 
 def _initial_subfield() -> str:
     """Return the id of the first subfield of the first module."""
@@ -146,24 +181,48 @@ def sync_position(session: A1Session) -> None:
     Gate-aware (user request: 有缺失，在窗口询问): modules still below the
     50% finalize gate are serviced FIRST, so the chat window proactively
     asks about missing modules instead of trailing minor fields elsewhere.
+
+    E1-Lite T2 (spec §5.2 / §12.1.6 R6): the traversal order is
+    type-driven via `_type_ordered_modules` (R6 conservative mode:
+    forward-only — modules are moved *earlier*, never skipped), so the
+    interview opens on the modules that matter for the creator's impulse
+    type. Within a module, subfields keep questionnaire-tree order, with
+    one exception: when creator_primary hits TYPE_ENTRY_SUBFIELD, the
+    entry subfield is swapped to the front of its module (plot/unsure →
+    历史时间线.main_plot, so the first question is the story question,
+    not time_span).
     """
+    ordered = _type_ordered_modules(session)
+    entry_mid, entry_sf = TYPE_ENTRY_SUBFIELD.get(
+        session.creator_primary or "", ("", "")
+    )
+
+    def _module_subfield_ids(mid: str) -> list[str]:
+        sids = [f["id"] for f in subs_for_module(mid)]
+        if mid == entry_mid and entry_sf in sids:
+            sids.remove(entry_sf)
+            sids.insert(0, entry_sf)
+        return sids
+
     # 1) Prefer unfilled fields inside gate-failing modules.
-    for mid in module_ids():
+    for mid in ordered:
         if is_module_over_half(mid, session.answers):
             continue
-        for f in subs_for_module(mid):
-            key = f"{mid}.{f['id']}"
+        for sid in _module_subfield_ids(mid):
+            key = f"{mid}.{sid}"
             if key not in session.answers:
                 session.current_module = mid
-                session.current_subfield = f["id"]
+                session.current_subfield = sid
                 return
-    # 2) Fallback: global first unanswered (original behaviour).
-    for key in all_subfield_keys():
-        if key not in session.answers:
-            module_id, sub_id = key.split(".", 1)
-            session.current_module = module_id
-            session.current_subfield = sub_id
-            return
+    # 2) Fallback: first unanswered across "type-ordered modules × their
+    #    original subfield order" (same keys as all_subfield_keys, permuted).
+    for mid in ordered:
+        for sid in _module_subfield_ids(mid):
+            key = f"{mid}.{sid}"
+            if key not in session.answers:
+                session.current_module = mid
+                session.current_subfield = sid
+                return
     session.phase = PHASE_COMPLETED
 
 
