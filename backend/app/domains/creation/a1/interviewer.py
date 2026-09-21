@@ -33,6 +33,22 @@ from app.domains.creation.seed.a1_question_tree import (
 )
 
 
+# E1-Lite T3: 语气锚点（spec §5.2 "语气锚点"列逐字，一个字不许改写；
+# 引号形态 = spec 原文直引号 U+0022）。注入 _seed_block 模板变量
+# （R2：差异是数据不是代码——单一 prompt 骨架）。
+ANCHOR_BY_TYPE: dict[str, str] = {
+    "plot": '节奏导向："这个设定会制造什么事件？"',
+    "unsure": '中性引导"先聊聊你世界里发生的事"',
+    "philosophy": '追问"如果这条规则被违反会怎样"',
+    "romance": '情感张力导向；A1 极轻量化；合规边界（§9）',
+    "character_driven": '一切围绕"这如何影响 TA 的命运"',
+    "setting_heavy": '机制自洽："这里的力量为什么成立？"',
+    "exploration": '能力边界展示："AI 可以替你试三种方案"',
+    "nostalgia": '"我在保护原作的味道"——风格保真',
+    "healing": '陪伴低压力："不想答的都可以跳过，我会替你补上"',
+}
+
+
 class InterviewFill(BaseModel):
     """One structured write: put value into module.subfield."""
 
@@ -312,6 +328,13 @@ class RealLLMInterviewer:
             )
         if getattr(session, "seed_description", "") and not seed_lines:
             seed_lines.append(f"用户的初始创意：{session.seed_description}")
+        # E1-Lite T3: 语气锚点模板变量注入（creator_primary 非空且在表中才追加；
+        # 空 profile 输出与改动前逐字节相同）。
+        creator_primary = getattr(session, "creator_primary", "")
+        if creator_primary and creator_primary in ANCHOR_BY_TYPE:
+            seed_lines.append(
+                f"语气锚点（引导与反馈的基调，务必贯彻）：{ANCHOR_BY_TYPE[creator_primary]}"
+            )
         return "\n".join(seed_lines) if seed_lines else "（无，用户从空白开始）"
 
     def _build_prompt(
