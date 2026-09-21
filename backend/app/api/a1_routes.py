@@ -8,6 +8,7 @@ downstream graphs stale (iron law: never delete, never overwrite).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -36,6 +37,8 @@ from app.domains.creation.a1.interviewer import (
     RealLLMInterviewer,
 )
 from app.domains.creation.a1.ip_poster import build_poster
+
+logger = logging.getLogger(__name__)
 from app.domains.creation.a1.open_questions import OpenQuestion, OpenQuestionLog
 from app.domains.creation.a1.semantic_compiler import (
     derive_dice_recommendation,
@@ -176,6 +179,23 @@ class StartRequest(BaseModel):
     user_id: str
     seed_id: int | None = None
     custom_idea: str | None = None
+    # E1-Lite 冲动卡入口（可选）：主/次冲动类型，白名单见 IMPULSE_TYPE_IDS。
+    impulse_primary: str | None = None
+    impulse_secondary: str | None = None
+
+
+# E1-Lite 冲动类型白名单（spec §12.1，9 型逐字锁定，不允许增删改写）。
+IMPULSE_TYPE_IDS: frozenset[str] = frozenset({
+    "setting_heavy",
+    "character_driven",
+    "plot",
+    "philosophy",
+    "exploration",
+    "romance",
+    "nostalgia",
+    "healing",
+    "unsure",
+})
 
 
 class ChatRequest(BaseModel):
@@ -641,6 +661,37 @@ def start_session(req: StartRequest) -> dict:
     else:
         session.seed_description = req.custom_idea[:500]
         session.answers = {}
+
+    # E1-Lite 冲动类型档案写入（spec §11.1-①）：未知值不报错不 400，
+    # 降级为空字段（队列与锚点走默认序）。
+    if req.impulse_primary:
+        if req.impulse_primary in IMPULSE_TYPE_IDS:
+            session.creator_primary = req.impulse_primary
+            if req.impulse_secondary:
+                if req.impulse_secondary in IMPULSE_TYPE_IDS:
+                    if req.impulse_secondary != session.creator_primary:
+                        session.creator_secondary = req.impulse_secondary
+                    else:
+                        logger.warning(
+                            "start_session: impulse_secondary %r equals "
+                            "primary, ignored",
+                            req.impulse_secondary,
+                        )
+                else:
+                    logger.warning(
+                        "start_session: unknown impulse_secondary %r ignored",
+                        req.impulse_secondary,
+                    )
+        else:
+            # 主冲动未知 → 三字段全空（降级默认序），次冲动不再消费。
+            logger.warning(
+                "start_session: unknown impulse_primary %r ignored, "
+                "creator profile degraded to defaults",
+                req.impulse_primary,
+            )
+    if session.creator_primary or session.creator_secondary:
+        session.creator_profile_source = "impulse_cards"
+
     sync_position(session)
 
     file_id = uuid.uuid4().hex
@@ -662,6 +713,8 @@ def start_session(req: StartRequest) -> dict:
         seed_id=req.seed_id,
         seed=session.seed_name or None,
         custom_idea=(req.custom_idea or "")[:100] or None,
+        impulse_primary=req.impulse_primary,
+        impulse_secondary=req.impulse_secondary,
     )
     _save_store()
     return {

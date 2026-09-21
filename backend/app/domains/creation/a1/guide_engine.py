@@ -72,6 +72,11 @@ class A1Session(BaseModel):
     seed_name: str = ""
     seed_genre: str = ""
     seed_description: str = ""
+    # E1-Lite 冲动类型档案（仿 seed_* 三字段模式，spec §11.1-①）。
+    # 空串 = 无 profile（存量会话/未走冲动卡路径）→ 队列与锚点全部走默认。
+    creator_primary: str = ""
+    creator_secondary: str = ""
+    creator_profile_source: str = ""  # 仅 "impulse_cards"
     # Anti-stall tracking (deterministic fallback after repeated stalls)
     stall_subfield: str = ""
     stall_count: int = 0
