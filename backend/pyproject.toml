@@ -74,6 +74,9 @@ disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Make `tests.*` absolute imports work regardless of how pytest is invoked
+# (bare `pytest` exe does NOT add cwd to sys.path, unlike `python -m pytest`).
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
