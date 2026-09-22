@@ -482,6 +482,9 @@ _PLACEHOLDER_ANSWERS: frozenset[str] = frozenset({
     "no data", "no evidence", "tbd", "tba", "todo", "missing", "empty",
     # 纯符号占位
     "-", "—", "——", "———", "--", "---",
+    # M0 止血：访谈偏转占位（guide_engine.DEFLECT_PLACEHOLDER"（用户跳过）"
+    # 归一化后命中——J1 真值闸 → 门禁/进度不计数）
+    "用户跳过",
 })
 
 # 归一化时从首尾剥离的字符：空白、包裹符号、标点。

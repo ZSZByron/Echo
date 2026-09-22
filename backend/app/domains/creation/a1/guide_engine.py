@@ -21,11 +21,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.interviewer import (
     Interviewer,
     InterviewFill,
     Proposal,
 )
+from app.domains.creation.a1.open_questions import OpenQuestion
 from app.domains.creation.seed.a1_question_tree import (
     ANSWER_MAX_CHARS,
     MODULES,
@@ -48,6 +50,10 @@ from app.domains.creation.shared.semantic_compiler import (
 
 PHASE_ASKING = "asking"
 PHASE_COMPLETED = "completed"
+
+# M0 止血：偏转占位答案（已逐字加入 a1_question_tree._PLACEHOLDER_ANSWERS
+# 语义覆盖——J1 真值闸判非真值 → 门禁/进度不计数）。
+DEFLECT_PLACEHOLDER = "（用户跳过）"
 
 # E1-Lite T2 — type-driven queue (spec §5.2, R6 conservative mode).
 # Module ids are the Chinese ids from the questionnaire tree; priority
@@ -139,6 +145,15 @@ class A1Session(BaseModel):
     # (after which the key is removed and the field is guarded normally).
     # Default empty keeps old sessions deserializable.
     prefill_fields: list[str] = Field(default_factory=list)
+    # M0 止血（甲计划任务 0）：叙事素材归档槽（spec L251 character_sketch
+    # 文本槽先行版）。默认 "" 零迁移（creator_* 先例）。不进 35 字段/门禁/
+    # graphify——素材追加写入（\n 分隔，clip_answer 2000 限额+J3 披露）。
+    character_sketch: str = ""
+    # M0 止血：同字段连续偏转计数（key=module.subfield）。
+    deflect_counts: dict[str, int] = Field(default_factory=dict)
+    # M0 止血：连续偏转 ≥2 的字段归档（结构化记录，OpenQuestion.dump 格式，
+    # 状态=skipped——参考 C6 open_questions 机制；会话级先行，file 层接线归后续）。
+    open_question_archive: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def first_question() -> dict[str, Any]:
@@ -552,6 +567,105 @@ def _apply_stall_guard(
     return None
 
 
+def _reset_stall_tracking(session: A1Session) -> None:
+    session.stall_subfield = ""
+    session.stall_count = 0
+    session.pending_suggestions = []
+
+
+def _handle_deflection(
+    session: A1Session, result: Any, cur_key: str
+) -> dict[str, Any]:
+    """M0 止血：消费 interviewer 偏转标记（翻车场景①根治）。
+
+    偏转 = 用户明确表示不想答当前问题/想先聊别的/专注故事主线。旧行为：
+    LLM 口头答应但指针不动 → 重问同一题（R6 不答不走死循环）。新行为：
+    写占位答案（J1 真值闸 → 门禁不计数）→ sync_position 指针自然前进；
+    连续偏转 ≥2 同一字段 → 结构化归档进 open_question_archive（C6 格式）。
+    """
+    module_id, sub_id = cur_key.split(".", 1)
+    sf = get_subfield(module_id, sub_id)
+    count = session.deflect_counts.get(cur_key, 0) + 1
+    session.deflect_counts[cur_key] = count
+    session.answers.setdefault(cur_key, DEFLECT_PLACEHOLDER)
+
+    archived = False
+    if count >= 2:
+        qid = f"deflect-{cur_key}"
+        if not any(r.get("id") == qid for r in session.open_question_archive):
+            session.open_question_archive.append(
+                OpenQuestion(
+                    id=qid,
+                    question=(sf or {}).get("question", sub_id),
+                    status="skipped",
+                    answer=DEFLECT_PLACEHOLDER,
+                    source_hint="interview_deflection",
+                ).model_dump()
+            )
+            archived = True
+    log_event(
+        session.session_id,
+        "deflected",
+        field=cur_key,
+        consecutive=count,
+        archived=archived,
+    )
+    _reset_stall_tracking(session)
+    sync_position(session)
+    return {
+        "reply": result.guidance_reply or "好，我们先聊你想聊的。",
+        "next_question": _question_payload(session),
+        "file_diff": [{
+            "field": (sf or {}).get("label", cur_key),
+            "module": module_id,
+            "section": (sf or {}).get("label", cur_key),
+            "old": "",
+            "new": session.answers[cur_key],
+            "deflected": True,
+        }],
+        "progress": progress(session),
+        "phase": session.phase,
+    }
+
+
+def _archive_story_material(
+    session: A1Session, result: Any
+) -> dict[str, Any]:
+    """M0 止血：叙事素材归档（翻车场景②根治）。
+
+    故事型会话中用户输入的人物/场景/情节片段——LLM 已判定其无世界建构
+    字段语义（story_material 非空且 fills 空）→ 追加写入 character_sketch
+    文本槽（\\n 分隔，clip_answer 2000 限额+J3 披露）。绝不触发已答字段
+    的替换/合并/放弃三连提案。素材不是答案：指针不动。
+    """
+    material = (result.story_material or "").strip()
+    clipped, was_clipped = clip_answer(material)
+    if was_clipped:
+        session.answer_clips.append(
+            f"答案超{ANSWER_MAX_CHARS}字已截断: character_sketch"
+            f"（原 {len(material)} 字）"
+        )
+    session.character_sketch = (
+        f"{session.character_sketch}\n{clipped}"
+        if session.character_sketch
+        else clipped
+    )
+    log_event(
+        session.session_id,
+        "material_archived",
+        target="character_sketch",
+        chars=len(clipped),
+    )
+    _reset_stall_tracking(session)
+    return {
+        "reply": result.guidance_reply or "这段素材我先替你收着。",
+        "next_question": _question_payload(session),
+        "file_diff": [],
+        "progress": progress(session),
+        "phase": session.phase,
+    }
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -633,6 +747,15 @@ def handle_message(
             }
 
     result = interviewer.interview(session, text)
+
+    # ---- M0 止血：偏转 → 占位跳过推进指针 ----
+    if getattr(result, "deflect", False) and not result.fills:
+        return _handle_deflection(session, result, cur_key)
+
+    # ---- M0 止血：叙事素材 → character_sketch 归档（不触发提案三连） ----
+    material = getattr(result, "story_material", None)
+    if material and material.strip() and not result.fills:
+        return _archive_story_material(session, result)
 
     # ---- genuine innovation -> confirmation flow ----
     if not result.fills and result.is_innovative:

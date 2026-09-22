@@ -32,7 +32,6 @@ from app.domains.creation.seed.a1_question_tree import (
     get_subfield,
 )
 
-
 # E1-Lite T3: 语气锚点（spec §5.2 "语气锚点"列逐字，一个字不许改写；
 # 引号形态 = spec 原文直引号 U+0022）。注入 _seed_block 模板变量
 # （R2：差异是数据不是代码——单一 prompt 骨架）。
@@ -47,6 +46,9 @@ ANCHOR_BY_TYPE: dict[str, str] = {
     "nostalgia": '"我在保护原作的味道"——风格保真',
     "healing": '陪伴低压力："不想答的都可以跳过，我会替你补上"',
 }
+
+# M0 止血：故事型主冲动集合（叙事素材归档判定用；guide_engine 复用）。
+STORY_PRIMARY_TYPES = frozenset({"plot", "romance", "unsure", "character_driven"})
 
 
 class InterviewFill(BaseModel):
@@ -85,6 +87,13 @@ class InterviewResult(BaseModel):
     proposals: list[Proposal] = Field(default_factory=list)
     # C7: 用户本轮回答了待问开放问题 → {"id": "...", "answer": "..."}
     open_question_answered: dict | None = None
+    # M0 止血（甲计划任务 0）：偏转标记——用户明确表示不想答当前问题/
+    # 想先聊别的/专注故事主线 → true，且不生成 fills。
+    # 契约豁免（Momus G10）：新增可选字段 = 向前兼容，旧解析器忽略未知键。
+    deflect: bool = False
+    # M0 止血：叙事素材归档槽——故事型会话中用户输入的人物/场景/情节片段
+    # （无可映射世界建构子字段语义）→ 原文要点提取，不生成 fills/提案。
+    story_material: str | None = None
 
 
 class Interviewer(Protocol):
@@ -116,6 +125,8 @@ class FakeInterviewer:
         forced_allocate_result: InterviewResult | None = None,
         proposals: list[Proposal] | None = None,
         open_question_answered: dict | None = None,
+        deflect: bool = False,
+        story_material: str | None = None,
     ) -> None:
         self.fills = fills or []
         self.guidance_reply = guidance_reply
@@ -126,6 +137,8 @@ class FakeInterviewer:
         self._forced_allocate_result = forced_allocate_result
         self._proposals = proposals or []
         self._open_question_answered = open_question_answered
+        self._deflect = deflect
+        self._story_material = story_material
         self._pending_open_question: dict | None = None
         self.calls = 0
         self.suggest_calls = 0
@@ -152,6 +165,8 @@ class FakeInterviewer:
             innovative_category=self.innovative_category,
             proposals=list(self._proposals),
             open_question_answered=self._open_question_answered,
+            deflect=self._deflect,
+            story_material=self._story_material,
         )
 
     def suggest_examples(
@@ -370,6 +385,18 @@ class RealLLMInterviewer:
                 "当前 module.subfield（可以同时填其他字段）。绝不允许只填其他字段而漏掉"
                 "当前字段的回答；但如果输入真正属于其他字段或与世界观无关，则不强制填当前字段。"
                 "　　3.1 语义对齐铁律：每条 fill 的 module.subfield 必须与用户原话的实际语义匹配——禁止“语义相近就填进去”。例如：用户说“死亡是自然的常态”，这是对概念的解释，应填 concept，绝不能因为包含“自然”就填入 world_type。每条 fill 必须能用一句话说清：“用户这句话属于该字段，因为……”。",
+                # M0 止血：叙事素材归档规则（故事型会话条件注入——差异是数据不是代码）
+                *(
+                    [
+                        "3.8 叙事素材归档：当用户输入是人物、场景、情节片段等叙事素材——"
+                        "它不对应【可填字段清单】中任何字段的语义（尤其不是对已答字段的"
+                        "修改）时：不生成任何 fills、绝不产生对已填字段的替换/合并提案；"
+                        "把素材要点（保留用户关键词与原话质感）写入 story_material 字段，"
+                        "guidance_reply 共情确认这段素材已记下。"
+                    ]
+                    if getattr(session, "creator_primary", "") in STORY_PRIMARY_TYPES
+                    else []
+                ),
                 "",
                 "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
                 "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
@@ -395,6 +422,12 @@ class RealLLMInterviewer:
                 "「不知道」「没想法」「不懂」，置 user_confused=true 并给出一个用于联网"
                 "检索的中文 search_query（针对用户不理解的概念）。此时 fills 留空，"
                 "不要追问用户，等系统提供参考资料后再引导。",
+                # M0 止血：偏转规则（全部会话——任何型都可能想先聊别的）
+                "7.5 偏转判定：如果用户明确表示不想答当前问题、想先聊别的、或希望"
+                "先专注故事主线（如「能先专注于故事吗」「先跳过这个」「先聊聊X」）："
+                "置 deflect=true，fills 必须留空（一条也不生成）；guidance_reply 先"
+                "共情确认用户的选择，再用一句话自然引向下一个话题（贴合语气锚点基调，"
+                "不纠缠当前问题）。",
                 "8. guidance_reply（中文，总共不超过三句话）：先用一句话确认已记录的"
                 "设定——引用用户输入中的具体关键词，给出有内容的确认而非套话；"
                 "再用一句话衔接收尾即可。**问句单源铁律：guidance_reply 中严禁出现任何"
@@ -424,7 +457,7 @@ class RealLLMInterviewer:
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
                 ' "user_confused": false, "search_query": null, "divergent_question": null,',
-                ' "open_question_answered": null}',
+                ' "deflect": false, "story_material": null, "open_question_answered": null}',
             ]
         )
 
@@ -483,6 +516,16 @@ class RealLLMInterviewer:
                 "【你的任务】",
                 "参考种子基调与已确定的设定，为该字段生成3个具体的中文示例答案，"
                 "每个不超过40字，彼此风格差异化。不要解释，只给示例。",
+                # M0 止血：故事型会话降级建议换料（条件注入——差异是数据不是代码）
+                *(
+                    [
+                        "故事向会话：示例必须从【用户已确定的内容】中的剧情、角色、"
+                        "情感线索延伸提问方向（引用用户已答内容里的具体关键词），"
+                        "严禁输出势力、政治、阵营类世界建构模板示例。"
+                    ]
+                    if getattr(session, "creator_primary", "") in STORY_PRIMARY_TYPES
+                    else []
+                ),
                 "",
                 "返回严格JSON（不要输出其他内容）：",
                 '{"examples": ["...", "...", "..."]}',
@@ -631,6 +674,17 @@ class RealLLMInterviewer:
             ):
                 open_question_answered = {"id": qid.strip(), "answer": ans.strip()}
 
+        # M0 止血：偏转标记 + 叙事素材解析（可选键，向前兼容豁免）。
+        deflect = bool(raw.get("deflect"))
+        if deflect:
+            fills = []  # 偏转不生成 fills（prompt 规则之外的确定性兜底）
+        material_raw = raw.get("story_material")
+        story_material = (
+            material_raw.strip()
+            if isinstance(material_raw, str) and material_raw.strip()
+            else None
+        )
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -642,6 +696,8 @@ class RealLLMInterviewer:
                 else None
             ),
             open_question_answered=open_question_answered,
+            deflect=deflect,
+            story_material=story_material,
         )
 
 
