@@ -1,0 +1,45 @@
+[
+  {
+    "schema_version": 1,
+    "event": "impulse_card_shown",
+    "ts": 1789998129322,
+    "user_id": ""
+  },
+  {
+    "schema_version": 1,
+    "event": "impulse_card_selected",
+    "ts": 1789998129438,
+    "user_id": "",
+    "data": {
+      "primary": "plot",
+      "secondary": null
+    }
+  },
+  {
+    "schema_version": 1,
+    "event": "first_question_answered",
+    "ts": 1789998129547,
+    "user_id": "",
+    "data": {
+      "elapsed_ms": 224
+    }
+  },
+  {
+    "schema_version": 1,
+    "event": "impulse_card_shown",
+    "ts": 1789998129724,
+    "user_id": ""
+  },
+  {
+    "schema_version": 1,
+    "event": "impulse_card_skipped",
+    "ts": 1789998129791,
+    "user_id": ""
+  },
+  {
+    "schema_version": 1,
+    "event": "impulse_card_shown",
+    "ts": 1789998129990,
+    "user_id": ""
+  }
+]
