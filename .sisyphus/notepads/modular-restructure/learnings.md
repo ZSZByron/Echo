@@ -25,3 +25,12 @@
 - 2-A2-v0.2 这类被收编（而非推翻）的文档不进 archive，在 A 模块专项表标注收编去向指针。
 - v6 §0.2 十二条继承声明是治理文档表述利器：声明"管线契约继续有效"可一次性覆盖 2-A1 系/store/409 族，避免逐条重述。
 - D 条目追加时用行尾锚（" | 09-20 |"）做 oldString 比整行安全——D12/D13 单行超长。
+
+## [2026-09-24] Task: M1 模块注册表底座（提交 b6a56f4）
+- 双写手冲突教训：本任务执行中检测到另一并发会话对同一批文件做相同方向的编辑（a1_routes 出现重复 import 块 + 重复 start_session 配方落定块）。收尾前必须 grep 关键符号查重复块（如 `resolve_recipe_id(` 应只出现一次调用点）——测试全绿不代表无重复代码（Python 后定义覆盖前者，重复 import 无害但脏）。
+- 首轮 test_module_registry 13 失败大半是 __pycache__ 陈旧字节码（中断会话遗留），清 pycache 后实况 = 2 失败。中断现场接手先清缓存再判定 RED 面。
+- 配方落定语义：recipe_modules 留空 [] = default 全集（G3 存量零迁移）；start_session 只在非 default 时写 recipe_modules，unknown impulse 不报错降级（与 creator_* 先例一致）。
+- graphify 配方并集经 legal_anchors 参数贯穿 validate_anchors/_endpoint_exists/apply_graphify_validation/graphify_llm 四签名，None=全集保证 default 逐字节不变；会话侧 _recipe_legal_anchors(session) = all_subfield_keys(recipe=recipe_modules)。
+- 逐字节回归快照放 tests/unit/a1/baseline/m1_default_snapshot.json（module_ids/all_subfield_keys/_build_sections 结构/schema_catalog/default walk 序/graphify prompt sha256/门禁结果），随代码入库可复跑。
+- C5 重锚：闭集断言（==module_ids、len==10、禁第 11 模块）改池语义（MODULE_POOL ⊆ TIER_MAP + coverage 空）+ 层值闭集 [0,6] 七层不动（DN2，翻案归 D14）。
+- verify.ps1 全绿：pytest 1037 / tsc 0 / vitest 231 / 门禁 80.34%；module_registry.py 行覆盖 100%。
