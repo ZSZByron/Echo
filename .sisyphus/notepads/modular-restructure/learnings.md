@@ -81,3 +81,14 @@
 - 补测试收口新代码覆盖线（85）：impulse_coords 84→98%（unknown signal fail-loud / dashboard 幂等 / output 族零轴移 / 超限留痕四用例）；live_projection 100% / watchdog 95%。
 - 真空档补齐清单（接手半成品现场的排查序）：A1Session 字段（message_rounds/impulse_coords）→ 模块本体 → 接线（handle_message 轮次+watchdog 附加键 / resolve_proposal 信号 / start_session init / a1_routes pack 信号+GET 端点）→ _build_graph 装配段抽取。逐项 grep 确认存在再动手。
 - verify.ps1 必须用 pwsh7 跑（& 调用），powershell5 把 UTF-8 中文当 GBK 解析直接 ParserError。终态：pytest 1244 / 82% 门禁 / tsc 0 / vitest 231，新代码 98/100/95。
+
+## [2026-09-24] Task: M4b 冲动坐标观测 + ai_fill 字段级 + 看门狗 + live_projection（提交 74b1c89）
+
+- **双写手第五现场（收尾形态）**：本会话全部实现完成后，并发孪生会话把我的文件整体扫进同一 commit（74b1c89，与 M4a 183f87f 同款）并另立 notepad commit。教训固化：`git add` 后 commit 报"nothing staged"≠ add 失败——先 `git log --oneline -3` 查 HEAD 是否已含你的文件，别重复提交。
+- spec §10.1 锚点初值（L309）必须逐字：setting_heavy 15 / exploration 25 / character_driven 35 / philosophy 65 / plot 70 / nostalgia 75 / romance 80 / healing 85 / unsure（说不清）70；置信度起步 = 选卡 0.7 / 说不清 0.3（L310），存 A1Session.impulse_coords dict（default {} 零迁移）。
+- 阻尼语义按 spec L310：有效步长 = 基准 × 置信度（低置信 → 大阻尼）；轴方向由涉键模块 family 查 MODULE_POOL 确定性得出（story→向 100，worldview→向 0，output→0），无 LLM 判定。
+- maybe_reorder 达上限返回**原序副本**而非 None——幂等语义（调用方可无脑用返回值），"无未访模块"才返回 None。
+- ai_fill 字段级过滤放 _apply_fills 循环顶部（seen_keys 前）；策略解析用 resolve_recipe_id(creator_primary) 而非 recipe_id——存量会话（recipe_modules 空）与落定会话两态一致；**直答豁免**（key==direct_key 不过滤）保住"留给用户"语义。
+- 看门狗"后半程"判定用 done*2 < len（过半即进入后半程）——`<=` 会让恰好半数完成时不触发，与"进度过半"直觉相反。包装器模式：handle_message 原体改 _handle_message_impl，外层 +轮次 +附 watchdog 可选键——存量断言零扰动。
+- _build_graph 装配段抽函数（live_projection.assemble_background_tree）逐行保形：module_summaries 参数保留 graphify 摘要路径、TIER_MAP tier 一并带走——m1_default_snapshot 逐字节回归绿即证明抽取无损。
+- 新代码覆盖：impulse_coords 98% / watchdog 95% / live_projection 96%；1244/0（+53）+ tsc 0 + vitest 231。
