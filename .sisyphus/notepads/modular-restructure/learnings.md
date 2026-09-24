@@ -92,3 +92,37 @@
 - 看门狗"后半程"判定用 done*2 < len（过半即进入后半程）——`<=` 会让恰好半数完成时不触发，与"进度过半"直觉相反。包装器模式：handle_message 原体改 _handle_message_impl，外层 +轮次 +附 watchdog 可选键——存量断言零扰动。
 - _build_graph 装配段抽函数（live_projection.assemble_background_tree）逐行保形：module_summaries 参数保留 graphify 摘要路径、TIER_MAP tier 一并带走——m1_default_snapshot 逐字节回归绿即证明抽取无损。
 - 新代码覆盖：impulse_coords 98% / watchdog 95% / live_projection 96%；1244/0（+53）+ tsc 0 + vitest 231。
+
+## [2026-09-24] Task: M4c 人格卡 + 埋点三项 + sunset 接口（提交 2c21334）
+
+- **双写手第六现场（本次最"全程贴身"）**：接手时并发会话已完成 M4c 后端主体（persona_card.py 模块+14 用例测试先行落盘），我首份 RED 测试 Write 被拒才发现。处置照 M4a/M4b 范式：全面采纳对方契约（PERSONA_NAME_PLACEHOLDER / entry_card_weight(session, base_weight) / 环境变量开关 A1_ENTRY_SUNSET_ENABLED），我方只补真空档 = additive 端点路由测试 + 收尾验证。frontend telemetry 对方也是边写我边看（schema bump 先落、三个 compute 函数 45s 后补齐）——**对方活跃期内绝不碰同一文件**，等 settle 再验证。
+- 对方遗留 2 个真 bug（我修）：①浮点累计 0.7+0.1=0.7999… 与阈值 0.8 的 >= 比较失配 → 实现侧加 1e-9 容差（比改测试更保语义）；②enabled 用例漏 creator_profile_source 导致低置信起步 0.3（对方自己随即也修了，双修一致）。教训：阈值语义接口的浮点比较，容差要进实现不进测试。
+- sunset 接口形态（对方设计，采纳）：entry_card_weight(session, base_weight=1.0) 默认恒返 base_weight；sunset_enabled() 读环境变量 A1_ENTRY_SUNSET_ENABLED（默认关）+ SUNSET_CONFIDENCE_THRESHOLD=0.8 + SUNSET_DECAY_FACTOR=0.5 常量齐备，本期零接线零行为变化——"只留接口"的最小忠实实现。
+- telemetry v2 演进姿势：存储键 a1_telemetry_v1 **物理键名不变**，schema_version 进事件字段（1|2 联合类型），读取端版本容忍、派生指标对 v1/v2 事件都算——升级/降级都不破坏既有本地数据，v1 fixture 字面量兼容读取回归锚定。
+- 人格卡免费线复核：render_persona_card(session) 单参数纯函数（签名即零 LLM 证明）、只看不判（渲染不改 answers/coords/audit）、确定性幂等。route 测试 start 门禁再踩一次：seed_id/custom_idea 二选一，裸 impulse_primary 会 400。
+- 终态：verify.ps1 全绿 pytest 1260(+16) / 82% 门禁 / tsc 0 / vitest 239(+8)；a1_routes 与 persona_card AST sweep 零重复符号。plan 文件与 boulder.json 未入库（纪律）。
+
+
+## [2026-09-24] Task: M4c 人格卡 + 埋点三项 + sunset 接口（提交 2c21334）
+
+- **双写手第六现场（收尾即收编）**：我的 5 个文件在 git add 后瞬间被并发会话扫进同一 commit（2c21334，与 M4a/M4b 同款收尾形态），对方还补了一份 test_persona_card_route.py——`git status` 干净 ≠ 没干活，先 `git log --show-stat` 再决定动作（M4b 教训三连命中）。
+- **锚点初值浮点陷阱**：0.7 + 0.1 = 0.7999… < 0.8，置信阈值比较必须带 1e-9 容差（impulse_coords 信号表 ±0.1 步长的必然后果）——任何"累加浮点达阈值"断言都要么容差要么换阈值。
+- s.Low-start 陷阱：creator_profile_source 缺省 → 置信 0.3 起步且冷却轮挡二次调整，测试里凑高置信必须显式传 source="impulse_cards"（0.7 起步 + 一次 pack_applied 到位）。
+- 前端 schema 升版模式：物理存储键 a1_telemetry_v1 不动，版本在事件字段内演进；读取端本就 cast 容差，v1 兼容读取回归 = 直接塞 v1 payload 断言解析。派生指标（skip_rate/completion/mismatch_map）做成纯函数吃事件数组，对版本无门槛。
+- 人格卡 = 确定性投影（creator_profile + impulse_coords 查表/阈值/模板），零 LLM；命名 "ECHO 创作人格" 为未决③占位常量，终名归产品；sunset 只留接口（A1_ENTRY_SUNSET_ENABLED 默认关）+ 默认关闭态本身是测试断言。
+- 终态：pytest 1260/0（+16）/ 82% 门禁 / tsc 0 / vitest 239（+8）；persona_card.py 行覆盖 91%；AST sweep 零重复符号。
+
+## [2026-09-24] Task: G 治理四件（D14 扩展 + spec v1.3 + A2 归档头 + B1 提案）
+
+- **D14 已存在（09-22 立），按"扩展不重复"追加实施回写**：用行尾锚（"...待产品方追认 | 09-22 |"）做 oldString 安全插入——与 09-22 惯例一致。回写结构 = 三红线实施结果（DN1 门禁子集/DN2 tier 10→16/契约 v1.3+枚举）+ D12/D13/D15 处置注记（收编实施非推翻）+ DN3 占位 + DN5 生产方三处留痕。
+- **"A2 两规格 v0.1/v0.2"实为 S1/S2**：docs/plans/2026-09-17-a2-stage-design-spec.md（S1，P0-P3 版）+ 2026-09-17-a2-stage-handoff-and-design-spec.md（S2，v0/v0.5/v1 版）——证据文件 a2-plan-mining-a2-specs.md 头部明确标注 S1/S2，任务卡里的"v0.1/v0.2"指两文件各自版本号标题（都是 v0.1）。治理目录的 2-A2-v0.2 是另一份愿景稿，不在收编头范围。
+- **spec v1.3 = 增量版新文件**（2026-09-18-impulse-entry-system-spec-v1.3.md）：沿用 v5.1 增量补丁范式——只重述 §5.2（配方表）与 §8（模块上线序），其余章节声明"按 v1.2 有效"，避免 447 行全文誊抄。原 v1.2 文件零改动（头注本版仍未标 superseded——按台账元规则翻案认新版文件，原版不动）。
+- A2 归档头用 callout 式 `> [!ARCHIVED-ABSORBED]` 单块置顶，原文零改动；权威证据 = a2-plan-mining-*（完整版），jia-mining-* = 中断残版，注记里写明。
+- B1 提案关键点：翻案生效途径 = 产品方在台账改写 B1 条目（元规则 2），提案文档只提案不生效。
+- PROJECT_STATE 本批模板：当前阶段加第六批段 + 甲计划施工日汇总段（七提交链+覆盖率轨迹），进行中改为"F 待审"，遗留问题顶部加 DN1-6 状态行（默认值生效待终审措辞，不能写成"已裁决"）。
+
+## G 治理批次（2026-09-24）
+- 治理文档状态先行核查：会话开始时 decision-log D14 行已被前序会话原地扩展（未提交），G 批次实际剩余工作 = 修失配 wikilink（D14 引用的 spec-v1.3 新文件链改为同文件原地升版链）+ spec v1.3 + A2 归档头 + B1 提案 + PROJECT_STATE。教训：接手前先 git diff，别信任务描述的"从零做"假设。
+- impulse spec 版本惯例 = 同文件原地升版 + §0 变更记录（自身头注成文），与治理文档"新版本顺延号新建文件"不同。D14 行引用升版结果时必须链原文件名，否则制造断链。
+- PROJECT_STATE 多会话并行追加时"当前阶段"易重复：先查已完成区是否已有本批条目，新"当前阶段"条目只写状态摘要 + 指针，不重复 commit 清单。
+- A2 归档头只加注记不改原文；两规格身份以证据文件 a2-plan-mining-a2-specs.md 的 S1/S2 标注为准（非 governance/2-A2-v0.2）。
