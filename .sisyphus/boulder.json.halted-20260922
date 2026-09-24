@@ -1,0 +1,23 @@
+{
+  "active_plan": "H:\\UGC\\.sisyphus\\plans\\modular-restructure.md",
+  "started_at": "2026-09-22T14:00:00.000Z",
+  "session_ids": [
+    "ses_f3b721b62ffe4LM6gJ4Y9Z0FyL"
+  ],
+  "session_origins": {
+    "ses_f3b721b62ffe4LM6gJ4Y9Z0FyL": "direct"
+  },
+  "plan_name": "modular-restructure",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:0": {
+      "task_key": "todo:0",
+      "task_label": "0",
+      "task_title": "M0 止血：访谈偏转死循环 hotfix 三件",
+      "session_id": "ses_f3854e800ffe48uEsjUskR7m3H",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-09-22T06:03:12.216Z"
+    }
+  }
+}

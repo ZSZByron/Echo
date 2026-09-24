@@ -19,3 +19,9 @@
 - 修法：pyproject `[tool.pytest.ini_options]` 加 `pythonpath = ["."]`（pytest≥7 内置，相对 rootdir），一行修掉 c7 ModuleNotFoundError: tests.unit + a1_warning_ledger/xt 的 No module named 'tests' 两个同根因错误。
 - 诊断技巧：先单文件复现（可能单跑是绿的），再跑全量、再换调用方式（exe vs -m），三步定位"只在某组合下失败"的导入债。
 - 新净基线：backend 下裸 pytest：tests/unit 无 ignore = 865P/0F；tests/ 全仓 = 1074P/0F/0 collection error。coverage 门禁未动，--no-cov 照用。
+
+## 2026-09-22 治理批次（G：版本顺延 ×4 + D14）
+- 治理版本顺延照旧惯例：git mv 保原文完整性 → 新建顺延号文件。特例确认：无版本号后缀的旧版（2_product-architecture.md）原地保留不移 archive，supersedes 在新文件头部注明即可。
+- 2-A2-v0.2 这类被收编（而非推翻）的文档不进 archive，在 A 模块专项表标注收编去向指针。
+- v6 §0.2 十二条继承声明是治理文档表述利器：声明"管线契约继续有效"可一次性覆盖 2-A1 系/store/409 族，避免逐条重述。
+- D 条目追加时用行尾锚（" | 09-20 |"）做 oldString 比整行安全——D12/D13 单行超长。
