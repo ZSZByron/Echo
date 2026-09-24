@@ -54,3 +54,30 @@
 - **signal_requirements 三档闭集**：required/optional/hard（H §2.2 L174 转译）——optional=缺省+ledger 披露（骰子四步法逐级兜底），hard=前置产物依赖缺→409（角色←骰子、doc⑦⑧节←TD/TC）。键用字段级 `"{module}.{subfield}"`（S2 ★信号源地图转译），入池经 `ModuleDef.signal_requirements: dict[str,str]`（默认空 dict，worldview/story 零扰动）。
 - **module_compile 免费线设计**：LLM 单点只产文案（module_fantasy + 节导语），九节树/ScopeBoundary/数值全确定性装配；provider 缺席/异常/形状不符三路都 → None → 答案原文骨架兜底 + `module_compile_degraded` ledger 条目。provider 兼容同步/异步双形态（inspect.isawaitable 分支）——conftest 的 StubLLMProvider 是 async 而测试内临时 stub 常是 sync。
 - **测试基建坑**：conftest autouse `_isolated_a1_store` 每测清空 _SESSIONS/_FILES——fixture 注入式造数必须在**测试体内**调用（漏调一行 = 404 file not found，且单测隔离复现更容易误导为路由问题）；boulder 编排方已终验 1162/0 + 81.43% + tsc 0 + vitest 231。
+
+## [2026-09-24] Task: M4a field_sources + 推断包（提交 183f87f）
+
+- **双写手第四次现场（本次最密集）**：guide_engine/a1_routes/我方测试文件三个面同时被并发会话落盘（对方在我首次 Read 之后、Edit 期间写入）。处置复用 M3 范式：不重写、AST dup-symbol sweep 定位重复（guide_engine 双份 FIELD_SOURCES/mark/dice-apply；a1_routes 双份 _get_inference_packer + 双份端点），逐块采纳更优者删冗余。教训升级：**接手即先比对文件 mtime 与首次 Read 的行数**（1051 vs 927 行差直接暴露对方已写入），别等测试失败才发现。
+- 对方设计的两处更优点直接采纳：①mark_field_source 不带真值守卫（调用点全部紧跟真值写入之后，不变式由调用结构保证，比函数内兜底更简）；②human/llm_fill 判定放在 _apply_fills 内用 direct_key（session.current_*）一次分流，比我在 handle_message 的事后 override 少一次快照。
+- 现实核查记录：骰子推荐今日**不存在** answers 写入路径（derive_dice_recommendation 与 project_dice_template 均只读）——出口 4 按 task 指示落在"该路径应有的唯一定格点"= 确定性 apply_dice_recommendation 函数（J1 闸+clip+标记），无 live 端点，零行为变化。parse_modules 同理是纯函数 → upload_prefill 标记落 _prefill_session（会话构建处）。
+- 推断包免费线：provider 兼容 sync/async 双形态（inspect.isawaitable，M3 先例）——conftest StubLLMProvider 是 async、测试内 stub 常 sync，两种都要能吃。J1 拦截在装包前（_filter_valid）而非 confirm 时，placeholder 永不成为提案；"绝不直写 answers"用 install 前后 answers 快照断言锚定。
+- creator_confidence 用 dict[bucket,float]（bucket=creator_primary，空="unprofiled"）而非单 float：次冲动/多桶留余地，M4b 坐标观测直接复用。初始 0.5，±0.1 棘轮 [0,1]。
+- test_inference_pack 路由测试坑：/session/start 必须 seed_id 或 custom_idea 二选一（400 兜底），裸 user_id 会 400 不是 200。
+- verify.ps1 全绿：pytest 1191（+29）/ 81% 门禁 / tsc 0 / vitest 231；inference_pack.py 行覆盖 86%（≥85 新代码线）；三文件 AST sweep 零重复符号。
+
+
+## [2026-09-24] Task: M4a field_sources 四出口 + 推断包（提交 183f87f）
+
+- **双写手极限现场（M4a 全程双会话并发）**：RED 测试文件（test_field_sources/test_inference_pack）、inference_pack.py 模块本体、a1_routes 的 confirm 双写钩子与 field_sources 响应字段均由并发会话先行落盘——处置 = 逐件"读→采纳/对齐"而非重写：模块 API（InferencePacker(provider).build/install + apply_pack_feedback）照其契约消费；我方 _prefill_session 重复标记块删除保留其单行版；全量跑挂 + ast.parse 通过但 collection 全炸 = 对方正写到一半的瞬时态，清 pycache 重跑即消。收尾时发现对方已把我方改动一并打进同一 commit（183f87f）——git status 干净 ≠ 没干活，先查 git log 再决定是否提交。
+- **"直答 human" 的现实锚定坑**：契约测试默认首模块 ≠ IP定位，现实 first_module()=IP定位.name——三个用例按假设写成"侧字段"实为当前问题字段。裁决：契约语义以 TestOutletHuman 类注释为准（当前问题字段=用户口述→human；其余 fills→llm_fill），改测试对齐现实（M2"改对齐测试"先例）。
+- **置信棘轮对齐**：apply_pack_feedback 默认桶起点 0.5 vs 测试期望"一次 drop 落 0"——测试即契约，最终以测试面收敛（双写手下"谁对齐谁"的唯一裁判 = 双方都认可的 spec 条款 + 先落盘的实现读作要约）。
+- field_sources 出口归属实证：直答=_apply_fills 内 cur_key 判定（非独立写点）；骰子推荐=确定性 apply_dice_recommendation 函数（无 live 端点，E1 前移时直接消费）；A1 当前不存在"骰子推荐写 answers"的既有链路（derive_dice_recommendation 纯展示）。
+- 推断包 DN5 留痕：inference_pack.py = A1 域新 LLM 生产方（单生产单消费）；install 是它与 answers 间唯一许可交互面且只写 pending_proposals；G 批次契约评审清单需列入。
+
+## [2026-09-24] Task: M4b 冲动坐标 + ai_fill 字段级 + 看门狗 + live_projection（提交 74b1c89）
+
+- **双写手第五现场（本次最奇特）**：对方会话几乎与我同步从零实现整个 M4b——我写测试时对方已落盘同名测试文件（Write 被拒才发现）。处置 = 全面采纳对方实现（impulse_coords/watchdog 测试契约即要约），只补真空档（live_projection、接线当时尚缺）+ 撤除我方重复编辑（A1Session 双份字段/重复 import 块/冗余 helper——**发现即删，别留"无害重复"**，pydantic 双字段虽 last-wins 不炸但脏）。
+- 对方自测矛盾一处：watchdog 边界 done*2 <= len 与其测试（恰好半数触发）相悖——测试即契约，改为 <（进入后半程即触发）；实测 40 新测试全绿。
+- 补测试收口新代码覆盖线（85）：impulse_coords 84→98%（unknown signal fail-loud / dashboard 幂等 / output 族零轴移 / 超限留痕四用例）；live_projection 100% / watchdog 95%。
+- 真空档补齐清单（接手半成品现场的排查序）：A1Session 字段（message_rounds/impulse_coords）→ 模块本体 → 接线（handle_message 轮次+watchdog 附加键 / resolve_proposal 信号 / start_session init / a1_routes pack 信号+GET 端点）→ _build_graph 装配段抽取。逐项 grep 确认存在再动手。
+- verify.ps1 必须用 pwsh7 跑（& 调用），powershell5 把 UTF-8 中文当 GBK 解析直接 ParserError。终态：pytest 1244 / 82% 门禁 / tsc 0 / vitest 231，新代码 98/100/95。
