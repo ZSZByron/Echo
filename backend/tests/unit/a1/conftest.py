@@ -133,3 +133,13 @@ def make_stub_llm():
         return StubLLMProvider(**kwargs)
 
     return _make
+
+
+@pytest.fixture()
+def client():
+    """FastAPI TestClient for a1 route-level contract tests (M4a)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    return TestClient(app)

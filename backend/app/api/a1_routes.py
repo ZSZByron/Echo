@@ -28,6 +28,10 @@ from app.domains.creation.a1.guide_engine import (
     progress,
     sync_position,
 )
+from app.domains.creation.a1.inference_pack import (
+    InferencePacker,
+    apply_pack_feedback,
+)
 from app.domains.creation.a1.innovation_capture import (
     Confirmation,
     confirm_proposal,
@@ -949,7 +953,11 @@ def chat_confirm(req: ConfirmRequest) -> dict:
 
         # Call resolve_proposal from guide_engine
         from app.domains.creation.a1.guide_engine import resolve_proposal
+        # M4a：先取 entry（resolve 会 pop）——推断包提案 confirm → 判定双写
+        pack_entry = session.pending_proposals.get(proposal_key)
         result = resolve_proposal(session, proposal_key, canonical_choice)
+        if pack_entry is not None and pack_entry.get("source") == "inference_pack":
+            apply_pack_feedback(session, applied=bool(result.get("applied")))
 
         # Build response
         reply = "已确认并记录。"
@@ -982,6 +990,66 @@ def chat_confirm(req: ConfirmRequest) -> dict:
     out["next_question"] = _question_payload(session)
     _save_store()
     return out
+
+
+# ---------------------------------------------------------------------------
+# M4a 推断包（DN5：A1 域新 LLM 生产方，单生产单消费留痕）
+# ---------------------------------------------------------------------------
+
+def _get_inference_packer() -> "InferencePacker":
+    """Lazy packer factory（同 _get_interviewer 的降级姿态：构造失败 →
+    provider=None → 免费线空包）。测试经 monkeypatch 覆盖本工厂。"""
+    try:
+        provider = create_provider(load_provider_config())
+    except Exception:  # noqa: BLE001 — no API key / bad config must not crash
+        provider = None
+    return InferencePacker(provider)
+
+
+@router.post("/api/a1/file/{file_id}/inference-pack")
+def generate_inference_pack(file_id: str) -> dict:
+    """推断包：单次 LLM 生成 3-5 条补全建议 → 装入 pending_proposals。
+
+    **绝不直写 answers**（铁律）：落写只发生在既有 confirm 交互
+    （/api/a1/chat/confirm kind="fill" → resolve_proposal，即 fills 通道，
+    J1 已在生成侧拦截占位）。零 LLM → 空包 200 + note（免费线）。
+    """
+    _load_once()
+    rec = _FILES.get(file_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="file not found")
+    session = _SESSIONS.get(rec["session_id"])
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    packer = _get_inference_packer()
+    pack = packer.build(session)
+    installed = set(packer.install(session, pack))
+
+    from app.domains.creation.a1.guide_engine import _proposal_key
+    from app.domains.creation.seed.a1_question_tree import get_subfield
+
+    suggestions: list[dict] = []
+    for sug in pack.suggestions:
+        pk = _proposal_key(sug.module, sug.subfield, sug.value)
+        if pk not in installed:
+            continue  # 装包间隙被并发写入跳过 → 不进响应
+        sf = get_subfield(sug.module, sug.subfield)
+        suggestions.append({
+            "key": pk,
+            "module": sug.module,
+            "subfield": sug.subfield,
+            "field_label": sf["label"] if sf else sug.subfield,
+            "value": sug.value,
+            "reason": sug.reason,
+        })
+    _save_store()
+    return {
+        "file_id": file_id,
+        "session_id": session.session_id,
+        "suggestions": suggestions,
+        "note": pack.note,
+    }
 
 
 def _get_file(file_id: str) -> dict:
@@ -1084,6 +1152,8 @@ def get_file(file_id: str) -> dict:
         "warnings": rec.get("warnings", []),
         # v0.5 T15: 失效区常驻（draft/旧记录为空列表；条目见 finalize 死区追加）
         "dead_edges": rec.get("dead_edges", []),
+        # M4a additive：field_sources 平行溯源元数据（只看不判；缺省空 dict）
+        "field_sources": dict(session.field_sources),
     }
 
 
@@ -1619,6 +1689,9 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         ip_code=f"IP{ip_no:04d}",
     )
     session.answers = dict(parsed["answers"])
+    # M4a 出口三（上传预填 → upload_prefill）：parse_modules 结果定格的唯一
+    # 标记点（parse_modules 本身是纯函数不触碰 session——接线在会话构建处）。
+    session.field_sources = {k: "upload_prefill" for k in session.answers}
     # J4 预算护栏披露：parse 出口截断的答案记入 session（finalize 并入 ledger）
     session.answer_clips.extend(
         f"答案超2000字已截断: {k}（上传解析）"
@@ -1650,6 +1723,9 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
     )
     _save_store()
     return {
+        # 供域内测试/内部链路直接取用会话对象；两个上传端点 return 前会
+        # pop 掉，绝不外泄到 API 响应。
+        "_session": session,
         "session_id": session.session_id,
         "file_id": file_id,
         "ip_code": session.ip_code,
@@ -1749,6 +1825,7 @@ async def upload_worldview(req: UploadRequest) -> dict:
         )
     upload_id = uuid.uuid4().hex
     body = _prefill_session(req.user_id, parsed)
+    body.pop("_session", None)  # 内部对象不外泄（M4a）
     body.update({"status": "parsed", "upload_id": upload_id})
     # J3/J4 披露：截断与 cap 有痕落库（此前只在响应里闪现，不持久化）
     upload_notes: list[dict[str, Any]] = []
@@ -1804,6 +1881,7 @@ async def upload_convert(req: UploadConvertRequest) -> dict:
     del _UPLOADS[req.upload_id]
     log_event("upload", "convert_used", user_id=req.user_id, upload_id=req.upload_id)
     body = _prefill_session(req.user_id, parsed)
+    body.pop("_session", None)  # 内部对象不外泄（M4a）
     body.update({"status": "parsed"})
     # J4 披露：convert 输入超预算截断 → upload ledger 条目
     from app.domains.creation.a1.worldview_upload import MAX_CONTENT_CHARS

@@ -61,6 +61,55 @@ PHASE_COMPLETED = "completed"
 # 语义覆盖——J1 真值闸判非真值 → 门禁/进度不计数）。
 DEFLECT_PLACEHOLDER = "（用户跳过）"
 
+# ---------------------------------------------------------------------------
+# M4a field_sources（impulse spec §6，D12 冻结设计）——人工/AI 作答溯源。
+# 平行元数据：answers 旁的同键空间 dict[str, str]，绝不改写答案值本身。
+# 四来源闭集（逐字锁定，不允许扩张）；只看不判：M4a 无任何行为分支消费
+# 此元数据（门禁/进度/路由零改变，TestObserveOnly 契约锚定）。
+FIELD_SOURCE_HUMAN = "human"                # 用户口述（当前问题的直接回答）
+FIELD_SOURCE_LLM_FILL = "llm_fill"          # 访谈 fills 通道（已经用户 confirm）
+FIELD_SOURCE_DICE_REC = "dice_rec"          # 骰子推荐写入
+FIELD_SOURCE_UPLOAD_PREFILL = "upload_prefill"  # 上传预填（parse_modules 链）
+FIELD_SOURCES: frozenset[str] = frozenset({
+    FIELD_SOURCE_HUMAN,
+    FIELD_SOURCE_LLM_FILL,
+    FIELD_SOURCE_DICE_REC,
+    FIELD_SOURCE_UPLOAD_PREFILL,
+})
+
+
+def mark_field_source(session: "A1Session", key: str, source: str) -> None:
+    """Tag one answer key with its write source (auto-mark, 都标自动标).
+
+    Raises ValueError on a source outside the closed enum — a typo must
+    fail loud at the write site, not silently pollute the metadata.
+    """
+    if source not in FIELD_SOURCES:
+        raise ValueError(f"unknown field source: {source!r}")
+    session.field_sources[key] = source
+
+
+def apply_dice_recommendation(
+    session: "A1Session", key: str, value: str
+) -> bool:
+    """Outlet 4：骰子推荐按钮写入（确定性 apply 函数即单点接线）。
+
+    J1 真值闸：占位值/空串不写入、不标记（与 _apply_fills 同一闸口径）。
+    Returns True when written (and marked dice_rec), False otherwise.
+    当前无 live 端点消费此函数（spec §6 骰子推荐按钮属 E1 前移）——
+    M4a 只落接线点与标记，零行为变化。
+    """
+    if not is_truthy_answer(value):
+        return False
+    fill_value, was_clipped = clip_answer(value)
+    if was_clipped:
+        session.answer_clips.append(
+            f"答案超{ANSWER_MAX_CHARS}字已截断: {key}（骰子推荐，原 {len(value)} 字）"
+        )
+    session.answers[key] = fill_value
+    mark_field_source(session, key, FIELD_SOURCE_DICE_REC)
+    return True
+
 
 def _session_recipe_modules(session: A1Session) -> list[str]:
     """Resolve the session's ordered recipe module ids (M1 registry lookup).
@@ -152,12 +201,14 @@ class A1Session(BaseModel):
     # (write guard protects user-confirmed content only); the key is
     # removed after overwrite so the field returns to normal guard.
     prefill_fields: list[str] = Field(default_factory=list)
-    # Field keys prefilled from the upload-pipeline LLM parse. These are
-    # *guesses* the user never confirmed, so the write guard does NOT
-    # protect them: a user-spoken fill overwrites a prefill directly
-    # (after which the key is removed and the field is guarded normally).
-    # Default empty keeps old sessions deserializable.
-    prefill_fields: list[str] = Field(default_factory=list)
+    # M4a（D12）：answers 的平行溯源元数据，同键空间 dict[str, str]。
+    # 四来源闭集见 FIELD_SOURCES；default {} 零迁移（G3 先例——存量会话
+    # model_validate 直接通过，读侧 .get(key, "unknown") 兜底）。只看不判。
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    # M4a 推断包（DN5 新 LLM 生产方）confirm 判定双写：creator_profile
+    # 置信棘轮（bucket=creator_primary，[0,1]，确定性增量，全留痕见
+    # inference_pack.apply_pack_feedback）。default {} 零迁移。
+    creator_confidence: dict[str, float] = Field(default_factory=dict)
     # M0 止血（甲计划任务 0）：叙事素材归档槽（spec L251 character_sketch
     # 文本槽先行版）。默认 "" 零迁移（creator_* 先例）。不进 35 字段/门禁/
     # graphify——素材追加写入（\n 分隔，clip_answer 2000 限额+J3 披露）。
@@ -280,6 +331,10 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
     else:
         return {"applied": False, "choice": choice, "error": "invalid_choice"}
 
+    if applied:
+        # M4a 出口 2（fills 通道 confirm 面）：拦截提案经用户 confirm 落写
+        # → llm_fill（spec §6：「访谈 fills（已经用户 confirm）」）。
+        mark_field_source(session, field_key, FIELD_SOURCE_LLM_FILL)
     session.pending_proposals.pop(key, None)
     return {"applied": applied, "choice": choice}
 
@@ -354,6 +409,10 @@ def _apply_fills(
     file_diff: list[dict[str, Any]] = []
     intercepted: list[Proposal] = []
     seen_keys: set[str] = set()
+    # M4a 直答判定：fills 命中当前问题字段 = 用户口述直答（human）；
+    # 其余字段 = LLM 自动填空（llm_fill）。拦截态不标——confirm 后经
+    # resolve_proposal 统一标 llm_fill（spec §6：访谈 fills 已经用户 confirm）。
+    direct_key = f"{session.current_module}.{session.current_subfield}"
     for fill in fills:
         key = f"{fill.module}.{fill.subfield}"
         # J1 答案真值闸（fills 统一出口）：占位值/空串视同"本轮没有提取"——
@@ -393,6 +452,10 @@ def _apply_fills(
                     "new": fill_value,
                 })
                 session.answers[key] = fill_value
+                mark_field_source(
+                    session, key,
+                    FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
+                )
                 continue
             proposal = Proposal(
                 module=fill.module,
@@ -423,6 +486,10 @@ def _apply_fills(
             "new": fill_value,
         })
         session.answers[key] = fill_value
+        mark_field_source(
+            session, key,
+            FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
+        )
 
     return file_diff, intercepted
 
