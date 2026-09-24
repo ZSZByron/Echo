@@ -1,12 +1,18 @@
 # PROJECT_STATE
 
 ### 当前阶段
+**2026-09-24（第五批）：测试方式改进落地（产品方指令）——M1a 收官，净基线成立。**四件：①门禁拆层：全局 85→80（贴现实 80.16%，pyproject 注释记录依据与回调条款）；甲计划新代码单独 ≥85 条款入甲计划 Verification Strategy——取代 C/B 二选一。②一键体检 verify.ps1 上线（根目录）：三命令+覆盖率+死码嫌疑人+中文摘要卡，快照落 .sisyphus/evidence/baseline-latest.txt——**PROJECT_STATE 基线数字以此为源，禁手抄**（根治文档与现实脱节）。③import 加固：补 tests 根/integration/models 三处 __init__.py，tests.* 绝对导入从此确定性（历史"调用方式依赖"病灶根治）。④双雷自修复：pyproject 中文注释触发 test_smoke GBK 读炸（注释改英文 + 测试显式 encoding="utf-8"）。**终态实测：1009/1009 全绿 + tsc 0 错 + vitest 231 全绿 + 门禁通过 = 净基线成立；M1a（D9 v2）出口条件全达成，M1 注册表底座可开工。**
+**2026-09-24（第四批）：M1a 净基线执行（D9 v2/D16/D17）——体检 + 死码清理 + C2/C3 完成，唯一未决 = 覆盖率门禁裁决。**体检：pytest 全量 1009/1009 全绿 + tsc 0 错 + vitest 231 全绿 + 冒烟三测全 200（/api/health、/api/a1/seeds、前端 /a1）；死码清理（选项 A）：删 9 文件（四死模型 constraint/culture/story_graph/event_graph + 四死测试 + demo_phase1_interactive）+ dimension.py 切除死类区 469→311 行（RedOutput 因 DimensionResultSet.RED 引用保留；LawOutput 误切一次已 git 还原修复，import app.main 验证通过）；**勘误**：c7×4/xt 收集错误实由 eb22a6f（HALT 前提交）修复，09-24 复测确认——此前文档记载落后。C2 类型对齐三先例在册全绿（relationLabel 7 测试逐字对齐 / WarningLedgerEntry a1.ts↔warning_ledger.py / test_module_ids_match_spec）。覆盖率 80.16% vs 门禁 85%：C（降 80，推荐）/B（豁免遗留线）待产品方一字裁决，定后 M1a 收官、M1 开工。**
+**2026-09-24（第三批）：D17——HALT 解除，甲计划续行。**产品方指令"解除 HALT"落盘：09-22 施工暂停令解除，波次序 = M1a 净基线清债（首项，= D9 v2 闸门 D16，≤1 天）→ M1 注册表底座 → M2 故事模块族 ∥ M3 产出模块入池 → M4 + G 治理 → F1-F4 四审 → 产品方终审。DN1-3/5/6 追认 + ⭐ 终审项不阻塞施工（冻结数据前须终审）。回写：控制塔升 v0.5 / jia-code-module-design 头约束解除。**
+**2026-09-24（第二批）：D16 落盘——D9 闸门重定义 v2 + 产能裁决。**①D9 v2 = 净基线闸门 + **前后端交互层**（vitest 排除 e2e spec / 前后端类型对齐盘点 / 全链路冒烟），载体 = 甲计划 M1a，时间盒 ≤1 天；旧定义（tsc 16 + 存量测试清零）由 D16 取代——tsc 半边已在 E1-Lite 清零（09-22 实测）。②产能已答：**一人 + AI（GLM）写代码**——⛔ 解除，D1 北极星验证启动条件齐备。回写：前端手册 D9 行 / 甲计划 M1a 注记 / 台账未决项表。剩余阻塞：HALT 解除指令（产品方）。**
+**2026-09-24：DN4 裁决落盘（产品方对话裁决 → decision-log D15；v6 本版内 DN 占位兑现，治理文档顺延升版 2_product-architecture-v0.3 / 5_engineering-governance-v0.4，旧版入 governance/archive/）。四项：①ScopeBoundary max_party_size=6 ②文档导出端点 = doc（界面「文档输出」）③M 重定稿 = 同 file 版本递进（α0.1→0.11/0.12 草稿迭代→定稿转 β→0.21…→1.0，全产物统一含 W 图谱）④字母重定义 W=世界图/M=模组图族（含 TD/TC/R）/S=场景图（不停发）。补记（本文件此前滞后）：09-22 D14 甲计划立项（模块化重组，A1/A2/A3 阶段退役）+ 全线 HALT——以下 09-22 前日志中"A2 P0/E1 排期"类顺序内容已被 D14 推翻待重梳；DN1-3/5/6 默认值生效待追认。**
 **2026-09-22：E1-Lite 故事核心三件套已完成（提交链 ba75b29..e23670d，6 提交，10/10 任务，四审 APPROVE）。creator_profile 落库 + 类型驱动队列 + 语气锚点 + 前端结构化上送 + telemetry 回填 + 集成冒烟全部落地；验证基线：后端 tests/unit 837 passed / 4 failed（环境 preexisting）/ 前端 tsc 0 错 / vitest 231 passed。E1-Lite 闭环，无进行中事项；下一步 = A2 P0（B1 基线顺延至 ~10 月初，产品方 2026-09-20 裁决顺序 E1-Lite → A2 P0 → B1 验收）。**
 **2026-09-17：产品方裁决 A 界面优先。决策台账 v1.0 → docs/decision-log.md；首页 Landing v0.1 规格书 → docs/plans/2026-09-17-landing-page-v01-spec.md（待 F1/F2 取证校准）。⛔ D1 启动阻塞项：产能未答（台账未决项）；前置闸门 D9（tsc 16 + 存量测试失败清零，时间盒 ≤1 天）待启动指令。**
 **2026-09-17（第二批）：A1→A2 阶段交接与 A2 设计规格 v0.1 → docs/plans/2026-09-17-a2-stage-design-spec.md（A1 总结/交接契约冻结/三代矛盾收编 D-A2-1~7/前后端设计/断点 BP-A2-0~11/分期 P0[9.26 主模组文字版]→P1[骰子/角色]→P2[策划线]→P3[展板/机械码]）。待用户评审批准；P0 实施前置 = D9 闸门 + ⛔产能。**
 A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已落地（2026-09-11），J2 待 v0.6 设计评审后启动。文档清账战役（审计矛盾#1-#8）已完成（2026-09-11/13）；v0.5 正式工作计划（.sisyphus/plans/，按 2-A1-v0.5 §8 P0-P4 拆分）待生成。
 
 ### 已完成
+- 2026-09-24 本次（M1a 批）：**净基线体检 + 死码清理（选项 A）+ C2/C3 收尾**。(1) 测试套件审核：契约测试 C1-C7 完整、零僵尸测试、vitest e2e 隔离已在配置（遗留节三处记载过时已销账）。(2) 三命令体检：全量 pytest **1009/1009 全绿** + tsc 0 错 + vitest **231/231 全绿**；勘误——c7×4 与 xt 收集错误实由 eb22a6f（HALT 前提交，M1a 清债部分）修复，控制塔"M1a 部分完成"属实。(3) 死码清理：删 9 文件（constraint/culture/story_graph/event_graph 四死模型 + 四死测试 + demo_phase1_interactive）+ dimension.py 切除死类区（469→311 行；RedOutput 因 DimensionResultSet.RED 引用保留；LawOutput 误切一次即刻 git 还原修复；教训：引用检索必须含定义文件自身）；测试 1074→1009（-65 死测试）；ruff 自产 2 F401 已修（3 E501 存量未动）。(4) C2 类型对齐盘点：三先例确认全绿——relationLabel（7 测试逐字对齐断言）/ WarningLedgerEntry（types/a1.ts ↔ warning_ledger.py LedgerEntry）/ test_module_ids_match_spec（问卷树 spec 锁定）。(5) C3 全链路冒烟：/api/health、/api/a1/seeds、前端 /a1 三测全 200，进程已清。**余项：覆盖率门禁 85% vs 实测 80.16%，C/B 待产品方裁决——M1a 唯一未决**。同日 D15（DN4 裁决）/D16（D9 v2 + 产能=一人+GLM）/D17（HALT 解除）三决策落盘；治理文档升版 0_index-v0.5 / 2_product-architecture-v0.3 / 5_engineering-governance-v0.4 / tower-v0.5（旧版均入 archive/）
 - 2026-09-22 本次：**E1-Lite 故事核心三件套收官（提交链 ba75b29(T1)/9bea2dd(T2)/c7b979a(T3)/048df87(T5)/f03d3e7(T4)/e23670d(T6)，证据归档 .sisyphus/evidence/ 216 份 gitignored）**。①**creator_profile 落库**：A1Session 增 creator_primary/creator_secondary/profile_source 三字段，StartRequest 增 impulse_primary/impulse_secondary，9 型白名单校验、未知值降级不 400。②**类型驱动队列**：TYPE_MODULE_PRIORITY 7 型前移 + TYPE_ENTRY_SUBFIELD plot/unsure→历史时间线.main_plot 入口前置，R6 只前移不跳过，门禁语义零变化。③**语气锚点**：ANCHOR_BY_TYPE 9 型逐字取自 spec §5.2，_seed_block 单点注入，prompt 骨架恒 1。④**前端结构化上送**：startSession 第三参 + pendingImpulseRef 设定侧上下文保持 + 次冲动空缺省键（A1Workspace diff 24 行）。⑤**telemetry attachSessionId 回填**（幂等/零网络）。⑥**集成冒烟测试**。
 - **验证基线（2026-09-22）**：后端 tests/unit 837 passed / 4 failed（4 个 test_c7_loop_e2e 为 bc86fb5 基线即有的环境失败）+ tests.xt/test_a1_warning_ledger 收集错误为环境 preexisting；前端 tsc 0 错 / vitest 231 passed 0 failed；C1-C5 契约与 test_module_ids_match_spec 零触碰。
 - 2026-09-20 本次（第三批）：**入口系统 spec v1.1→v1.2——未决②"说不清"通用线锚定 + 冲动坐标参数化（纯文档未动代码）**。产品方提案（冲动卡定初值 → 随内容/表现调整会话要求 → 向分类收敛）经评审收敛落盘：(1) §5.2 路由表新增"通用线"行（+1 卡 → 故事侧默认队列，历史时间线.main_plot 前置；依据 = 说不清预期 20-40%/基线 22% 为最大单一队列而路由表原缺此行）；**既有八行契约零改动，D12 不变**。(2) **冲动坐标**（命名产品方确认）= 叙事-建构倾向轴 + 置信度 + 安全旗三件套，存 creator_profile；四护栏 = 确定性更新（防方案 B 复辟）/ 防振荡阻尼 / 可达性不变式（保 R6）/ 安全旗单向棘轮（"连续值调顺序，离散旗管安全"）；E2 只看不判（field_sources 同款先例）→ E3 驱动路由 + 入口单选 sunset（Spotify 13.8% 消融实证）。新 §10.1 设计节（含八型锚点设计初值，E2 校准，预注册纪律）。(3) E0 埋点三项升级（跳过率/完成度/自报-行为错位地图）并入 §10（备忘 §9 挂接项 1/2 兑现）。(4) §5.2 注引用勘误（未决③→①）。台账新增 **D13**；MOC spec 行升 v1.2。§12.2 未决收敛为两项（ai_fill 粒度 / 人格卡命名）。
@@ -45,9 +51,11 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - 2026-08-27 本次：回退修复——`graph_view` 双Tab展示页（知识图谱默认+展板预览）；IPPoster「返回世界观工坊」经 `a1_return_intent` 键一步直达 guided_chat；挂载水合恢复 file/进度/graphCode
 
 ### 进行中
-- 无（E1-Lite 已闭环，2026-09-22）。
+- **M1a 净基线清债待启动**（HALT 已解除 2026-09-24，D17；= D9 v2 闸门 D16——后端 c7_loop×4 + xt 收集错误转正 / vitest 排除 e2e / 类型对齐盘点 / 全链路冒烟；时间盒 ≤1 天，产能 = 一人 + GLM）。
 
 ### 关键决策记录
+- **D9 v2 重定义 + 产能（2026-09-24，D16）**：D9 = 净基线闸门（后端 c7_loop×4 + xt 收集错误转正；前端已达标零工作量）+ 前后端交互层三项（vitest 排除 e2e spec / 前后端类型对齐盘点 / 全链路冒烟）；"先于一切新功能"不变；载体 = 甲计划 M1a。产能 = 一人 + AI（GLM）写代码
+- **DN4 裁决（2026-09-24，D15）**：组队 6 人 / doc + 「文档输出」/ 同 file α-β 版本递进（全产物统一）/ W-M-S 字母按联邦三图谱重定义（S=场景不停发）。非裁决留尾：路径域 a1 vs modules 与 max_power_level 类型归 M3 施工对齐
 - **E1-Lite 三项 DECISION NEEDED 默认值已生效待产品方追认（2026-09-22）**：①队列口径以 spec §5.2 逐字为准（哲理=reality_rule 先 / 爱情=IP定位 先，非口头"5 型都 main_plot"）②角色驱动序 = 去掉第 0 模块剩余序（文明→历史→世界→力量）③未知枚举 = 忽略降级 + warning 不 400。另：计划转录的锚点文案 / main_plot 问题文案与 spec/问卷树原文有出入，实现以 spec/树为权威。
 - **v0.5 统一模型三轴（2026-09-03 用户确认）**：数据形态 NL/SIR/KG 单生产单消费；概念树序号 0/N/N-M 与深度树 D{锚点}-{k} 异号；tier（v0.4七层语义）≠level（图深度），tier 为模块属性+派生边呈现，不入图加深
 - **graphify 五字段 SIR 契约**：定稿时一次 LLM 调用产出 module_summaries/entries/edges/constraint_fields/open_questions；constraint_fields 即考古断链的修复（重建 08-24 被斩断的生产方）；NL 永不携带机器格式
@@ -60,6 +68,8 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - A1 定稿展示页状态名 = `graph_view`（2026-08-27 立；前身 `poster_view` 已废弃）
 
 ### 下一步
+- **（2026-09-24 注）HALT 已解除（D17）。下列条目成文于 D14 之前，其中 A2 P0 启动链/E1 排期/B1 等顺序类内容已被 D14 推翻或悬空，待甲计划合并重梳后重排**
+- **首项 = 甲计划 M1a（D9 v2 净基线清债 + 前后端交互层，D16/D17；时间盒 ≤1 天）→ M1 注册表底座 → M2 ∥ M3 → M4 + G → F1-F4 四审**
 - **A2 P0**（产品方 2026-09-20 裁决：顺序 = E1-Lite → A2 P0 → B1 验收；B1 基线顺延至 ~10 月初）
 - **E1 全量余项待排期**：推断包 / character_sketch / field_sources / 看门狗等
 - **A2 P0 启动链**（docs/plans/2026-09-17-a2-stage-design-spec.md §7）：D9 闸门清零 → BP-A2-2 会话底座 ∥ BP-A2-1 GraphSelector 重建 → BP-A2-3 finalize 汇合 → BP-A2-4 文字版 → BP-A2-5 前端 → BP-A2-11 全链验收（9.26 基线）；正式工作计划（.sisyphus/plans/）待用户指令生成
@@ -70,8 +80,8 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - 浏览器端手动冒烟（start.ps1）：定稿→图谱Tab→展板→回退→继续深化→重新定稿（v0.5 实施后重跑）
 
 ### 遗留问题
-- test_c7_loop_e2e 4 失败 + tests.xt 收集错误（tests.unit ModuleNotFoundError）为环境 preexisting，与 E1-Lite 无关（2026-09-22 确认），建议环境专项修复
-- graph.spec Playwright 存量失败基线（E0 记录 23F/3P）仍未修
-- vitest 全量跑会收集 Playwright spec（tests/e2e），需在 vitest config 排除
-- useTypewriter 测试失败为前序遗留
+- 〔已解决 2026-09-24 第五批〕~~覆盖率门禁 85% 未达~~：产品方"改进测试方式"指令 → 门禁拆层（全局 80 + 甲计划新代码单独 ≥85）+ verify.ps1 一键体检上线——详见当前阶段第五批
+- graph.spec Playwright 存量失败基线（E0 记录 23F/3P）仍未修（另立项不阻塞，D16 维持）
 - GraphViewContent/A1GraphSection 为组件内嵌套定义，父状态变化会重挂载（当前影响仅为图谱重复 GET，可接受）
+- pytest 收尾偶发 "Event loop is closed" 线程告警 ×2（冒烟级观察项，不影响通过）
+- 〔已销账 2026-09-24〕~~test_c7_loop_e2e 4 失败 + tests.xt 收集错误~~（eb22a6f 已修，全量复测 1009/1009 全绿）；~~vitest 收集 Playwright spec~~（vitest.config 早已排除 tests/e2e/**，实测确认）；~~useTypewriter 测试失败~~（实测 231/231 全绿）
