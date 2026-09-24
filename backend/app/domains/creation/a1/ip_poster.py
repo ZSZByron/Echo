@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.domains.creation.a1.guide_engine import A1Session
-from app.domains.creation.seed.a1_question_tree import MODULES, get_module, subs_for_module
+from app.domains.creation.seed.a1_question_tree import (
+    get_module,
+    module_ids,
+    subs_for_module,
+)
 
 POSTER_STATUS_PENDING = "pending"
 
@@ -35,10 +39,14 @@ def build_poster(session: A1Session) -> dict[str, Any]:
             module_answers[module_id] = []
         module_answers[module_id].append((subfield_id, value))
     
-    # Build panels for each module (in canonical module order)
-    known_ids = {m["id"] for m in MODULES}
-    for m in MODULES:
-        module_id = m["id"]
+    # Build panels for each module (in canonical module order; M1 配方
+    # 感知——故事会话的展板含其配方内模块 panels，default = 全集不变）。
+    recipe_order = session.recipe_modules or module_ids()
+    known_ids = set(recipe_order)
+    for module_id in recipe_order:
+        m = get_module(module_id)
+        if m is None:
+            continue
         if module_id not in module_answers:
             continue
         label = m["label"]

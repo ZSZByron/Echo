@@ -12,7 +12,7 @@ Module order is locked (test_module_ids_match_spec):
 from __future__ import annotations
 
 import unicodedata
-from typing import TypedDict
+from typing import Sequence, TypedDict
 
 
 class SubField(TypedDict):
@@ -344,13 +344,27 @@ _MODULE_ORDER: list[str] = [m["id"] for m in MODULES]
 _MODULES_BY_ID: dict[str, Module] = {m["id"]: m for m in MODULES}
 
 
-def module_ids() -> list[str]:
-    """Return the ordered ids of all 10 modules."""
-    return list(_MODULE_ORDER)
+def _recipe_order(recipe: Sequence[str] | None) -> list[str]:
+    """Resolve a recipe (ordered module ids) or the full questionnaire order.
+
+    recipe=None → full set (default recipe). Pure data plumbing — the
+    registry owns recipe content; this module never imports it (the
+    dependency arrow points registry → here, never back).
+    """
+    return list(recipe) if recipe is not None else list(_MODULE_ORDER)
 
 
-def get_module(mid: str) -> Module | None:
-    """Return the module dict for mid, or None."""
+def module_ids(recipe: Sequence[str] | None = None) -> list[str]:
+    """Return the ordered module ids for the recipe (default = all 10)."""
+    return _recipe_order(recipe)
+
+
+def get_module(mid: str, recipe: Sequence[str] | None = None) -> Module | None:
+    """Return the module dict for mid, or None.
+
+    ``recipe`` is accepted for facade uniformity (M1 pool == tree modules;
+    M2 story modules join the pool, not this tree).
+    """
     return _MODULES_BY_ID.get(mid)
 
 
@@ -362,9 +376,9 @@ def get_subfield(mid: str, sid: str) -> SubField | None:
     return next((f for f in m["fields"] if f["id"] == sid), None)
 
 
-def first_module() -> Module:
-    """Return the first module (IP定位)."""
-    return MODULES[0]
+def first_module(recipe: Sequence[str] | None = None) -> Module:
+    """Return the first module of the recipe (default: IP定位)."""
+    return _MODULES_BY_ID[_recipe_order(recipe)[0]]
 
 
 def first_subfield(mid: str) -> SubField:
@@ -373,11 +387,15 @@ def first_subfield(mid: str) -> SubField:
     return m["fields"][0]
 
 
-def next_subfield(mid: str, sid: str | None) -> SubField | None:
+def next_subfield(
+    mid: str, sid: str | None, recipe: Sequence[str] | None = None
+) -> SubField | None:
     """Return the next subfield within the same module.
 
     Returns the first subfield when sid is None; returns None at the
     end of the module (callers cross into the next module themselves).
+    ``recipe`` accepted for facade uniformity — subfield order inside a
+    module is questionnaire-tree order for every recipe.
     """
     m = _MODULES_BY_ID.get(mid)
     if m is None:
@@ -390,12 +408,15 @@ def next_subfield(mid: str, sid: str | None) -> SubField | None:
     return None
 
 
-def next_module(mid: str) -> Module | None:
-    """Return the module after mid in order, or None at the end."""
-    if mid not in _MODULE_ORDER:
+def next_module(
+    mid: str, recipe: Sequence[str] | None = None
+) -> Module | None:
+    """Return the module after mid in the recipe order, or None at the end."""
+    order = _recipe_order(recipe)
+    if mid not in order:
         return None
-    i = _MODULE_ORDER.index(mid)
-    return MODULES[i + 1] if i + 1 < len(MODULES) else None
+    i = order.index(mid)
+    return _MODULES_BY_ID[order[i + 1]] if i + 1 < len(order) else None
 
 
 def subs_for_module(mid: str) -> list[SubField]:
@@ -409,9 +430,16 @@ def total_subfield_count() -> int:
     return sum(len(m["fields"]) for m in MODULES)
 
 
-def all_subfield_keys() -> list[str]:
-    """Return every answer key "module_id.subfield_id" in order."""
-    return [f"{m['id']}.{f['id']}" for m in MODULES for f in m["fields"]]
+def all_subfield_keys(recipe: Sequence[str] | None = None) -> list[str]:
+    """Return every answer key "module_id.subfield_id" in recipe order.
+
+    recipe=None → the full 10-module set (default recipe).
+    """
+    return [
+        f"{mid}.{f['id']}"
+        for mid in _recipe_order(recipe)
+        for f in _MODULES_BY_ID[mid]["fields"]
+    ]
 
 
 def is_module_done(mid: str, answers: dict[str, str]) -> bool:
@@ -446,9 +474,17 @@ def is_module_over_half(mid: str, answers: dict[str, str]) -> bool:
     return module_done_ratio(mid, answers) > FINALIZE_MODULE_THRESHOLD
 
 
-def is_finalizable(answers: dict[str, str]) -> bool:
-    """True when EVERY module exceeds the 50% finalize threshold."""
-    return all(is_module_over_half(mid, answers) for mid in module_ids())
+def is_finalizable(
+    answers: dict[str, str], recipe: Sequence[str] | None = None
+) -> bool:
+    """True when EVERY module in the recipe exceeds the 50% finalize threshold.
+
+    门禁子集语义（DN1 默认）：配方外模块 = 不适用，不参与判定。
+    recipe=None → 全集（default 配方，行为与 M1 之前逐字节一致）。
+    """
+    return all(
+        is_module_over_half(mid, answers) for mid in _recipe_order(recipe)
+    )
 
 
 # ---------------------------------------------------------------------------

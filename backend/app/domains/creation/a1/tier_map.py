@@ -1,8 +1,9 @@
 """A1 v0.5 content-tier mapping (C5 contract data plane).
 
 Authority: docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md §3.
-Closed set: exactly the 10 module ids from a1_question_tree.module_ids().
-Tier values are within [0, 6]. Do not add an 11th module tier.
+Tier values are within [0, 6] — the seven-layer tier RANGE stays closed
+(甲计划 DN2 默认：模块池新模块复用既有 tier 值映射，不新增层；翻案记录
+归 D14）。Coverage 契约自 M1 起为池语义：pool 内模块必有 tier。
 """
 from __future__ import annotations
 
@@ -27,12 +28,11 @@ MAX_TIER = 6
 
 
 def module_tier_coverage() -> list[str]:
-    """Assert TIER_MAP keys == module_ids() set; return missing ids (empty when full coverage)."""
-    tree_ids = set(module_ids())
-    map_ids = set(TIER_MAP)
-    assert map_ids == tree_ids, (
-        f"TIER_MAP keys do not match a1 module_ids(): "
-        f"missing_from_map={sorted(tree_ids - map_ids)}, "
-        f"extra_in_map={sorted(map_ids - tree_ids)}"
-    )
-    return []
+    """Pool-semantics coverage check: every MODULE_POOL module must have a tier.
+
+    Returns missing ids (empty when full coverage). 池开放、tier 值闭集：
+    新入池模块必须复用 [0,6] 既有层值（DN2），不得新增第 8 层。
+    """
+    from app.domains.creation.shared.module_registry import MODULE_POOL
+
+    return sorted(mid for mid in MODULE_POOL if mid not in TIER_MAP)

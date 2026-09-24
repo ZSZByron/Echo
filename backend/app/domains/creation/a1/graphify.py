@@ -230,13 +230,18 @@ def dedupe_items(items: list[EntryItem]) -> tuple[list[EntryItem], list[str]]:
 # =============================================================================
 
 
-def validate_anchors(result: GraphifyResult) -> list[str]:
+def validate_anchors(
+    result: GraphifyResult,
+    legal_anchors: set[str] | None = None,
+) -> list[str]:
     """Rule 1: every entry anchor must be a legal ``module.subfield`` key.
 
     Illegal anchors are reported (LLM must not invent anchors); the caller
     drops the offending group and surfaces the warning.
+    ``legal_anchors`` = 配方并集（M1：经调用链签名传入，默认 None = 全集
+    all_subfield_keys()，行为与 M1 之前逐字节一致）。
     """
-    legal = set(all_subfield_keys())
+    legal = legal_anchors if legal_anchors is not None else set(all_subfield_keys())
     return [
         f"非法锚点: {group.anchor!r}"
         for group in result.entries
@@ -459,19 +464,27 @@ def parse_graphify_raw(raw: Any) -> GraphifyResult:
 # ---------- post-parse validation interception (contract §4 rules 1-5) ----------
 
 
-def _endpoint_exists(endpoint: str, result: GraphifyResult) -> bool:
+def _endpoint_exists(
+    endpoint: str,
+    result: GraphifyResult,
+    legal_anchors: set[str] | None = None,
+) -> bool:
     """Contract rule 2: edge endpoints must reference real node ids.
 
     Accepts: concept-tree ids (module id / module.subfield key),
     depth-tree ids (``d:{anchor}:{title}`` minted this round),
     cst ids (``cst_{DIM}_{tag}`` in the whitelist).
+    ``legal_anchors`` = 配方并集（None = 全集，行为不变）。
     """
+    keys = (
+        legal_anchors if legal_anchors is not None else set(all_subfield_keys())
+    )
     if endpoint.startswith("d:"):
         try:
             anchor, title = parse_depth_id(endpoint)
         except ValueError:
             return False
-        if anchor not in set(all_subfield_keys()):
+        if anchor not in keys:
             return False
         known = {
             sanitize_title(item.title)
@@ -487,10 +500,13 @@ def _endpoint_exists(endpoint: str, result: GraphifyResult) -> bool:
     # concept-tree id: module id or module.subfield key
     if endpoint in TIER_MAP:
         return True
-    return endpoint in set(all_subfield_keys())
+    return endpoint in keys
 
 
-def apply_graphify_validation(result: GraphifyResult) -> GraphifyResult:
+def apply_graphify_validation(
+    result: GraphifyResult,
+    legal_anchors: set[str] | None = None,
+) -> GraphifyResult:
     """In-place validation interception; returns the same result mutated.
 
     - illegal anchor → drop the group + ``[entries]`` warning (rule 1)
@@ -502,15 +518,16 @@ def apply_graphify_validation(result: GraphifyResult) -> GraphifyResult:
     - hallucinated node reference → edge dropped + ``[edges]`` warning
       (rule 2)
 
-    Never raises.
+    ``legal_anchors`` = 配方并集（M1：经调用链签名传入；None = 全集，
+    行为与 M1 之前逐字节一致）。Never raises.
     """
     warnings: list[str] = []
 
     # rule 1: illegal anchors dropped
-    legal_anchors = set(all_subfield_keys())
+    legal = legal_anchors if legal_anchors is not None else set(all_subfield_keys())
     kept_groups: list[AnchorEntries] = []
     for group in result.entries:
-        if group.anchor in legal_anchors:
+        if group.anchor in legal:
             kept_groups.append(group)
         else:
             warnings.append(f"[entries] 非法锚点已丢弃: {group.anchor!r}")
@@ -536,7 +553,9 @@ def apply_graphify_validation(result: GraphifyResult) -> GraphifyResult:
     # rule 2: hallucinated node references dropped
     real_edges: list[EdgeSpec] = []
     for edge in result.edges:
-        if _endpoint_exists(edge.from_, result) and _endpoint_exists(edge.to, result):
+        if _endpoint_exists(edge.from_, result, legal_anchors) and _endpoint_exists(
+            edge.to, result, legal_anchors
+        ):
             real_edges.append(edge)
         else:
             warnings.append(
@@ -570,6 +589,7 @@ def graphify_llm(
     *,
     answered_evidence: list[str] | None = None,
     timeout: float | None = None,
+    legal_anchors: set[str] | None = None,
 ) -> GraphifyResult:
     """One-shot LLM graphification (governance doc §4-§5).
 
@@ -641,7 +661,7 @@ def graphify_llm(
         # Parse/validate OUTSIDE the retry loop: wrong-shape JSON replays
         # identically on retry — degrade fast instead.
         result = parse_graphify_raw(raw)
-        result = apply_graphify_validation(result)
+        result = apply_graphify_validation(result, legal_anchors=legal_anchors)
         # J4: 预算披露附加在 validate 之后（warnings 列表为真源）
         if budget_notes:
             result.warnings = result.warnings + budget_notes

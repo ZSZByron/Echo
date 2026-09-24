@@ -31,24 +31,10 @@ from app.domains.creation.seed.a1_question_tree import (
     get_module,
     get_subfield,
 )
-
-# E1-Lite T3: 语气锚点（spec §5.2 "语气锚点"列逐字，一个字不许改写；
-# 引号形态 = spec 原文直引号 U+0022）。注入 _seed_block 模板变量
-# （R2：差异是数据不是代码——单一 prompt 骨架）。
-ANCHOR_BY_TYPE: dict[str, str] = {
-    "plot": '节奏导向："这个设定会制造什么事件？"',
-    "unsure": '中性引导"先聊聊你世界里发生的事"',
-    "philosophy": '追问"如果这条规则被违反会怎样"',
-    "romance": '情感张力导向；A1 极轻量化；合规边界（§9）',
-    "character_driven": '一切围绕"这如何影响 TA 的命运"',
-    "setting_heavy": '机制自洽："这里的力量为什么成立？"',
-    "exploration": '能力边界展示："AI 可以替你试三种方案"',
-    "nostalgia": '"我在保护原作的味道"——风格保真',
-    "healing": '陪伴低压力："不想答的都可以跳过，我会替你补上"',
-}
-
-# M0 止血：故事型主冲动集合（叙事素材归档判定用；guide_engine 复用）。
-STORY_PRIMARY_TYPES = frozenset({"plot", "romance", "unsure", "character_driven"})
+from app.domains.creation.shared.module_registry import (
+    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    STORY_PRIMARY_TYPES,  # noqa: F401 — 同上（M0 集合随迁）
+)
 
 
 class InterviewFill(BaseModel):

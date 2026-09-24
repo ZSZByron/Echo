@@ -57,6 +57,10 @@ from app.domains.creation.seed.a1_question_tree import (
 from app.domains.creation.seed.preset_loader import load_presets
 from app.domains.creation.shared import stale_marker
 from app.domains.creation.shared.graph_code_issuer import GraphCodeIssuer
+from app.domains.creation.shared.module_registry import (
+    RECIPES,
+    resolve_recipe_id,
+)
 from app.models.dimension import (
     ActOutput,
     DimensionResultSet,
@@ -297,6 +301,7 @@ def _assemble_depth_tree(
     edges: list[GraphEdge],
     module_serial_by_id: dict[str, int],
     entry_serial_by_id: dict[str, int],
+    legal_anchors: set[str] | None = None,
 ) -> tuple[list[str], int]:
     """Mount the depth tree (L4 ``d:`` nodes) under answered concept-tree anchors.
 
@@ -312,13 +317,13 @@ def _assemble_depth_tree(
     Returns ``(warnings, depth_node_count)``.
     """
     warnings: list[str] = []
-    illegal = set(validate_anchors(llm_result))
+    legal = legal_anchors if legal_anchors is not None else set(all_subfield_keys())
+    illegal = set(validate_anchors(llm_result, legal_anchors=legal))
     warnings.extend(illegal)
-    legal_anchors = set(all_subfield_keys())
     children_enabled = os.environ.get("A1_DEPTH_CHILDREN", "1") == "1"
     mounted = 0
     for group in llm_result.entries:
-        if group.anchor not in legal_anchors:
+        if group.anchor not in legal:
             continue  # illegal anchor already reported via validate_anchors
         anchor_module = group.anchor.split(".", 1)[0]
         m_serial = module_serial_by_id.get(anchor_module)
@@ -507,6 +512,7 @@ def _build_graph(
     session: A1Session,
     file_rec: dict,
     llm_result: GraphifyResult | None = None,
+    legal_anchors: set[str] | None = None,
 ) -> tuple[KnowledgeGraph, set[str]]:
     bg_id = f"bg_{session.session_id[:8]}"
     nodes: dict[str, GraphNode] = {
@@ -591,6 +597,7 @@ def _build_graph(
         llm_warnings, _mounted = _assemble_depth_tree(
             session, llm_result, nodes, edges,
             module_serial_by_id, entry_serial_by_id,
+            legal_anchors=legal_anchors,
         )
         input_edges = len(llm_result.edges)
         added = _merge_llm_edges(
@@ -691,6 +698,15 @@ def start_session(req: StartRequest) -> dict:
             )
     if session.creator_primary or session.creator_secondary:
         session.creator_profile_source = "impulse_cards"
+
+    # M1 配方落定（确定性查表，LLM 不进控制流）：creator_primary 命中配方
+    # → 落定 recipe_id/recipe_modules；无/未知 → default（recipe_modules
+    # 留空 = 全集，G3 存量会话零迁移语义一致）。
+    recipe_id = resolve_recipe_id(session.creator_primary)
+    session.recipe_id = recipe_id
+    session.recipe_modules = (
+        [] if recipe_id == "default" else list(RECIPES[recipe_id].module_ids)
+    )
 
     sync_position(session)
 
@@ -955,11 +971,30 @@ def _get_file(file_id: str) -> dict:
     return rec
 
 
+def _recipe_module_ids(session: A1Session) -> list[str]:
+    """Ordered in-recipe module ids (M1 recipe gate semantics).
+
+    会话已落定配方（recipe_modules 非空）→ 配方序（故事型=子集）；
+    存量/默认会话（空）→ 全集（G3，行为逐字节不变）。
+    """
+    return session.recipe_modules or module_ids()
+
+
+def _recipe_legal_anchors(session: A1Session) -> set[str]:
+    """Recipe union of legal "module.subfield" anchors for graphify validation."""
+    return set(all_subfield_keys(recipe=_recipe_module_ids(session)))
+
+
 def _build_sections(session: A1Session) -> list[dict]:
-    """Hierarchical sections structure shared by start & get_file responses."""
+    """Hierarchical sections structure shared by start & get_file responses.
+
+    M1 配方感知：遍历会话配方内的模块（default = 全集，结构与顺序不变）。
+    """
     sections = []
-    for module in MODULES:
-        module_id = module["id"]
+    for module_id in _recipe_module_ids(session):
+        module = get_module(module_id)
+        if module is None:
+            continue
         module_label = module["label"]
 
         # Collect all fields for this module
@@ -1132,9 +1167,13 @@ def finalize(file_id: str) -> dict:
     rec = _get_file(file_id)
     session = _SESSIONS[rec["session_id"]]
 
-    # Finalize gate: every module must have STRICTLY more than 50% of
-    # its subfields answered (product rule, see a1_question_tree).
-    missing = [mid for mid in module_ids() if not is_module_over_half(mid, session.answers)]
+    # Finalize gate (M1 DN1 subset semantics): every module *in the
+    # session's recipe* must have STRICTLY more than 50% of its subfields
+    # answered; out-of-recipe modules = 不适用 (never listed).
+    missing = [
+        mid for mid in _recipe_module_ids(session)
+        if not is_module_over_half(mid, session.answers)
+    ]
     if missing:
         # missing_sections is the contract key (v5 T9); missing_modules kept
         # as a legacy alias for older consumers.
@@ -1173,9 +1212,13 @@ def finalize(file_id: str) -> dict:
     ]
 
     llm_result = graphify_llm(
-        session, provider, answered_evidence=answered_evidence or None
+        session, provider, answered_evidence=answered_evidence or None,
+        legal_anchors=_recipe_legal_anchors(session),
     )
-    graph, valid_node_ids = _build_graph(session, rec, llm_result)
+    graph, valid_node_ids = _build_graph(
+        session, rec, llm_result,
+        legal_anchors=_recipe_legal_anchors(session),
+    )
     warnings: list[str] = []
 
     # v0.5 (§8.1 两阶段): graphify 降级 warning 并入 finalize_warnings

@@ -116,15 +116,22 @@ class TestE1LiteIntegrationSmoke:
             seen.add(key)
             session.answers[key] = f"答-{key}"
         assert session.phase == "completed"
-        assert sorted(seen) == sorted(all_subfield_keys())
+        # M1 配方语义（DN1）：plot 会话只走故事配方子集——遍历覆盖 =
+        # 配方键集（不是全集）；且必为全集真子集（子集断言）。
+        recipe_keys = all_subfield_keys(recipe=session.recipe_modules)
+        assert sorted(seen) == sorted(recipe_keys)
+        assert set(recipe_keys) < set(all_subfield_keys())
         first_visit_idx = [order_index[m] for m in visited_modules]
         assert first_visit_idx == sorted(first_visit_idx), (
             f"module first-visit order deviates from type order: {visited_modules}"
         )
 
-        # -- 5b. finalize gate regression: below-half module -> 409 --
-        # Fresh session, same impulse profile: leave the first module at
-        # exactly 50% (2 of 4 subs) and fill every other module >50%.
+        # -- 5b. finalize gate regression (M1 recipe-scoped, DN1): below-
+        # half *in-recipe* module -> 409 with that module in
+        # missing_sections; out-of-recipe modules never appear. Fresh
+        # session, same impulse profile: leave the recipe's first module
+        # (历史时间线, 3 fields) at 1/3 = 33% (below the >50% gate) and
+        # fill every other recipe module >50%.
         resp2 = client.post(
             "/api/a1/session/start",
             json={
@@ -136,14 +143,18 @@ class TestE1LiteIntegrationSmoke:
         assert resp2.status_code == 200
         p2 = resp2.json()
         s2 = a1_routes._SESSIONS[p2["session_id"]]
-        first = MODULES[0]
-        for m in MODULES:
-            for f in m["fields"]:
-                s2.answers[f"{m['id']}.{f['id']}"] = "预填内容"
+        assert s2.recipe_modules  # plot recipe landed at start (M1)
+        for key in all_subfield_keys(recipe=s2.recipe_modules):
+            s2.answers[key] = "预填内容"
+        first_mid = s2.recipe_modules[0]
+        first = next(m for m in MODULES if m["id"] == first_mid)
         for f in first["fields"]:
             s2.answers.pop(f"{first['id']}.{f['id']}", None)
+        # 1 of 3 fields answered — strictly below the 50% gate.
         s2.answers[f"{first['id']}.{first['fields'][0]['id']}"] = "x"
-        s2.answers[f"{first['id']}.{first['fields'][1]['id']}"] = "x"
         fin = client.post(f"/api/a1/file/{p2['file_id']}/finalize")
         assert fin.status_code == 409
-        assert first["id"] in fin.json()["detail"]["missing_sections"]
+        detail = fin.json()["detail"]["missing_sections"]
+        assert first["id"] in detail
+        # Out-of-recipe modules (e.g. IP定位) = 不适用, never listed (DN1).
+        assert "IP定位" not in detail

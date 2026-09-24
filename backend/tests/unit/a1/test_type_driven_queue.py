@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """E1-Lite T2 — type-driven forward-only queue reordering (R6 conservative).
 
+M1 重锚（plan TODO 1 契约测试重锚）：
+- legacy/未落定配方会话（recipe_modules 为空）→ creator_primary 查表纯
+  置换（head+rest 保全集）= **default 配方置换等价**（本文件既有断言）。
+- start_session 落定配方后：非故事型 = 全集置换（与置换等价）；故事型 =
+  有序子集（DN1/DN6 初稿，见 test_module_registry.py 子集断言）。
 sync_position traversal order is permuted by creator_primary: priority
 modules move forward, nothing is skipped. Pure permutation guarantees
 all 35 field keys remain reachable and phase can still reach COMPLETED.
@@ -210,3 +215,40 @@ class TestCrossTurnIdempotence:
         for ptype, (mid, sid) in TYPE_ENTRY_SUBFIELD.items():
             assert mid == "历史时间线"
             assert sid == "main_plot"
+
+
+class TestLandedRecipeSemantics:
+    """M1 重锚：start_session 落定配方后的置换等价 / 子集语义。"""
+
+    def test_landed_nonstory_recipe_is_full_permutation(self):
+        # 非故事型落定配方（recipe_modules 非空）= 与 legacy 查表路径
+        # 置换等价（全集，每模块恰一次）。
+        from app.domains.creation.shared.module_registry import RECIPES
+
+        s = A1Session(
+            session_id="s", user_id="u",
+            recipe_id="philosophy",
+            recipe_modules=list(RECIPES["philosophy"].module_ids),
+        )
+        ordered = _ordered(s)
+        assert sorted(ordered) == sorted(module_ids())
+        assert len(ordered) == len(set(ordered))
+
+    def test_landed_story_recipe_is_ordered_subset(self):
+        # 故事型落定配方 = 有序真子集（R6 子集语义：配方内纯置换可达）。
+        from app.domains.creation.shared.module_registry import RECIPES
+
+        s = A1Session(
+            session_id="s", user_id="u",
+            recipe_id="plot",
+            recipe_modules=list(RECIPES["plot"].module_ids),
+        )
+        ordered = _ordered(s)
+        assert set(ordered) < set(module_ids())
+        assert ordered == list(RECIPES["plot"].module_ids)
+
+    def test_default_recipe_permutation_equivalence(self):
+        # default 配方（无 profile / 存量）遍历序 == 问卷树原序，与
+        # M1 之前逐字节一致（回归铁律的数据面）。
+        assert _ordered(make_session("")) == module_ids()
+        assert _ordered(make_session("unknown_type")) == module_ids()

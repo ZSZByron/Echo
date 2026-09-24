@@ -1,4 +1,9 @@
-"""C5: tier mapping contract tests — full 10-module coverage, tier range [0,6]."""
+"""C5: tier mapping contract tests — pool-semantics coverage (M1 re-anchor,
+DN2 默认), tier RANGE stays closed [0, 6].
+
+M1 起：模块池开放（故事/产出模块后续入池），tier 值闭集——池内模块必复用
+既有 [0,6] 层值；TIER_MAP 可加键（池覆盖），"第 8 层"仍禁止（翻案记录归 D14）。
+"""
 from __future__ import annotations
 
 from app.domains.creation.a1.tier_map import (
@@ -8,18 +13,18 @@ from app.domains.creation.a1.tier_map import (
     module_tier_coverage,
 )
 from app.domains.creation.seed.a1_question_tree import module_ids
+from app.domains.creation.shared.module_registry import MODULE_POOL
 from app.models.knowledge_graph import GraphNode
 
 
-def test_tier_map_keys_match_module_ids() -> None:
-    """TIER_MAP key set must equal the authoritative module_ids() set (verbatim Chinese ids)."""
-    assert set(TIER_MAP) == set(module_ids())
+def test_tier_map_covers_every_pool_module() -> None:
+    """Pool semantics (M1): every MODULE_POOL module must have a tier key.
 
-
-def test_tier_map_full_coverage_no_extra() -> None:
-    """Exactly 10 modules, no 11th module tier (closed set)."""
-    assert len(TIER_MAP) == 10
-    assert len(module_ids()) == 10
+    问卷树 10 模块是池的初始子集——TIER_MAP 必须覆盖它们；后续批次入池
+    模块同样受此约束（module_tier_coverage 池语义断言）。
+    """
+    assert set(module_ids()) <= set(TIER_MAP)
+    assert set(MODULE_POOL) <= set(TIER_MAP)
 
 
 def test_tier_values_within_range() -> None:

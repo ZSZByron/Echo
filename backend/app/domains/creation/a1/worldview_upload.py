@@ -18,14 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import unicodedata
-from typing import Any
+from typing import Any, Sequence
 
 from app.ai.provider import LLMProvider
 from app.domains.creation.seed.a1_question_tree import (
-    MODULES,
     all_subfield_keys,
     clip_answer,
+    get_module,
     is_truthy_answer,
+    module_ids,
 )
 
 # MVP limits (design doc): reject tiny texts, truncate huge ones.
@@ -190,9 +191,18 @@ async def check_copyright(
 # Stage 3 — module parsing (single source of truth: MODULES)
 # ---------------------------------------------------------------------------
 
-def _schema_catalog() -> str:
+def _schema_catalog(recipe: Sequence[str] | None = None) -> str:
+    """Schema lines for the upload LLM prompt (M1 recipe-parameterized).
+
+    recipe=None → 全集（default 配方，渲染与 M1 之前逐字节一致）。
+    故事型×上传链组合语义归 DN6（默认：上传链仅 default/怀旧路径暴露），
+    此参数仅为 M1 门面统一预留。
+    """
     lines = []
-    for module in MODULES:
+    for module_id in module_ids(recipe):
+        module = get_module(module_id)
+        if module is None:
+            continue
         for sf in module["fields"]:
             lines.append(
                 f"{module['id']}.{sf['id']} | {sf['question']} | 示例: {sf.get('example', '')}"

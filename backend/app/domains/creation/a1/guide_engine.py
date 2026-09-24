@@ -28,6 +28,13 @@ from app.domains.creation.a1.interviewer import (
     Proposal,
 )
 from app.domains.creation.a1.open_questions import OpenQuestion
+from app.domains.creation.shared.module_registry import (
+    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    RECIPES,
+    TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
+    TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
+    resolve_recipe_id,
+)
 from app.domains.creation.seed.a1_question_tree import (
     ANSWER_MAX_CHARS,
     MODULES,
@@ -55,40 +62,42 @@ PHASE_COMPLETED = "completed"
 # 语义覆盖——J1 真值闸判非真值 → 门禁/进度不计数）。
 DEFLECT_PLACEHOLDER = "（用户跳过）"
 
-# E1-Lite T2 — type-driven queue (spec §5.2, R6 conservative mode).
-# Module ids are the Chinese ids from the questionnaire tree; priority
-# lists only *move modules forward* — never skip them.
-TYPE_MODULE_PRIORITY: dict[str, list[str]] = {
-    "plot":             ["历史时间线", "文明与社会", "世界本体"],
-    "unsure":           ["历史时间线", "文明与社会", "世界本体"],
-    "philosophy":       ["世界本体", "文明与社会", "力量体系", "历史时间线"],
-    "romance":          ["IP定位", "历史时间线", "视觉设计"],
-    "character_driven": ["文明与社会", "历史时间线", "世界本体", "力量体系"],
-    "setting_heavy":    ["视觉设计"],
-    "exploration":      ["玩法设计DNA", "骰子设定", "力量体系", "世界本体"],
-    # nostalgia / healing 不入表 → 原序（§5.2 两行未定义前移序）
-}
-# 入口子字段前置（模块内置换，仅 plot/unsure——否则首问是 time_span 非故事问题）
-TYPE_ENTRY_SUBFIELD: dict[str, tuple[str, str]] = {
-    "plot":   ("历史时间线", "main_plot"),
-    "unsure": ("历史时间线", "main_plot"),
-}
 
+def _session_recipe_modules(session: A1Session) -> list[str]:
+    """Resolve the session's ordered recipe module ids (M1 registry lookup).
 
-def _type_ordered_modules(session: A1Session) -> list[str]:
-    """Type-driven module order: forward-only permutation of module_ids().
-
-    creator_primary present in TYPE_MODULE_PRIORITY → its priority list
-    comes first, remaining modules keep their questionnaire-tree order
-    (deduped). No profile / unknown type → original order. Pure
-    permutation: every module still appears exactly once.
+    recipe_modules 非空（start_session 落定）→ 配方序（故事型=子集序）。
+    存量会话（空，G3）→ E1-Lite 原路径逐字节复刻：creator_primary 查
+    TYPE_MODULE_PRIORITY 做 head+rest 纯置换（保全集）；无/未知 profile →
+    问卷树原序。确定性查表，LLM 不进控制流。
     """
+    if session.recipe_modules:
+        return list(session.recipe_modules)
     priority = TYPE_MODULE_PRIORITY.get(session.creator_primary or "")
     if not priority:
         return module_ids()
-    head = list(priority)
-    rest = [mid for mid in module_ids() if mid not in head]
-    return head + rest
+    return list(priority) + [mid for mid in module_ids() if mid not in priority]
+
+
+def _session_entry_subfield(session: A1Session) -> tuple[str, str]:
+    """Entry subfield swap for the session's recipe (default: ("", ""))."""
+    if session.recipe_modules:
+        recipe = RECIPES.get(session.recipe_id)
+        if recipe is not None and recipe.entry_subfield:
+            return recipe.entry_subfield
+        return ("", "")
+    return TYPE_ENTRY_SUBFIELD.get(session.creator_primary or "", ("", ""))
+
+
+def _type_ordered_modules(session: A1Session) -> list[str]:
+    """Recipe-driven module order (M1 registry; supersedes E1-Lite permutation).
+
+    会话已落定配方（recipe_modules 非空）→ 配方序（故事型=子集序）。
+    存量会话（无配方字段）→ creator_primary 查表：非故事型=纯置换
+    （head+rest 保全集，与 E1-Lite 行为等价）；故事型=子集序（DN6 初稿）。
+    无 profile / 未知值 → 问卷树原序（default 全集，G3 兼容）。
+    """
+    return _session_recipe_modules(session)
 
 
 def _initial_subfield() -> str:
@@ -118,6 +127,11 @@ class A1Session(BaseModel):
     creator_primary: str = ""
     creator_secondary: str = ""
     creator_profile_source: str = ""  # 仅 "impulse_cards"
+    # M1 模块注册表：会话落定的配方（start_session 按 creator_primary 查
+    # RECIPES 落定）。recipe_id="default" / recipe_modules=[]（空=default
+    # 全集）→ 存量会话零迁移（G3，creator_* 先例），行为逐字节不变。
+    recipe_id: str = "default"
+    recipe_modules: list[str] = Field(default_factory=list)
     # Anti-stall tracking (deterministic fallback after repeated stalls)
     stall_subfield: str = ""
     stall_count: int = 0
@@ -208,9 +222,7 @@ def sync_position(session: A1Session) -> None:
     not time_span).
     """
     ordered = _type_ordered_modules(session)
-    entry_mid, entry_sf = TYPE_ENTRY_SUBFIELD.get(
-        session.creator_primary or "", ("", "")
-    )
+    entry_mid, entry_sf = _session_entry_subfield(session)
 
     def _module_subfield_ids(mid: str) -> list[str]:
         sids = [f["id"] for f in subs_for_module(mid)]
