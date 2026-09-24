@@ -79,26 +79,32 @@ class TestRegistryShape:
     def test_default_recipe_is_full_set_in_tree_order(self):
         assert list(RECIPES["default"].module_ids) == module_ids()
 
-    def test_story_recipes_are_ordered_subsets(self):
-        full = set(module_ids())
+    def test_story_recipes_are_ordered_subsets_of_pool(self):
+        """M2：故事四型 = M12 剧情 + M11 角色 + 世界建构子集（池内有序子集）。
+
+        矩阵序/子集裁剪细则（DN6 初稿）见 test_story_modules.py。
+        """
+        pool = set(MODULE_POOL)
         for ptype in STORY_TYPES:
             r = RECIPES[ptype]
             mids = list(r.module_ids)
-            assert set(mids) < full, f"{ptype} recipe must be a strict subset"
+            assert set(mids) <= pool, f"{ptype} recipe must be a pool subset"
             assert len(mids) == len(set(mids)), f"{ptype} recipe must dedupe"
-            # 子集序 = E1-Lite §5.2 前移序（TYPE_MODULE_PRIORITY head）
-            assert mids == list(TYPE_MODULE_PRIORITY[ptype])
+            assert "剧情" in mids and "角色" in mids, ptype
 
-    def test_recipe_entry_and_anchor_from_e1_lite_dicts(self):
-        assert RECIPES["plot"].entry_subfield == ("历史时间线", "main_plot")
-        assert RECIPES["unsure"].entry_subfield == ("历史时间线", "main_plot")
+    def test_recipe_entry_and_anchor(self):
+        """M2：故事型入口 = 剧情.核心抉择（plot 验收 §239）/ 开场事件
+        （unsure 单问启动，模块清单拓展文档 §3）。"""
+        assert RECIPES["plot"].entry_subfield == ("剧情", "core_dilemma")
+        assert RECIPES["unsure"].entry_subfield == ("剧情", "opening_event")
         assert RECIPES["default"].entry_subfield is None
         assert RECIPES["plot"].anchor == TYPE_ANCHOR_PLOT
         assert RECIPES["healing"].anchor != ""  # nostalgia/healing 锚点保留
         assert RECIPES["nostalgia"].anchor != ""
 
-    def test_module_pool_covers_tree_and_tiers(self):
-        assert set(MODULE_POOL) == set(module_ids())
+    def test_module_pool_covers_tree_story_and_tiers(self):
+        """M2：池 = 问卷树 10 模块 + M12 剧情 + M11 角色（产出归 M3）。"""
+        assert set(MODULE_POOL) == set(module_ids()) | {"剧情", "角色"}
         assert module_tier_coverage() == []
 
     def test_e1_lite_dicts_reexported_from_registry(self):
@@ -129,14 +135,14 @@ class TestGateSubsetSemantics:
         assert is_finalizable(answers) is False  # 全集视角仍不可定稿
 
     def test_session_recipe_modules_drive_ordering(self):
-        story = ["历史时间线", "文明与社会", "世界本体"]
         s = A1Session(session_id="s", user_id="u",
-                      recipe_id="plot", recipe_modules=list(story))
-        assert _type_ordered_modules(s) == story
+                      recipe_id="plot",
+                      recipe_modules=list(RECIPES["plot"].module_ids))
+        assert _type_ordered_modules(s) == list(RECIPES["plot"].module_ids)
         sync_position(s)
-        # 首问 = 配方首模块首字段（entry swap: main_plot 前置）
-        assert s.current_module == "历史时间线"
-        assert s.current_subfield == "main_plot"
+        # 首问 = 配方首模块入口字段（M2 entry swap: 剧情.核心抉择 前置）
+        assert s.current_module == "剧情"
+        assert s.current_subfield == "core_dilemma"
 
     def test_story_recipe_full_walk_reaches_completed(self):
         story = ["历史时间线", "文明与社会", "世界本体"]
@@ -255,7 +261,8 @@ class TestStartSessionRecipeResolution:
         s = self._start(client, "plot")
         assert s.recipe_id == "plot"
         assert s.recipe_modules == list(RECIPES["plot"].module_ids)
-        assert set(s.recipe_modules) < set(module_ids())
+        assert set(s.recipe_modules) <= set(MODULE_POOL)
+        assert "剧情" in s.recipe_modules and "角色" in s.recipe_modules
 
     def test_unknown_impulse_falls_back_to_default(self, client):
         s = self._start(client, "definitely_not_a_type")

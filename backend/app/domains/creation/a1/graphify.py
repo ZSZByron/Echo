@@ -317,8 +317,21 @@ def _immutable_block(answers: dict[str, str]) -> str:
 
 
 def _tier_block() -> str:
-    """Static tier mapping table (contract §3, closed 10-module coverage)."""
-    return "\n".join(f"  - {mid} → tier {tier}" for mid, tier in TIER_MAP.items())
+    """Static tier mapping table (contract §3, closed 10-module coverage).
+
+    M2 注：只渲染世界建构 10 模块——TIER_MAP 自 M2 起含故事模块键
+    （DN2 tier 赋值走确定性编译），但 graphify prompt 逐字节回归铁律
+    （m1_default_snapshot.graphify_prompt_sha256）锁定本块内容不变：
+    迭代序必须保持 TIER_MAP 插入序（原实现语义），仅滤除故事族键。
+    """
+    from app.domains.creation.shared.module_registry import MODULE_POOL
+
+    return "\n".join(
+        f"  - {mid} → tier {tier}"
+        for mid, tier in TIER_MAP.items()
+        if MODULE_POOL.get(mid) is not None
+        and MODULE_POOL[mid].family == "worldview"
+    )
 
 
 def _vocab_block() -> str:

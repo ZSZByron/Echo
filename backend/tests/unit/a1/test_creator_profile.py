@@ -104,11 +104,12 @@ class TestRegressionNoImpulse:
         assert session.creator_primary == ""
         assert session.creator_secondary == ""
         assert session.creator_profile_source == ""
-        # 响应结构基线：顶层键不变
+        # 响应结构基线：顶层键不变（M2 additive：新增 recipe_id 可选键）
         assert set(data.keys()) == {
-            "session_id", "file_id", "ip_code",
+            "session_id", "file_id", "ip_code", "recipe_id",
             "first_question", "file", "seed",
         }
+        assert data["recipe_id"] == "default"  # 无冲动 → default 配方
         assert data["first_question"]["question"]
 
 

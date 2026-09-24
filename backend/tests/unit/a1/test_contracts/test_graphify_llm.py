@@ -109,7 +109,13 @@ class TestHappyPath:
         assert "铁律：神不可被杀" in prompt
         # tier mapping table
         assert "模块层级映射表" in prompt
+        # M2：graphify prompt 层级表只含世界建构 10 模块（逐字节回归铁律；
+        # 故事模块 tier 赋值走确定性编译，不进 prompt）。
+        from app.domains.creation.shared.module_registry import MODULE_POOL
+
         for mid in TIER_MAP:
+            if MODULE_POOL.get(mid, None) is not None and MODULE_POOL[mid].family != "worldview":
+                continue
             assert mid in prompt
         # closed constraint whitelist (prompt-gap fix 2026-09-14):
         # 全部 5 维 21 tag 必须逐条出现在提示词中（与关系词表同级枚举）

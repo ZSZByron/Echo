@@ -14,6 +14,8 @@ from __future__ import annotations
 import unicodedata
 from typing import Sequence, TypedDict
 
+from app.domains.creation.seed.story_modules import get_story_module
+
 
 class SubField(TypedDict):
     id: str
@@ -344,6 +346,19 @@ _MODULE_ORDER: list[str] = [m["id"] for m in MODULES]
 _MODULES_BY_ID: dict[str, Module] = {m["id"]: m for m in MODULES}
 
 
+def _resolve_module(mid: str) -> Module | None:
+    """Resolve a module id across worldview tree + story pool (M2).
+
+    世界建构 10 模块查问卷树；M11/M12 故事模块查 story_modules（经
+    get_story_module 门面）。MODULES 全集消费面（module_ids(recipe=None)/
+    total_subfield_count）不受影响——故事模块只经**显式配方参数**可达。
+    """
+    module = _MODULES_BY_ID.get(mid)
+    if module is not None:
+        return module
+    return get_story_module(mid)
+
+
 def _recipe_order(recipe: Sequence[str] | None) -> list[str]:
     """Resolve a recipe (ordered module ids) or the full questionnaire order.
 
@@ -365,12 +380,12 @@ def get_module(mid: str, recipe: Sequence[str] | None = None) -> Module | None:
     ``recipe`` is accepted for facade uniformity (M1 pool == tree modules;
     M2 story modules join the pool, not this tree).
     """
-    return _MODULES_BY_ID.get(mid)
+    return _resolve_module(mid)
 
 
 def get_subfield(mid: str, sid: str) -> SubField | None:
     """Return the subfield dict for (mid, sid), or None."""
-    m = _MODULES_BY_ID.get(mid)
+    m = _resolve_module(mid)
     if m is None:
         return None
     return next((f for f in m["fields"] if f["id"] == sid), None)
@@ -378,12 +393,15 @@ def get_subfield(mid: str, sid: str) -> SubField | None:
 
 def first_module(recipe: Sequence[str] | None = None) -> Module:
     """Return the first module of the recipe (default: IP定位)."""
-    return _MODULES_BY_ID[_recipe_order(recipe)[0]]
+    first = _resolve_module(_recipe_order(recipe)[0])
+    assert first is not None
+    return first
 
 
 def first_subfield(mid: str) -> SubField:
     """Return the first subfield of the given module."""
-    m = _MODULES_BY_ID[mid]
+    m = _resolve_module(mid)
+    assert m is not None
     return m["fields"][0]
 
 
@@ -397,7 +415,7 @@ def next_subfield(
     ``recipe`` accepted for facade uniformity — subfield order inside a
     module is questionnaire-tree order for every recipe.
     """
-    m = _MODULES_BY_ID.get(mid)
+    m = _resolve_module(mid)
     if m is None:
         return None
     if sid is None:
@@ -416,12 +434,14 @@ def next_module(
     if mid not in order:
         return None
     i = order.index(mid)
-    return _MODULES_BY_ID[order[i + 1]] if i + 1 < len(order) else None
+    nxt = _resolve_module(order[i + 1]) if i + 1 < len(order) else None
+    assert nxt is not None
+    return nxt
 
 
 def subs_for_module(mid: str) -> list[SubField]:
     """Return all subfields of the given module (empty list if unknown)."""
-    m = _MODULES_BY_ID.get(mid)
+    m = _resolve_module(mid)
     return m["fields"] if m else []
 
 
@@ -438,13 +458,13 @@ def all_subfield_keys(recipe: Sequence[str] | None = None) -> list[str]:
     return [
         f"{mid}.{f['id']}"
         for mid in _recipe_order(recipe)
-        for f in _MODULES_BY_ID[mid]["fields"]
+        for f in (_resolve_module(mid) or {"fields": []})["fields"]
     ]
 
 
 def is_module_done(mid: str, answers: dict[str, str]) -> bool:
     """True when every subfield of mid has a TRUTHY answer (J1)."""
-    m = _MODULES_BY_ID.get(mid)
+    m = _resolve_module(mid)
     return m is not None and all(
         is_truthy_answer(answers.get(f"{mid}.{f['id']}")) for f in m["fields"]
     )
@@ -457,7 +477,7 @@ def module_done_ratio(mid: str, answers: dict[str, str]) -> float:
     the numerator — they are semantically absent. Unknown modules return
     0.0 (never finalizable by accident).
     """
-    m = _MODULES_BY_ID.get(mid)
+    m = _resolve_module(mid)
     if m is None or not m["fields"]:
         return 0.0
     done = sum(

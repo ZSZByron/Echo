@@ -26,6 +26,7 @@ from typing import Any
 
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.domains.creation.seed.a1_question_tree import MODULES
+from app.domains.creation.seed.story_modules import STORY_MODULES
 
 # ---------------------------------------------------------------------------
 # E1-Lite 三数据字典（数据源迁入；guide_engine / interviewer 原位置 re-export）
@@ -95,8 +96,10 @@ class ModuleDef:
     tier: int
 
 
-#: 模块池。M1 = 原 10 世界建构模块引用；后续批次经此入池不散落。
-MODULE_POOL: dict[str, ModuleDef] = {
+#: 模块池：原 10 世界建构模块引用（M1）+ M11 角色 / M12 剧情故事模块（M2，
+#: family="story"，2026-09-22 重锚定定版——情感线并入 M12 + M10 爱情 preset，
+#: 无独立情感线模块）；产出模块归 M3 经此入池。
+_MODULE_POOL: dict[str, ModuleDef] = {
     m["id"]: ModuleDef(
         id=m["id"],
         label=m["label"],
@@ -106,6 +109,18 @@ MODULE_POOL: dict[str, ModuleDef] = {
     )
     for m in MODULES
 }
+_MODULE_POOL.update({
+    m["id"]: ModuleDef(
+        id=m["id"],
+        label=m["label"],
+        family="story",
+        fields=m["fields"],
+        tier=TIER_MAP[m["id"]],
+    )
+    for m in STORY_MODULES
+})
+
+MODULE_POOL: dict[str, ModuleDef] = _MODULE_POOL
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +154,57 @@ def _full_permutation(head: list[str]) -> tuple[str, ...]:
     return tuple(head) + tuple(mid for mid in _DEFAULT_ORDER if mid not in head)
 
 
+# M2 故事型配方矩阵（详细设计 §3.1，8+2 重锚版；计划 Must Have §102：
+# 故事四型 = M12 剧情 + M11 角色 + 有限世界建构子集）。
+# 世界建构子集的裁剪与序 = **DECISION NEEDED 6 初稿待终审**：
+# - 世界建构部分 = §5.2 前移序的**保序子集**（子集序即前移序，DN6）；
+# - plot/unsure 剔除 文明与社会——翻车证据验收场景②（势力类型轰炸）
+#   的根治项，终审可回填；
+# - unsure 入口 = M12 开场事件单问启动（模块清单拓展文档 §3 S0 直落
+#   opening_event）；plot 入口 = 核心抉择（验收 §239 首问）；
+# - romance 入口 = 角色.关键关系（双人关系卡打头，§3.1 矩阵）；
+# - 设定边界（M10）按全局规则 1"永远在场"常驻各型收尾。
+_STORY_RECIPES: dict[str, Recipe] = {
+    "plot": Recipe(
+        id="plot",
+        impulse_type="plot",
+        module_ids=(
+            "剧情", "角色", "历史时间线", "世界本体", "设定边界",
+        ),
+        entry_subfield=("剧情", "core_dilemma"),
+        anchor=ANCHOR_BY_TYPE["plot"],
+    ),
+    "unsure": Recipe(
+        id="unsure",
+        impulse_type="unsure",
+        module_ids=(
+            "剧情", "角色", "历史时间线", "世界本体", "设定边界",
+        ),
+        entry_subfield=("剧情", "opening_event"),
+        anchor=ANCHOR_BY_TYPE["unsure"],
+    ),
+    "romance": Recipe(
+        id="romance",
+        impulse_type="romance",
+        module_ids=(
+            "角色", "IP定位", "剧情", "历史时间线", "视觉设计", "设定边界",
+        ),
+        entry_subfield=("角色", "key_relations"),
+        anchor=ANCHOR_BY_TYPE["romance"],  # §9 合规边界措辞逐字保留
+    ),
+    "character_driven": Recipe(
+        id="character_driven",
+        impulse_type="character_driven",
+        module_ids=(
+            "角色", "文明与社会", "剧情", "历史时间线",
+            "世界本体", "力量体系", "设定边界",
+        ),
+        entry_subfield=("角色", "identity"),
+        anchor=ANCHOR_BY_TYPE["character_driven"],
+    ),
+}
+
+
 def _build_recipes() -> dict[str, Recipe]:
     recipes: dict[str, Recipe] = {
         "default": Recipe(
@@ -150,17 +216,15 @@ def _build_recipes() -> dict[str, Recipe]:
         )
     }
     for ptype, head in TYPE_MODULE_PRIORITY.items():
-        if ptype in STORY_PRIMARY_TYPES:
-            # 故事四型：前移序即子集序（spec §5.2，DN6 初稿——世界建构
-            # 子集裁剪归 M2 终审；M2 再并入故事模块 M11/M12）。
-            mids: tuple[str, ...] = tuple(head)
-        else:
-            # 非故事型：全集置换（与 E1-Lite 行为逐字节等价）。
-            mids = _full_permutation(head)
+        if ptype in _STORY_RECIPES:
+            # 故事四型（M2）：矩阵配方取代 M1 临时前移子集（DN6 初稿）。
+            recipes[ptype] = _STORY_RECIPES[ptype]
+            continue
+        # 非故事型：全集置换（与 E1-Lite 行为逐字节等价）。
         recipes[ptype] = Recipe(
             id=ptype,
             impulse_type=ptype,
-            module_ids=mids,
+            module_ids=_full_permutation(head),
             entry_subfield=TYPE_ENTRY_SUBFIELD.get(ptype),
             anchor=ANCHOR_BY_TYPE.get(ptype, ""),
         )

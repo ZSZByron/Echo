@@ -26,7 +26,9 @@ from app.domains.creation.a1.interviewer import RealLLMInterviewer
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
     all_subfield_keys,
+    get_module,
     get_subfield,
+    subs_for_module,
 )
 from app.main import app
 
@@ -63,12 +65,13 @@ class TestE1LiteIntegrationSmoke:
         assert restored.creator_profile_source == "impulse_cards"
 
         # -- 3. first question lands on the story field, not time_span --
+        # M2（验收 §239）：plot 首问 = 剧情.核心抉择（S0 故事直落，
+        # M1 时代的前移入口 历史时间线.main_plot 由 M12 前景戏模块取代）。
         fq = payload["first_question"]
-        assert fq["section"] == "历史时间线"
-        assert fq["sub_id"] == "main_plot"
-        sf = get_subfield("历史时间线", "main_plot")
+        assert fq["section"] == "剧情"
+        assert fq["sub_id"] == "core_dilemma"
+        sf = get_subfield("剧情", "core_dilemma")
         assert sf is not None
-        assert fq["sub_id"] != "time_span"
         time_span = get_subfield("历史时间线", "time_span")
         assert time_span is not None
         assert sf["question"] != time_span["question"]
@@ -120,7 +123,11 @@ class TestE1LiteIntegrationSmoke:
         # 配方键集（不是全集）；且必为全集真子集（子集断言）。
         recipe_keys = all_subfield_keys(recipe=session.recipe_modules)
         assert sorted(seen) == sorted(recipe_keys)
-        assert set(recipe_keys) < set(all_subfield_keys())
+        # M2：配方键集 = 池语义子集——世界建构键 ⊆ 全集，且含 M11/M12
+        # 故事模块键（不属 35 字段全集键空间）。
+        assert set(recipe_keys) - set(all_subfield_keys()) <= {
+            f"角色.{f['id']}" for f in subs_for_module("角色")
+        } | {f"剧情.{f['id']}" for f in subs_for_module("剧情")}
         first_visit_idx = [order_index[m] for m in visited_modules]
         assert first_visit_idx == sorted(first_visit_idx), (
             f"module first-visit order deviates from type order: {visited_modules}"
@@ -147,7 +154,9 @@ class TestE1LiteIntegrationSmoke:
         for key in all_subfield_keys(recipe=s2.recipe_modules):
             s2.answers[key] = "预填内容"
         first_mid = s2.recipe_modules[0]
-        first = next(m for m in MODULES if m["id"] == first_mid)
+        # M2：配方首模块可能是故事模块（plot → 剧情），不属问卷树 MODULES
+        first = get_module(first_mid)
+        assert first is not None
         for f in first["fields"]:
             s2.answers.pop(f"{first['id']}.{f['id']}", None)
         # 1 of 3 fields answered — strictly below the 50% gate.

@@ -59,6 +59,7 @@ from app.domains.creation.shared import stale_marker
 from app.domains.creation.shared.graph_code_issuer import GraphCodeIssuer
 from app.domains.creation.shared.module_registry import (
     RECIPES,
+    STORY_PRIMARY_TYPES,
     resolve_recipe_id,
 )
 from app.models.dimension import (
@@ -737,6 +738,8 @@ def start_session(req: StartRequest) -> dict:
         "session_id": session.session_id,
         "file_id": file_id,
         "ip_code": session.ip_code,
+        # M2 additive：配方 id（前端配方感知元数据；default = "default"）
+        "recipe_id": session.recipe_id,
         "first_question": _question_payload(session),
         "file": {
             "status": "draft",
@@ -1576,6 +1579,9 @@ class UploadRequest(BaseModel):
     user_id: str
     filename: str
     content: str
+    # M2 additive（DN6 默认）：故事型冲动不暴露上传预填路径——走访谈。
+    # 不传/None = 既有行为逐字节不变（default 路径零变化）。
+    impulse_primary: str | None = None
 
 
 class UploadConvertRequest(BaseModel):
@@ -1648,6 +1654,16 @@ async def upload_worldview(req: UploadRequest) -> dict:
         parse_modules,
         validate_text,
     )
+
+    # M2 DN6 默认：故事型冲动不暴露上传预填路径（世界建构 35 字段 schema
+    # 与故事配方正交）——故事用户走访谈引导。确定性查表，LLM 不进控制流。
+    if req.impulse_primary and resolve_recipe_id(req.impulse_primary) in (
+        STORY_PRIMARY_TYPES
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="故事型创作请直接开始对话引导（不需要上传世界观文档）",
+        )
 
     gate = validate_text(req.filename, req.content)
     if not gate["ok"]:

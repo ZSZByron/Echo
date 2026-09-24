@@ -26,13 +26,14 @@ from pydantic import BaseModel, Field
 from app.ai.provider import LLMProvider
 from app.domains.creation.a1.interaction_log import log_event, truncate
 from app.domains.creation.seed.a1_question_tree import (
-    MODULES,
     all_subfield_keys,
     get_module,
     get_subfield,
+    module_ids,
 )
 from app.domains.creation.shared.module_registry import (
     ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    RECIPES,
     STORY_PRIMARY_TYPES,  # noqa: F401 — 同上（M0 集合随迁）
 )
 
@@ -181,11 +182,18 @@ class FakeInterviewer:
 # ---------------------------------------------------------------------------
 
 
-def _progress_summary(answers: dict[str, str]) -> str:
-    """Compact one-line-per-module progress: module: filled/total."""
+def _progress_summary(
+    answers: dict[str, str], recipe: list[str] | None = None
+) -> str:
+    """Compact one-line-per-module progress: module: filled/total.
+
+    G5 泄露修复（M2）：recipe 非空时只渲染配方内模块——否则 LLM 被诱导
+    提问配方外字段（世界建构轰炸复发通道）。None = 全集（default 逐字节）。
+    """
     lines = []
-    for m in MODULES:
-        mid = m["id"]
+    for mid in module_ids(recipe):
+        m = get_module(mid)
+        assert m is not None
         total = len(m["fields"])
         done = sum(1 for f in m["fields"] if f"{mid}.{f['id']}" in answers)
         lines.append(f"{mid}: {done}/{total}")
@@ -200,12 +208,18 @@ def _immutable_block(answers: dict[str, str]) -> str:
     return "（暂无不可动设定）"
 
 
-def _field_catalog() -> str:
-    """One line per subfield: 'module.subfield: label — question'."""
+def _field_catalog(recipe: list[str] | None = None) -> str:
+    """One line per subfield: 'module.subfield: label — question'.
+
+    G5 泄露修复（M2）：recipe 非空时只渲染配方内字段（可填字段清单=配方
+    边界）。None = 全集（default 渲染逐字节不变）。
+    """
     lines = []
-    for m in MODULES:
+    for mid in module_ids(recipe):
+        m = get_module(mid)
+        assert m is not None
         for f in m["fields"]:
-            lines.append(f"{m['id']}.{f['id']}: {f['label']} — {f['question']}")
+            lines.append(f"{mid}.{f['id']}: {f['label']} — {f['question']}")
     return "\n".join(lines)
 
 
@@ -229,7 +243,6 @@ class RealLLMInterviewer:
 
     def __init__(self, provider: LLMProvider | None) -> None:
         self._provider = provider
-        self._catalog = _field_catalog()
         # C7: 系统注入的待问开放问题（一次一条）+ 本轮 LLM 识别到的回答
         self._pending_open_question: dict | None = None
         self._open_question_answered: dict | None = None
@@ -305,7 +318,11 @@ class RealLLMInterviewer:
                             error=str(e)[:300],
                         )
 
-        result = self._parse(raw, text)
+        result = self._parse(
+            raw,
+            text,
+            recipe=list(getattr(session, "recipe_modules", []) or []) or None,
+        )
         self._open_question_answered = result.open_question_answered
         log_event(
             session.session_id,
@@ -330,12 +347,13 @@ class RealLLMInterviewer:
         if getattr(session, "seed_description", "") and not seed_lines:
             seed_lines.append(f"用户的初始创意：{session.seed_description}")
         # E1-Lite T3: 语气锚点模板变量注入（creator_primary 非空且在表中才追加；
-        # 空 profile 输出与改动前逐字节相同）。
+        # 空 profile 输出与改动前逐字节相同）。M2：锚点查 Recipe.anchor
+        # （数据同源 ANCHOR_BY_TYPE，故事配方锚点随 Recipe 生效）。
         creator_primary = getattr(session, "creator_primary", "")
-        if creator_primary and creator_primary in ANCHOR_BY_TYPE:
-            seed_lines.append(
-                f"语气锚点（引导与反馈的基调，务必贯彻）：{ANCHOR_BY_TYPE[creator_primary]}"
-            )
+        recipe = RECIPES.get(creator_primary or "")
+        anchor = recipe.anchor if recipe is not None else ""
+        if anchor:
+            seed_lines.append(f"语气锚点（引导与反馈的基调，务必贯彻）：{anchor}")
         return "\n".join(seed_lines) if seed_lines else "（无，用户从空白开始）"
 
     def _build_prompt(
@@ -343,6 +361,25 @@ class RealLLMInterviewer:
     ) -> str:
         seed_block = self._seed_block(session)
         answers = getattr(session, "answers", {})
+        # G5 泄露修复（M2）：可填字段清单/进度按会话配方渲染——故事会话
+        # 的清单只含配方内字段，杜绝配方外世界建构字段的诱导提问通道。
+        recipe = list(getattr(session, "recipe_modules", []) or [])
+        catalog = _field_catalog(recipe or None)
+        # M0→M2 素材槽迁移桥（plan §231）：已归档的 character_sketch 素材
+        # 在角色模块（M11）访谈时注入 prompt——LLM 可在用户确认语义后将其
+        # 映射进角色字段；不改变门禁/指针（数据注入，非控制流，R2）。
+        sketch = (getattr(session, "character_sketch", "") or "").strip()
+        sketch_bridge = (
+            [
+                "3.9 角色素材迁移：以下是之前访谈中归档的角色素材（未经确"
+                "认的草料）。当用户本轮输入与这些素材相关（补充/确认/展开），"
+                "把对应要点提取进角色模块的合适字段（fills）；无关则忽略本块。",
+                "【已归档角色素材】",
+                sketch,
+            ]
+            if sketch and module.get("id") == "角色"
+            else []
+        )
         return "\n".join(
             [
                 "你是TRPG世界观设计的访谈引导者，正在引导用户构建世界观设定。",
@@ -355,7 +392,7 @@ class RealLLMInterviewer:
                 f"参考问题：{subfield.get('question', '')}",
                 f"示例：{subfield.get('example', '')}",
                 "【字段进度】（已填/总数，判断分配时参考——避免重复填已填字段）",
-                _progress_summary(answers),
+                _progress_summary(answers, recipe or None),
                 "",
                 "【用户已确定的内容】",
                 _answers_digest(answers),
@@ -383,6 +420,8 @@ class RealLLMInterviewer:
                     if getattr(session, "creator_primary", "") in STORY_PRIMARY_TYPES
                     else []
                 ),
+                # M0→M2 素材槽迁移桥（仅角色模块且有归档素材时注入）
+                *sketch_bridge,
                 "",
                 "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
                 "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
@@ -437,7 +476,7 @@ class RealLLMInterviewer:
                 "",
                 *self._pending_question_block(),
                 "【可填字段清单】",
-                self._catalog,
+                catalog,
                 "",
                 "返回严格JSON（不要输出其他内容）：",
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
@@ -576,7 +615,9 @@ class RealLLMInterviewer:
                 "（module 和 subfield 必须逐字使用清单中的 id）。",
                 "",
                 "【可填字段清单】",
-                self._catalog,
+                _field_catalog(
+                    list(getattr(session, "recipe_modules", []) or []) or None
+                ),
                 "",
                 "返回严格JSON（不要输出其他内容）：",
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
@@ -595,7 +636,11 @@ class RealLLMInterviewer:
         except Exception as e:  # noqa: BLE001 — degrade, never crash the session
             log_event(session.session_id, "error", stage="llm_call", error=str(e)[:300])
             raise RuntimeError(f"LLM forced_allocate failed: {e}") from e
-        result = self._parse(raw, text)
+        result = self._parse(
+            raw,
+            text,
+            recipe=list(getattr(session, "recipe_modules", []) or []) or None,
+        )
         log_event(
             session.session_id,
             "llm_parsed",
@@ -608,7 +653,13 @@ class RealLLMInterviewer:
 
     # ---------- parse & validate ----------
 
-    def _parse(self, raw: Any, text: str) -> InterviewResult:
+    def _parse(
+        self,
+        raw: Any,
+        text: str,
+        recipe: list[str] | None = None,
+        valid_keys: set[str] | None = None,
+    ) -> InterviewResult:
         if isinstance(raw, str):
             try:
                 raw = json.loads(raw)
@@ -617,7 +668,9 @@ class RealLLMInterviewer:
         if not isinstance(raw, dict):
             raise RuntimeError("LLM returned unexpected shape")
 
-        valid_keys = set(all_subfield_keys())
+        # M2 G5：fills 合法性 = 配方并集（None = 全集，default 逐字节不变）。
+        # 显式 valid_keys 优先（契约测试/调用方直给合法键集）。
+        keys = valid_keys if valid_keys is not None else set(all_subfield_keys(recipe))
         fills: list[InterviewFill] = []
         for item in raw.get("fills") or []:
             if not isinstance(item, dict):
@@ -629,7 +682,7 @@ class RealLLMInterviewer:
             )
             if not all(isinstance(x, str) and x for x in (module, sub, value)):
                 continue
-            if f"{module}.{sub}" not in valid_keys:
+            if f"{module}.{sub}" not in keys:
                 continue  # 铁律：不允许清单外字段
             conflict = item.get("conflict_note")
             fills.append(

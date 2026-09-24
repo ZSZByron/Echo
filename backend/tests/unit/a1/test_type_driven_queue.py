@@ -244,7 +244,11 @@ class TestLandedRecipeSemantics:
             recipe_modules=list(RECIPES["plot"].module_ids),
         )
         ordered = _ordered(s)
-        assert set(ordered) < set(module_ids())
+        # M2：故事配方 = 模块池有序子集（含 M11/M12 故事模块，非树真子集）
+        from app.domains.creation.shared.module_registry import MODULE_POOL
+
+        assert set(ordered) <= set(MODULE_POOL)
+        assert set(ordered) - set(module_ids()) <= {"剧情", "角色"}
         assert ordered == list(RECIPES["plot"].module_ids)
 
     def test_default_recipe_permutation_equivalence(self):

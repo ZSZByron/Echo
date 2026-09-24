@@ -23,7 +23,7 @@ def test_c5_pool_modules_have_tier() -> None:
     assert module_tier_coverage() == []
     assert set(MODULE_POOL) <= set(TIER_MAP)
     assert set(module_ids()) <= set(TIER_MAP)
-    assert set(module_ids()) == set(MODULE_POOL)  # M1 池 == 树（M2/M3 入池后放宽）
+    assert set(module_ids()) | {"角色", "剧情"} == set(MODULE_POOL)  # M2：树+故事族（M3 产出模块入池后再放宽）
 
 
 def test_c5_tier_values_within_closed_range() -> None:

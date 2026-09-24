@@ -37,7 +37,6 @@ from app.domains.creation.shared.module_registry import (
 )
 from app.domains.creation.seed.a1_question_tree import (
     ANSWER_MAX_CHARS,
-    MODULES,
     all_subfield_keys,
     clip_answer,
     first_module,
@@ -301,7 +300,10 @@ def _fallback_divergent(session: A1Session, fills: list[InterviewFill]) -> str |
 
     # Collect unfilled field labels (up to 10, excluding the ones being filled)
     unfilled_labels: list[str] = []
-    for key in all_subfield_keys():
+    # M2 G5：发散兜底目标 = 配方并集（None=全集，default 逐字节不变）——
+    # 不诱导 LLM/前端把话题引向配方外世界建构字段。
+    recipe = session.recipe_modules or None
+    for key in all_subfield_keys(recipe):
         if key not in session.answers and key not in filling_keys:
             module_id, sub_id = key.split(".", 1)
             sf = get_subfield(module_id, sub_id)
@@ -657,6 +659,39 @@ def _archive_story_material(
             f"答案超{ANSWER_MAX_CHARS}字已截断: character_sketch"
             f"（原 {len(material)} 字）"
         )
+    # M2 素材槽迁移（plan §231）：配方含 M11 角色 → 素材路由进角色模块
+    # 第一个未填字段（\n 追加，指针不动——素材不是答案，M0 语义保留）；
+    # default/存量会话 → 仍写 character_sketch 文本槽（M0 测试语义不变）。
+    recipe_mids = session.recipe_modules or []
+    if "角色" in recipe_mids:
+        target_sid = next(
+            (
+                f["id"]
+                for f in subs_for_module("角色")
+                if not session.answers.get(f"角色.{f['id']}")
+            ),
+            None,
+        )
+    else:
+        target_sid = None
+    if target_sid is not None:
+        key = f"角色.{target_sid}"
+        existing = session.answers.get(key, "")
+        session.answers[key] = f"{existing}\n{clipped}" if existing else clipped
+        log_event(
+            session.session_id,
+            "material_archived",
+            target=key,
+            chars=len(clipped),
+        )
+        _reset_stall_tracking(session)
+        return {
+            "reply": result.guidance_reply or "这段素材我先替你收着。",
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
     session.character_sketch = (
         f"{session.character_sketch}\n{clipped}"
         if session.character_sketch
@@ -849,19 +884,27 @@ def handle_message(
 
 
 def progress(session: A1Session) -> dict[str, Any]:
-    """Return {done, total, sections:[{id,label,done,done_fields,total_fields}]} for the UI."""
+    """Return {done, total, sections:[{id,label,done,done_fields,total_fields}]} for the UI.
+
+    M2 配方感知：sections/门禁只渲染会话配方内模块（a1_routes._build_sections
+    的 M1 先例——recipe_modules 空 = 全集原序，default 输出逐字节不变）。
+    """
+    ordered = session.recipe_modules or module_ids()
     sections = []
     done_count = 0
-    for m in MODULES:
-        fields = subs_for_module(m["id"])
+    for mid in ordered:
+        m = get_module(mid)
+        if m is None:
+            continue
+        fields = m["fields"]
         done_fields = sum(
-            1 for f in fields if f"{m['id']}.{f['id']}" in session.answers
+            1 for f in fields if f"{mid}.{f['id']}" in session.answers
         )
         module_done = done_fields == len(fields) and len(fields) > 0
         if module_done:
             done_count += 1
         sections.append({
-            "id": m["id"],
+            "id": mid,
             "label": m["label"],
             "done": module_done,
             "done_fields": done_fields,
@@ -870,15 +913,15 @@ def progress(session: A1Session) -> dict[str, Any]:
                 {
                     "id": f["id"],
                     "label": f["label"],
-                    "done": f"{m['id']}.{f['id']}" in session.answers,
+                    "done": f"{mid}.{f['id']}" in session.answers,
                 }
                 for f in fields
             ],
         })
     return {
         "done": done_count,
-        "total": len(MODULES),
+        "total": len(ordered),
         "sections": sections,
         # Finalize gate: every module strictly over 50% subfields answered.
-        "finalizable": is_finalizable(session.answers),
+        "finalizable": is_finalizable(session.answers, recipe=ordered),
     }
