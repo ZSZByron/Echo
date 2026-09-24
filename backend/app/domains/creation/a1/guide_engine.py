@@ -218,6 +218,12 @@ class A1Session(BaseModel):
     # M0 止血：连续偏转 ≥2 的字段归档（结构化记录，OpenQuestion.dump 格式，
     # 状态=skipped——参考 C6 open_questions 机制；会话级先行，file 层接线归后续）。
     open_question_archive: list[dict[str, Any]] = Field(default_factory=list)
+    # M4b 冲动坐标三件套（impulse spec §10.1）：dict 形态（axis/confidence/
+    # safety_flag/audit/...），default {} 零迁移。**E2 只看不判**——本文件
+    # 的路由/门禁/队列逻辑零消费，只有 impulse_coords.apply_signal 写入。
+    impulse_coords: dict[str, Any] = Field(default_factory=dict)
+    # M4b 看门狗轮次计数（handle_message 每次调用 +1；default 0 零迁移）。
+    message_rounds: int = 0
 
 
 def first_question() -> dict[str, Any]:
@@ -335,6 +341,17 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
         # M4a 出口 2（fills 通道 confirm 面）：拦截提案经用户 confirm 落写
         # → llm_fill（spec §6：「访谈 fills（已经用户 confirm）」）。
         mark_field_source(session, field_key, FIELD_SOURCE_LLM_FILL)
+    # M4b 冲动坐标：显式信号（用户 confirm/drop 动作）→ 确定性更新。
+    from app.domains.creation.a1.impulse_coords import (
+        SIGNAL_FILL_CONFIRMED,
+        SIGNAL_FILL_REJECTED,
+        apply_signal,
+    )
+    apply_signal(
+        session,
+        SIGNAL_FILL_CONFIRMED if applied else SIGNAL_FILL_REJECTED,
+        key=field_key,
+    )
     session.pending_proposals.pop(key, None)
     return {"applied": applied, "choice": choice}
 
@@ -413,7 +430,21 @@ def _apply_fills(
     # 其余字段 = LLM 自动填空（llm_fill）。拦截态不标——confirm 后经
     # resolve_proposal 统一标 llm_fill（spec §6：访谈 fills 已经用户 confirm）。
     direct_key = f"{session.current_module}.{session.current_subfield}"
+    # M4b 字段级 ai_fill 粒度（未决①收口）：配方 ai_fill_exclude 声明
+    # "留给用户"的字段——LLM fills 在应用点被确定性过滤（直答豁免：
+    # 键 == 当前问题字段 = 用户口述，永不过滤）。default/空元组 → 零过滤。
+    # 策略按冲动类型解析（recipe_id/recipe_modules 存量两态一致）。
+    excluded = set(
+        RECIPES[resolve_recipe_id(session.creator_primary)].ai_fill_exclude
+    )
     for fill in fills:
+        key = f"{fill.module}.{fill.subfield}"
+        if key in excluded and key != direct_key:
+            log_event(
+                session.session_id, "ai_fill_excluded",
+                field=key, policy=session.recipe_id,
+            )
+            continue
         key = f"{fill.module}.{fill.subfield}"
         # J1 答案真值闸（fills 统一出口）：占位值/空串视同"本轮没有提取"——
         # 不写入、不拦截、不占用 first-write-wins 名额（真值 fill 仍可写同 key）。
@@ -693,6 +724,12 @@ def _handle_deflection(
     )
     _reset_stall_tracking(session)
     sync_position(session)
+    # M4b 冲动坐标：偏转 = 跳过类显式信号（确定性更新，只看不判）。
+    from app.domains.creation.a1.impulse_coords import (
+        SIGNAL_SKIPPED,
+        apply_signal,
+    )
+    apply_signal(session, SIGNAL_SKIPPED, key=cur_key)
     return {
         "reply": result.guidance_reply or "好，我们先聊你想聊的。",
         "next_question": _question_payload(session),
@@ -785,6 +822,27 @@ def handle_message(
     text: str,
     interviewer: Interviewer,
 ) -> dict[str, Any]:
+    """M4b 包装：轮次计数 + 看门狗建议附加（additive 可选键 ``watchdog``）。
+
+    决策逻辑零改动（_handle_message_impl 为原函数体）；看门狗只在结果
+    dict 上**新增**可选键，不改 reply/next_question/指针（LLM 不进控制
+    流——提示内容是确定性模板）。
+    """
+    session.message_rounds += 1
+    out = _handle_message_impl(session, text, interviewer)
+    from app.domains.creation.a1.watchdog import check_watchdog
+
+    wd = check_watchdog(session)
+    if wd is not None and isinstance(out, dict):
+        out.setdefault("watchdog", wd)
+    return out
+
+
+def _handle_message_impl(
+    session: A1Session,
+    text: str,
+    interviewer: Interviewer,
+) -> dict[str, Any]:
     """Process one user message with LLM understanding.
 
     Returns dict with keys:
@@ -813,6 +871,12 @@ def handle_message(
         skipped_sf = get_subfield(session.current_module, session.current_subfield)
         session.answers.setdefault(answer_key, "")
         sync_position(session)
+        # M4b 冲动坐标：跳过 = 显式信号（确定性更新，只看不判）。
+        from app.domains.creation.a1.impulse_coords import (
+            SIGNAL_SKIPPED,
+            apply_signal,
+        )
+        apply_signal(session, SIGNAL_SKIPPED, key=answer_key)
         return {
             "reply": "已跳过，进入下一项。",
             "next_question": _question_payload(session),

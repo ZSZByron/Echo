@@ -166,6 +166,10 @@ class Recipe:
     entry_subfield: tuple[str, str] | None
     anchor: str
     ai_fill_policy: str = "default"
+    # M4b 字段级 ai_fill 粒度（未决①收口，plan §269）："module.subfield"
+    # 键元组 = 留给用户的字段（LLM fills 在 _apply_fills 应用点被过滤）。
+    # 空 () = 无过滤（default/存量配方行为逐字节不变）。
+    ai_fill_exclude: tuple[str, ...] = ()
 
 
 _DEFAULT_ORDER: tuple[str, ...] = tuple(m["id"] for m in MODULES)
@@ -213,6 +217,8 @@ _STORY_RECIPES: dict[str, Recipe] = {
         ),
         entry_subfield=("角色", "key_relations"),
         anchor=ANCHOR_BY_TYPE["romance"],  # §9 合规边界措辞逐字保留
+        # M4b 未决①收口：romance 型 faction_type 留给用户（plan §269 例）。
+        ai_fill_exclude=("文明与社会.faction_type",),
     ),
     "character_driven": Recipe(
         id="character_driven",

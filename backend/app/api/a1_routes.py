@@ -537,80 +537,24 @@ def _build_graph(
     llm_result: GraphifyResult | None = None,
     legal_anchors: set[str] | None = None,
 ) -> tuple[KnowledgeGraph, set[str]]:
-    bg_id = f"bg_{session.session_id[:8]}"
-    nodes: dict[str, GraphNode] = {
-        bg_id: GraphNode(id=bg_id, serial_number="0", level=1,
-                         description=f"[{session.ip_code}] 世界背景")
-    }
-    edges: list[GraphEdge] = []
+    # M4b：bg/L2/L3 背景树纯装配段抽出至 live_projection.
+    # assemble_background_tree（逐行保形——m1_default_snapshot 逐字节回归
+    # 锚定），此处与 live_projection 共用同一确定性装配（图谱确定性装配
+    # 铁律：同输入可复现，零 LLM）。
+    from app.domains.creation.a1.live_projection import assemble_background_tree
 
-    # Track module serial number (only for modules with non-empty answers)
-    module_serial = 0
-    module_serial_by_id: dict[str, int] = {}
-    entry_serial_by_id: dict[str, int] = {}
+    nodes, edges, bg_id, module_serial_by_id, entry_serial_by_id = (
+        assemble_background_tree(
+            session.answers, MODULES, session.ip_code, session.session_id,
+            module_summaries=(
+                llm_result.module_summaries if llm_result is not None else None
+            ),
+        )
+    )
 
     # Dead-edge zone: rebuilt every assemble; finalize may append more
     # (confirmed-edge snapshots referencing endpoints absent from the graph).
     dead_edges: list[dict] = []
-
-    # Build level=2 module nodes and level=3 entry nodes
-    for module in MODULES:
-        module_id = module["id"]
-        module_label = module["label"]
-
-        # Collect non-empty subfield answers for this module
-        subfield_answers = []
-        for sf in module["fields"]:
-            answer_key = f"{module_id}.{sf['id']}"
-            value = session.answers.get(answer_key, "")
-            if value:
-                subfield_answers.append((sf, value))
-
-        # Only create module node if there are non-empty answers
-        if subfield_answers:
-            module_serial += 1
-            module_serial_by_id[module_id] = module_serial
-            # Level 2: Module node. With an LLM result, description comes
-            # from module_summaries (governance §5a); fall back to label.
-            l2_description = module_label
-            if llm_result is not None:
-                l2_description = llm_result.module_summaries.get(module_id) or module_label
-            nodes[module_id] = GraphNode(
-                id=module_id,
-                serial_number=str(module_serial),
-                level=2,
-                description=l2_description,
-                tier=TIER_MAP.get(module_id),
-            )
-
-            # TREE edge: background -> module
-            edges.append(GraphEdge(
-                from_node_id=bg_id,
-                to_node_id=module_id,
-                edge_type=EdgeType.TREE,
-                visual_description="包含",
-            ))
-
-            # Level 3: Entry nodes for each non-empty subfield answer
-            entry_serial = 0
-            for sf, value in subfield_answers:
-                entry_serial += 1
-                entry_id = f"{module_id}.{sf['id']}"
-                entry_serial_by_id[entry_id] = entry_serial
-                nodes[entry_id] = GraphNode(
-                    id=entry_id,
-                    serial_number=f"{module_serial}-{entry_serial}",
-                    level=3,
-                    description=f"{sf['label']}: {value}",
-                )
-
-                # TREE edge: module -> entry
-                edges.append(GraphEdge(
-                    from_node_id=module_id,
-                    to_node_id=entry_id,
-                    edge_type=EdgeType.TREE,
-                    visual_description="条目",
-                ))
 
     # ---- A1 v0.5 dual-tree assembly (governance §2/§5) ----
     llm_warnings: list[str] = []
@@ -732,6 +676,10 @@ def start_session(req: StartRequest) -> dict:
     )
 
     sync_position(session)
+
+    # M4b 冲动坐标三件套初始化（spec §10.1：选卡定初值，行为接管修正值）。
+    from app.domains.creation.a1.impulse_coords import init_impulse_coords
+    init_impulse_coords(session)
 
     file_id = uuid.uuid4().hex
     _SESSIONS[session.session_id] = session
@@ -958,6 +906,17 @@ def chat_confirm(req: ConfirmRequest) -> dict:
         result = resolve_proposal(session, proposal_key, canonical_choice)
         if pack_entry is not None and pack_entry.get("source") == "inference_pack":
             apply_pack_feedback(session, applied=bool(result.get("applied")))
+            # M4b 冲动坐标双写：推断包判定 = 显式信号（spec §10.1 L317）。
+            from app.domains.creation.a1.impulse_coords import (
+                SIGNAL_PACK_APPLIED,
+                SIGNAL_PACK_REJECTED,
+                apply_signal,
+            )
+            apply_signal(
+                session,
+                SIGNAL_PACK_APPLIED if result.get("applied")
+                else SIGNAL_PACK_REJECTED,
+            )
 
         # Build response
         reply = "已确认并记录。"
@@ -1058,6 +1017,47 @@ def _get_file(file_id: str) -> dict:
     if rec is None:
         raise HTTPException(status_code=404, detail="file not found")
     return rec
+
+
+# ---------------------------------------------------------------------------
+# M4b 冲动坐标观测（E2 只看不判）+ live_projection（零 LLM 投影）
+# ---------------------------------------------------------------------------
+
+
+def _session_for_file_or_404(file_id: str) -> A1Session:
+    rec = _get_file(file_id)
+    session = _SESSIONS.get(rec["session_id"])
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
+
+
+@router.get("/api/a1/file/{file_id}/impulse-coords")
+def get_impulse_coords(file_id: str) -> dict:
+    """冲动坐标看板数据（E2 只看不判，spec §10.1 L322）。
+
+    三件套（叙事-建构轴/置信度/安全旗）+ 审计轨迹只读投影；存量会话
+    （无坐标）→ 按锚点惰性初始化后返回（确定性查表，无 LLM）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.impulse_coords import dashboard_data
+    data = dashboard_data(session)
+    _save_store()
+    return {"file_id": file_id, "session_id": session.session_id, **data}
+
+
+@router.get("/api/a1/file/{file_id}/live-projection")
+def get_live_projection(file_id: str) -> dict:
+    """半成品背景树 L0-L2 投影（零 LLM，确定性快照——plan §271）。
+
+    复用 _build_graph 抽出的纯装配函数；返回可 JSON 化投影（非定稿
+    KnowledgeGraph——note 披露），存量会话零迁移、门禁/路由零扰动。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.live_projection import project_live
+    return project_live(session)
 
 
 def _recipe_module_ids(session: A1Session) -> list[str]:
