@@ -94,7 +94,7 @@
 - [ ] 治理四件落地（D14/v1.3/归档头/B1 提案）
 
 ### Must Have
-- **模块注册表**（命名逐字锁定）：`MODULE_POOL`（初始 = 原 10 世界建构模块引用 + **M11 角色/M12 剧情**故事模块【8+2 重锚定定版，情感线并入 M12+M10 preset】 + **L2 产出×5**（主模组文字版/骰子投影/角色投影/玩法设计完整形态/商业分析报告）+ **L3 产出×3**（场景扩写/资产管线/叙事渲染））/ `Recipe`（id、impulse_type、module_ids 有序子集、entry_subfield、anchor、ai_fill_policy）/ `RECIPES: dict[str, Recipe]`（**8 型 + default**）/ `CHANNELS`（探索态+玩法设计链——2026-09-22 重锚定撤销 exploration 冲动行）
+- **模块注册表**（命名逐字锁定）：`MODULE_POOL`（初始 = 原 10 世界建构模块引用 + **M11 角色/M12 剧情**故事模块【8+2 重锚定定版，情感线并入 M12+M10 preset】 + **L2 产出×5**（主模组文字版/骰子投影/角色投影/玩法设计完整形态/商业分析报告）+ **L3 产出×3**（场景扩写/资产管线/叙事渲染））/ `Recipe`（id、impulse_type、module_ids 有序子集、entry_subfield、anchor、ai_fill_policy）/ `RECIPES: dict[str, Recipe]`（**8 型 + default**）/ `CHANNELS`（探索态+玩法设计链——2026-09-22 重锚定撤销 exploration 冲动行）（D18 缓期）
 - **默认配方 = 原 10 模块全集**：无 creator_primary / 未知值 / 存量会话 → default 配方（行为零变化）
 - **E1-Lite 三数据字典并入**：TYPE_MODULE_PRIORITY/TYPE_ENTRY_SUBFIELD/ANCHOR_BY_TYPE 数据迁入 Recipe，消费侧改查表
 - **门禁语义**：finalize 门禁 = 配方内模块全达标；missing_sections = 配方内未达标模块（DECISION NEEDED 1 默认值）

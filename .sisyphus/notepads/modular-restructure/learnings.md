@@ -126,3 +126,20 @@
 - impulse spec 版本惯例 = 同文件原地升版 + §0 变更记录（自身头注成文），与治理文档"新版本顺延号新建文件"不同。D14 行引用升版结果时必须链原文件名，否则制造断链。
 - PROJECT_STATE 多会话并行追加时"当前阶段"易重复：先查已完成区是否已有本批条目，新"当前阶段"条目只写状态摘要 + 指针，不重复 commit 清单。
 - A2 归档头只加注记不改原文；两规格身份以证据文件 a2-plan-mining-a2-specs.md 的 S1/S2 标注为准（非 governance/2-A2-v0.2）。
+
+## [2026-09-24] Task: G 和解批（twin 遗留合并，提交 0f4ad2e）
+
+- **twin 本次抢先 commit（a58f57a）而非只留工作区**——原地 spec v1.3 + twin B1 + PROJECT_STATE +1 + 双方 notepad 追加全部入其提交。和解 = 在其上新建提交（禁 amend），逐文件定向恢复：`git checkout 2788b9e -- <file>` 还原 v1.2 原文与 PROJECT_STATE，`git rm` twin B1。
+- **坑：`git checkout -- <file>` 只还原到 index 不还原到 HEAD**——twin 曾把部分文件 staged，必须先 `git reset HEAD -- <paths>` 再看 worktree 真实差异，否则误判"已还原"。
+- **配方矩阵代码核验全过**：twin §5.2.1 表五行与 module_registry.py RECIPES 逐字一致（plot/unsure = 剧情→角色→历史时间线→世界本体→设定边界，entry core_dilemma/opening_event；romance = 角色→IP定位→剧情→历史时间线→视觉设计→设定边界 + ai_fill_exclude 文明与社会.faction_type；character_driven 七模块 entry 角色.identity；default 全集；nostalgia/healing 原序全集）。零修正并入 v1.3 文件 §5.2.2，设计约束注（DN6 保序子集/plot·unsure 剔文明与社会/M10 永远在场）随迁。
+- B1 去重：twin 三个独有要点（default 逐字节回归前置 / 时点=四审后终审前 / DN 改判联动条款）并入权威版后删 twin 文件。终态 git status = 仅计划文件改 + boulder.json untracked，符合验收。
+
+## F2 Code Quality Review (2026-09-24, HEAD 0f4ad2e)
+- verdict APPROVE, 0 blockers, 6 nits (see review output). Snapshot regression = sha256(graphify_prompt) + gate anchors in test_module_registry.py:320-332.
+- Pyright strict noise pre-exists repo-wide (interviewer/concept_edge_extractor); new-code errors are TypedDict-invariance/Optional-strictness only, runtime-safe.
+- _prefill_session returns _session key popped by both call sites — pattern to not copy.
+
+## F1 Remediation (2026-09-24, m1a-baseline-20260924)
+- MODULE_POOL 入池硬约束：module_registry.py 对每个池条目取 `TIER_MAP[m['id']]`——新增池 id 必须同步在 tier_map.py TIER_MAP 加键（闭集 [0,6]），否则 collection 期 KeyError。本次 5 个新产出 id 均沿用上游消费源 tier 值，零新层级语义。
+- D18 缓期模式与 DN defaults 同构：池注册先行（数据三键 id/label/signal_requirements）+ 生成管线/路由语义变更缓期 + "待产品方终审追认"。plan 文件只追加 "（D18 缓期）" 标记，不动复选框。
+- TDD RED 先改测试（八件池断言 + OUTPUT_MODULE_IDS 序锁定 + 档位闭集校验），确认 2 failed 后再补数据，40/40 绿。

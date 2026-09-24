@@ -41,6 +41,7 @@ from app.domains.creation.modules.main_module import (
     render_markdown,
 )
 from app.domains.creation.shared.module_registry import MODULE_POOL, RECIPES
+from app.domains.creation.modules.output_modules import OUTPUT_MODULE_IDS
 from app.domains.creation.a1.tier_map import module_tier_coverage
 
 SIGNAL_ANSWERS: dict[str, str] = {
@@ -470,10 +471,34 @@ class TestMainModuleDocument:
 
 
 class TestRegistryOutputModules:
-    def test_three_output_modules_in_pool(self):
-        for mid in ("主模组文字版", "骰子投影", "角色投影"):
+    def test_eight_output_modules_in_pool(self):
+        """§96 逐字锁定：L2×5 + L3×3 = 8 件产出模块全量入池。"""
+        expected = (
+            "主模组文字版", "骰子投影", "角色投影",
+            "玩法设计完整形态", "商业分析报告",
+            "场景扩写", "资产管线", "叙事渲染",
+        )
+        assert len(expected) == 8
+        for mid in expected:
             assert mid in MODULE_POOL, mid
             assert MODULE_POOL[mid].family == "output"
+
+    def test_output_module_ids_order_locked(self):
+        assert OUTPUT_MODULE_IDS == (
+            "主模组文字版", "骰子投影", "角色投影",
+            "玩法设计完整形态", "商业分析报告",
+            "场景扩写", "资产管线", "叙事渲染",
+        )
+
+    def test_all_output_modules_signal_requirements_valid(self):
+        """全部产出模块声明 signal_requirements，且档位在闭集内。"""
+        from app.domains.creation.modules.output_modules import (
+            OUTPUT_MODULES, SIGNAL_LEVELS,
+        )
+        for m in OUTPUT_MODULES:
+            assert m["signal_requirements"], m["id"]
+            assert all(v in SIGNAL_LEVELS
+                       for v in m["signal_requirements"].values()), m["id"]
 
     def test_signal_requirements_declared(self):
         dice = MODULE_POOL["骰子投影"].signal_requirements

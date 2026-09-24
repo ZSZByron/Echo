@@ -32,8 +32,12 @@ class OutputModuleDef(TypedDict):
     signal_requirements: dict[str, str]
 
 
-#: 产出模块族（L2 三件；玩法设计完整形态/商业分析报告归后续波次）。
-#: 清单序 = plan §96 L2 产出序（主模组文字版/骰子投影/角色投影）。
+#: 产出模块族（L2×5 + L3×3，plan §96 命名逐字锁定）。
+#: 清单序 = plan §96 产出序：
+#: L2（主模组文字版/骰子投影/角色投影/玩法设计完整形态/商业分析报告）
+#: → L3（场景扩写/资产管线/叙事渲染）。
+#: L2×2 + L3×3 = 池注册先行（Must Have §96），
+#: 产出管线归后续波次（D18 台账记录）。
 OUTPUT_MODULES: list[OutputModuleDef] = [
     {
         "id": "主模组文字版",
@@ -72,6 +76,63 @@ OUTPUT_MODULES: list[OutputModuleDef] = [
             "力量体系.acquire": "optional",
             "设定边界.immutable_core": "optional",
             "角色.identity": "optional",
+        },
+    },
+    {
+        # L2 池注册先行（D18 缓期生成管线）：依赖玩法设计DNA 全字段信号；
+        # 骰子投影产物 hard（玩法数值层直投，缺 → 409）
+        "id": "玩法设计完整形态",
+        "label": "玩法设计完整形态",
+        "signal_requirements": {
+            "玩法设计DNA.player_role": "optional",
+            "玩法设计DNA.growth": "optional",
+            "玩法设计DNA.session_flow": "optional",
+            "玩法设计DNA.moment_design": "optional",
+            "骰子投影": "hard",
+            "世界本体.reality_rule": "optional",
+        },
+    },
+    {
+        # L2 池注册先行（D18 缓期生成管线）：商业向字段全 optional，
+        # 缺失走保守缺省 + ledger 披露
+        "id": "商业分析报告",
+        "label": "商业分析报告",
+        "signal_requirements": {
+            "IP定位.positioning": "optional",
+            "IP定位.audience": "optional",
+            "IP定位.differentiation": "optional",
+            "IP定位.tone": "optional",
+            "世界本体.core_conflict": "optional",
+        },
+    },
+    {
+        # L3 池注册先行（D18 缓期生成管线）：场景扩写消费主模组文字版/
+        # 定稿图谱产物——hard 依赖（缺文档 → 409）
+        "id": "场景扩写",
+        "label": "场景扩写",
+        "signal_requirements": {
+            "主模组文字版": "hard",
+            "场景与地理.regions": "optional",
+            "历史时间线.main_plot": "optional",
+        },
+    },
+    {
+        # L3 池注册先行（D18 缓期生成管线）：资产管线消费场景扩写产物
+        "id": "资产管线",
+        "label": "资产管线",
+        "signal_requirements": {
+            "场景扩写": "hard",
+            "主模组文字版": "optional",
+        },
+    },
+    {
+        # L3 池注册先行（D18 缓期生成管线）：叙事渲染消费圆景/背景树产物
+        "id": "叙事渲染",
+        "label": "叙事渲染",
+        "signal_requirements": {
+            "圆景": "hard",
+            "背景树": "hard",
+            "场景扩写": "optional",
         },
     },
 ]
