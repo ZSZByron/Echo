@@ -34,3 +34,11 @@
 - 逐字节回归快照放 tests/unit/a1/baseline/m1_default_snapshot.json（module_ids/all_subfield_keys/_build_sections 结构/schema_catalog/default walk 序/graphify prompt sha256/门禁结果），随代码入库可复跑。
 - C5 重锚：闭集断言（==module_ids、len==10、禁第 11 模块）改池语义（MODULE_POOL ⊆ TIER_MAP + coverage 空）+ 层值闭集 [0,6] 七层不动（DN2，翻案归 D14）。
 - verify.ps1 全绿：pytest 1037 / tsc 0 / vitest 231 / 门禁 80.34%；module_registry.py 行覆盖 100%。
+
+## [2026-09-24] Task: M2 故事模块族 + 4 故事型配方（本会话）
+- 双写手现场处置：接手时发现并发会话半途工作落盘（story_modules/registry/tier/树门面 + 一份测试）。处置 = 不重写、以 plan 为准裁决冲突（M11 在前/弧光方向 id=arc_direction/unsure 入口=opening_event），改对齐测试而非推倒——两份测试文件 100/100 共存。
+- graphify 逐字节回归的隐形坑：_tier_block 改迭代源（TIER_MAP.items() → module_ids()）行内容相同但**行序不同**，sha 照样变。修复 = 保持原迭代序、只滤故事族键（family=="worldview"）。凡"逐字节"断言，迭代序也是字节。
+- UploadRequest 增可选 impulse_primary 实现 DN6 故事门（上传链是"新会话"入口、无 session_id 可依）——不传 = 旧行为逐字节（additive 门模式可复用）。
+- 契约测试重锚五处（C5 池语义/graphify 层级表/E1 冒烟首问=剧情.核心抉择/legacy 响应键+recipe_id/队列子集改池语义）全是故事子集语义面，TestDefaultByteEquivalence 六用例零改动仍绿。
+- interviewer prompt 单骨架（R2）再验证：素材桥/配方目录都是数据注入 *([...] if cond else [])，default 面零变化。
+- M2 新代码覆盖：story_modules 100% / module_registry 100% / guide_engine 93%；interviewer 76% 为存量面（forced_allocate 等），不属新代码核算。
