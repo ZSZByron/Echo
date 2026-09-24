@@ -1,6 +1,8 @@
 # PROJECT_STATE
 
 ### 当前阶段
+**2026-09-24（第六批，本批）：G 治理四件落盘（甲计划任务 7，纯文档未动代码）——M0-M4c 实施波次全部收官后的治理回写。**四件：①**decision-log D14 扩展**（09-22 甲三裁决条目追加 09-24 实施回写：三红线翻案实施结果——门禁子集语义〔DN1 结果，已实施 M1，配方外=不适用〕/ tier 扩展〔DN2 结果，TIER_MAP 10→16 键池语义已实施 M2，"Do not add an 11th module tier" 头注翻案〕/ 契约升版 spec v1.3 + 枚举扩展〔field_sources 四源 M4a / signal_sources 五信号 M4b〕；D12/D13/D15 处置注记〔收编实施而非推翻〕；DN3 人格卡命名占位〔PERSONA_NAME_PLACEHOLDER〕；DN5 新 LLM 生产方三处留痕〔interviewer 既有 + module_compile M3 + inference_pack M4a〕）。②**impulse spec 升 v1.3**（新文件 docs/plans/2026-09-18-impulse-entry-system-spec-v1.3.md，顺延号规则不动原 v1.2 文件：§0 变更记录 + §5.2 路由表配方化重述〔模块配方取代前移序列，反映 M1/M2 落地现实〕+ §8 分期改"模块上线序"〔M0→M4c 已上线记录表〕+ D14 标注）。③**A2 两规格归档头**（2026-09-17-a2-stage-design-spec.md〔S1〕与 2026-09-17-a2-stage-handoff-and-design-spec.md〔S2〕加 ARCHIVED-ABSORBED 头：已被甲计划收编，资产映射指向甲计划与 a2-plan-mining-a2-specs.md 权威证据版；jia-mining-\* 为中断残版仅留档注记）。④**B1 重定义提案落盘**（docs/plans/2026-09-24-b1-acceptance-redefinition-proposal.md：验收对象从"A2 P0 产出"改为甲的模块化产物——故事型全流程 + 主模组文字版闭环两条验收线，翻车场景重放为灵魂项，待产品方终审批准后改写 B1 条目生效）。
+**2026-09-24（甲计划施工日）：M0-M4c 七波次全部落地（提交链 1082d5b→2c21334）。**M0 偏转止血（1082d5b）→ M1a 净基线（见第五批）→ M1 注册表底座（b6a56f4，1037 tests）→ M2 故事模块族+四配方（45caf2a，1112）→ M3 产出模块（d5ae8f6，1162）→ M4a 溯源+推断包（183f87f，1191）→ M4b 坐标+ai_fill+看门狗+live_projection（74b1c89，1244）→ M4c 人格卡+telemetry v2+sunset（2c21334，**1260/1260 全绿**）。覆盖率轨迹 80.34→80.53→81.43→81.52→81.78→**81.91**（全局门禁 80；甲新代码 ≥85 逐模块达成）；前端 tsc 0 / vitest 239。
 **2026-09-24（第五批）：测试方式改进落地（产品方指令）——M1a 收官，净基线成立。**四件：①门禁拆层：全局 85→80（贴现实 80.16%，pyproject 注释记录依据与回调条款）；甲计划新代码单独 ≥85 条款入甲计划 Verification Strategy——取代 C/B 二选一。②一键体检 verify.ps1 上线（根目录）：三命令+覆盖率+死码嫌疑人+中文摘要卡，快照落 .sisyphus/evidence/baseline-latest.txt——**PROJECT_STATE 基线数字以此为源，禁手抄**（根治文档与现实脱节）。③import 加固：补 tests 根/integration/models 三处 __init__.py，tests.* 绝对导入从此确定性（历史"调用方式依赖"病灶根治）。④双雷自修复：pyproject 中文注释触发 test_smoke GBK 读炸（注释改英文 + 测试显式 encoding="utf-8"）。**终态实测：1009/1009 全绿 + tsc 0 错 + vitest 231 全绿 + 门禁通过 = 净基线成立；M1a（D9 v2）出口条件全达成，M1 注册表底座可开工。**
 **2026-09-24（第四批）：M1a 净基线执行（D9 v2/D16/D17）——体检 + 死码清理 + C2/C3 完成，唯一未决 = 覆盖率门禁裁决。**体检：pytest 全量 1009/1009 全绿 + tsc 0 错 + vitest 231 全绿 + 冒烟三测全 200（/api/health、/api/a1/seeds、前端 /a1）；死码清理（选项 A）：删 9 文件（四死模型 constraint/culture/story_graph/event_graph + 四死测试 + demo_phase1_interactive）+ dimension.py 切除死类区 469→311 行（RedOutput 因 DimensionResultSet.RED 引用保留；LawOutput 误切一次已 git 还原修复，import app.main 验证通过）；**勘误**：c7×4/xt 收集错误实由 eb22a6f（HALT 前提交）修复，09-24 复测确认——此前文档记载落后。C2 类型对齐三先例在册全绿（relationLabel 7 测试逐字对齐 / WarningLedgerEntry a1.ts↔warning_ledger.py / test_module_ids_match_spec）。覆盖率 80.16% vs 门禁 85%：C（降 80，推荐）/B（豁免遗留线）待产品方一字裁决，定后 M1a 收官、M1 开工。**
 **2026-09-24（第三批）：D17——HALT 解除，甲计划续行。**产品方指令"解除 HALT"落盘：09-22 施工暂停令解除，波次序 = M1a 净基线清债（首项，= D9 v2 闸门 D16，≤1 天）→ M1 注册表底座 → M2 故事模块族 ∥ M3 产出模块入池 → M4 + G 治理 → F1-F4 四审 → 产品方终审。DN1-3/5/6 追认 + ⭐ 终审项不阻塞施工（冻结数据前须终审）。回写：控制塔升 v0.5 / jia-code-module-design 头约束解除。**
@@ -51,7 +53,7 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - 2026-08-27 本次：回退修复——`graph_view` 双Tab展示页（知识图谱默认+展板预览）；IPPoster「返回世界观工坊」经 `a1_return_intent` 键一步直达 guided_chat；挂载水合恢复 file/进度/graphCode
 
 ### 进行中
-- 无——M1a 已收官（2026-09-24，净基线成立：1009/1009 + tsc 0 + vitest 231 + 门禁 80 通过；分支 m1a-baseline-20260924 + 时间标记 checkpoint-m1a-20260924 锁定）。**M1（模块注册表底座）待开工指令**。
+- **G 治理四件已落盘（本批）→ 下一波次 = F1-F4 四审（FINAL）**，四审通过后呈交产品方终审（B1 重定义验收 + DN1-6 追认）。无进行中施工项。
 
 ### 关键决策记录
 - **D9 v2 重定义 + 产能（2026-09-24，D16）**：D9 = 净基线闸门（后端 c7_loop×4 + xt 收集错误转正；前端已达标零工作量）+ 前后端交互层三项（vitest 排除 e2e spec / 前后端类型对齐盘点 / 全链路冒烟）；"先于一切新功能"不变；载体 = 甲计划 M1a。产能 = 一人 + AI（GLM）写代码
@@ -68,11 +70,8 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - A1 定稿展示页状态名 = `graph_view`（2026-08-27 立；前身 `poster_view` 已废弃）
 
 ### 下一步
-- **（2026-09-24 收官注）M1a 已完成，下列历史条目中 A2 P0 启动链/E1 排期/B1 等顺序类内容已被 D14 推翻或悬空，待甲计划合并重梳后重排**
-- **下一波次 = 甲计划 M1（模块注册表底座）**：module_registry.py + 问卷树配方参数化 + A1Session 配方字段 + 六处全集引用改造 + C1-C9 契约重锚——TDD 先行；任务卡 = `.sisyphus/plans/modular-restructure.md` M1 节（含 Must NOT / Commit / Acceptance）；在 m1a-baseline-20260924 分支继续施工；每波次末跑根目录 `verify.ps1`（新代码覆盖率单独 ≥85 条款）→ M2 ∥ M3 → M4 + G → F1-F4 四审
-- **A2 P0**（产品方 2026-09-20 裁决：顺序 = E1-Lite → A2 P0 → B1 验收；B1 基线顺延至 ~10 月初）
-- **E1 全量余项待排期**：推断包 / character_sketch / field_sources / 看门狗等
-- **A2 P0 启动链**（docs/plans/2026-09-17-a2-stage-design-spec.md §7）：D9 闸门清零 → BP-A2-2 会话底座 ∥ BP-A2-1 GraphSelector 重建 → BP-A2-3 finalize 汇合 → BP-A2-4 文字版 → BP-A2-5 前端 → BP-A2-11 全链验收（9.26 基线）；正式工作计划（.sisyphus/plans/）待用户指令生成
+- **（2026-09-24 甲计划收官注）M0-M4c 全部完成；下列历史条目中 A2 P0 启动链/E1 排期等顺序类内容已被 D14 推翻，验收类待 B1 重定义提案终审后重写**
+- **下一波次 = FINAL 四审（F1-F4，甲计划任务 8）**：F1 计划合规审计 → F2 代码质量审查 → F3 真实手动 QA（**翻车场景全流程重放必须翻绿**——plot 用户：首问故事/偏转被尊重/细节入素材槽/建议贴故事 + 设定型回归 + 主模组开团文档人审）→ F4 范围忠实检查（甲裁决 1:1、A2 材料只进不出、E2/E3 无遗漏、无蔓延）。四审通过 → 产品方终审（B1 重定义验收 + DN1-6 追认 + ⭐ 终审项：M11/M12 字段文案、8+2 配方插位、ScopeBoundary 归并）
 - **J2 规范化层启动前需 v0.6 设计评审**（J1/J3/J4 已收官 2026-09-11；J2 动 v0.5 钦定的 id 不变量——sanitize 前规范化 + 端点 canonical 匹配 + 治理文档修订 + 前端渲染回退联动，爆炸半径最大；xt e3 层1/层2 + e5 为验收器）
 - 生成 v0.5 正式工作计划（.sisyphus/plans/，按治理文档 §8 的 P0-P4 拆分）→ /start-work 实施
 - L1 排查（前序遗留）：divergent_question 结构化字段多轮未触发（实测锚定追问只出现在 reply 文本中）——需排查 interviewer prompt/_parse 触发条件
@@ -80,6 +79,7 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - 浏览器端手动冒烟（start.ps1）：定稿→图谱Tab→展板→回退→继续深化→重新定稿（v0.5 实施后重跑）
 
 ### 遗留问题
+- **未决项（甲计划 DECISION NEEDED，安全默认值已生效，待产品方终审——F 阶段呈交）**：DN1 门禁子集语义（默认"配方外=不适用"已实施 M1）/ DN2 tier 池语义（TIER_MAP 10→16 已实施 M2）/ DN3 故事模块字段集初稿已上线（field copy 文案终审待）+ 未决③人格卡命名占位（PERSONA_NAME_PLACEHOLDER，M4c）/ DN4 = D15 已裁决已实施 / DN5 新 LLM 生产方三处留痕（interviewer + module_compile M3 + inference_pack M4a）/ DN6 故事配方世界建构子集与序（初稿按 §5.2 前移序推导已上线，产品终审定死待）
 - 〔已解决 2026-09-24 第五批〕~~覆盖率门禁 85% 未达~~：产品方"改进测试方式"指令 → 门禁拆层（全局 80 + 甲计划新代码单独 ≥85）+ verify.ps1 一键体检上线——详见当前阶段第五批
 - graph.spec Playwright 存量失败基线（E0 记录 23F/3P）仍未修（另立项不阻塞，D16 维持）
 - GraphViewContent/A1GraphSection 为组件内嵌套定义，父状态变化会重挂载（当前影响仅为图谱重复 GET，可接受）

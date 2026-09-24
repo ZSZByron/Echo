@@ -1,5 +1,9 @@
 # A1→A2 阶段交接与 A2 前后端设计规格 v0.1
 
+> ⚠️ **归档注记（2026-09-24）**：本文档（【S2】）已被甲计划收编——资产映射见 `.sisyphus/plans/modular-restructure.md` 与 `.sisyphus/evidence/a2-plan-mining-a2-specs.md`（权威完整版）；jia-mining-* 为中断残版仅留档。阶段叙事（A1→A2 分期）已随 [[decision-log]] D14 退役，本文内容未改动，仅加此头。
+
+> [!ARCHIVED-ABSORBED] **归档注记（2026-09-24，D14）**：本文档**已被甲计划收编**——A1/A2/A3 固定阶段架构由模块化架构取代（裁决 = [[decision-log]] D14）。本文档中"与阶段无关的资产"（主模组九节树 / finalize 八步 / LLM 失败确定性降级 / 骰子五链 + signal_sources / 角色 4 相位 / StageCode 发号与血缘机制等）已作为模块入池实施；**资产映射见 `.sisyphus/plans/modular-restructure.md` 与 `.sisyphus/evidence/a2-plan-mining-a2-specs.md`**。证据文件权威版 = a2-plan-mining-\*（三份完整版）；jia-mining-\* 为中断残版仅留档。阶段绑定内容（v0/v0.5/v1 三阶段 / 交接契约的阶段时序 / 路径 A/B）随阶段架构退役。原文以下零改动，仅作历史对照。
+
 > **日期**: 2026-09-17
 > **性质**: 阶段交接规格书（A1 总结 + A1→A2 交接契约 + A2 前后端设计 + 架构一致性检查 + 断点提取）
 > **输入权威**: [[PROJECT_STATE]] · [[2-A1-v0.5-内容图谱化统一模型与契约]] · [[2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4]] · [[2_product-architecture]] §3 · [[mvp-requirements-and-flows]] · .sisyphus/plans/A1-v0.5-A模块公用模块与A模块设计.md Task 10 · [[decision-log]]（D1-D11/B1-B6/P1-P3）· [[2-A2-v0.2-产品策划顾问+模组合成]]（愿景参考）· [[2-A-认知边界与信息框架总纲]] §1

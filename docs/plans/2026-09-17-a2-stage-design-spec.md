@@ -1,5 +1,9 @@
 # A2 阶段交接与设计规格书 v0.1
 
+> ⚠️ **归档注记（2026-09-24）**：本文档（【S1】）已被甲计划收编——资产映射见 `.sisyphus/plans/modular-restructure.md` 与 `.sisyphus/evidence/a2-plan-mining-a2-specs.md`（权威完整版）；jia-mining-* 为中断残版仅留档。阶段叙事（A1→A2 P0-P3 分期）已随 [[decision-log]] D14 退役，本文内容未改动，仅加此头。
+
+> [!ARCHIVED-ABSORBED] **归档注记（2026-09-24，D14）**：本文档**已被甲计划收编**——A1/A2/A3 固定阶段架构由模块化架构取代（裁决 = [[decision-log]] D14）。本文档中"与阶段无关的资产"（主模组文字版管线 / 骰子投影 / 角色投影 / 确定性降级范式 / 409 契约族等）已作为模块入池实施；**资产映射见 `.sisyphus/plans/modular-restructure.md` 与 `.sisyphus/evidence/a2-plan-mining-a2-specs.md`**。证据文件权威版 = a2-plan-mining-\*（三份完整版）；jia-mining-\* 为中断残版仅留档。阶段绑定内容（P0-P3 分期 / A2Mode / 路径 A/B / "A3 边界"表述）随阶段架构退役。原文以下零改动，仅作历史对照。
+
 > **日期**: 2026-09-17
 > **地位**: A1→A2 阶段交接契约 + A2 前后端设计规格（依据 [[decision-log]] D3/D4/B4/B5/B6 + [[2_product-architecture]] 双路径架构 + [[A1-v0.5-A模块公用模块与A模块设计]] Task 10 + [[2-A2-v0.2-产品策划顾问+模组合成]] 产品理念）
 > **阅读提醒**: 本文档同时回答六个问题——A1 总结 / 交接数据结构 / 架构一致性 / A2 前后端设计 / 开发断点 / A2 数据结构。§2 与 §4.3 为契约性内容，实现时逐字对齐。
