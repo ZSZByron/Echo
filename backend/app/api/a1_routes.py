@@ -2297,12 +2297,18 @@ def _graph_is_stale(user_id: str, graph_code: str) -> bool:
 
 
 def _cst_constraints(rec: dict) -> list[str]:
-    """cst_* 约束节点描述文本（骰子 Step4 边界钳制输入）。"""
+    """cst_* 约束节点描述文本（骰子 Step4 边界钳制输入）。
+
+    消费端容错（F3）：定稿 graph_json 的 nodes 可能混有纯字符串节点 id
+    与 dict 节点两种形态——字符串即节点 id（无 description），跳过。
+    """
     nodes = (rec.get("graph_json") or {}).get("nodes", [])
     return [
         str(n.get("description") or "")
         for n in nodes
-        if str(n.get("id") or "").startswith("cst_") and n.get("description")
+        if isinstance(n, dict)
+        and str(n.get("id") or "").startswith("cst_")
+        and n.get("description")
     ]
 
 

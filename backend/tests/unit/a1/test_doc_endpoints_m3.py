@@ -139,6 +139,24 @@ class TestDiceCharacterEndpoints:
         assert body["template"]["graph_code"].startswith("IP0001-TD")
         assert body["template"]["signal_sources"]
 
+    def test_dice_tolerates_string_node_ids_in_graph(
+        self, client, monkeypatch, tmp_path,
+    ):
+        """F3 回归：定稿图 nodes 混入纯字符串节点 id 时 dice-template
+        不得 500（_cst_constraints 消费端容错，dict 与 str 并存）。"""
+        rec, _ = _setup_finalized_file(monkeypatch, tmp_path)
+        rec["graph_json"]["nodes"] = [
+            {"id": "n1", "serial_number": "2-1", "level": 2,
+             "description": "普通节点"},
+            "cst_LAW.immutable",
+            {"id": "cst_ACT.cost", "serial_number": "9-1", "level": 2,
+             "description": "消耗体力"},
+        ]
+        resp = client.post("/api/a1/file/f_m3/dice-template")
+        assert resp.status_code == 200
+        # 字符串节点无 description，仅 dict 形态的 cst 节点贡献约束文本
+        assert "消耗体力" in str(resp.json()["template"])
+
     def test_character_without_dice_409_contract(
         self, client, monkeypatch, tmp_path,
     ):

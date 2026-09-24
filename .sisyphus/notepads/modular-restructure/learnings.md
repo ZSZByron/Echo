@@ -143,3 +143,8 @@
 - MODULE_POOL 入池硬约束：module_registry.py 对每个池条目取 `TIER_MAP[m['id']]`——新增池 id 必须同步在 tier_map.py TIER_MAP 加键（闭集 [0,6]），否则 collection 期 KeyError。本次 5 个新产出 id 均沿用上游消费源 tier 值，零新层级语义。
 - D18 缓期模式与 DN defaults 同构：池注册先行（数据三键 id/label/signal_requirements）+ 生成管线/路由语义变更缓期 + "待产品方终审追认"。plan 文件只追加 "（D18 缓期）" 标记，不动复选框。
 - TDD RED 先改测试（八件池断言 + OUTPUT_MODULE_IDS 序锁定 + 档位闭集校验），确认 2 failed 后再补数据，40/40 绿。
+
+## F3/F1 修复会话 (2026-09-24)
+- F3 根因与教训：_build_graph 声明 nodes: dict[str, GraphNode]，单元 fixture 的 graph_json.nodes 用空列表（[]）导致"类型上不可能"的假设未被单测覆盖；真实定稿落库后 nodes 可混入纯字符串 id。消费端（_cst_constraints）必须对持久化 JSON 形态做 isinstance 容错，而非信任内存类型注解。
+- 回归测试模式：直接在 fixture rec["graph_json"]["nodes"] 注入混合形态（dict + 字符串 cst id + 普通 dict），TestClient 级别断言 200——最小可复现 F3 的 500 链（dice 未落库 → character 409 永锁）。
+- F1：signal key 必须逐字匹配 a1_question_tree.py 的 module.field id；"场景与地理" 模块不存在，地理空间 无 regions 子字段（terrain/vertical/special_geo），场景语义最近的是 terrain（主世界→地区→区域层级）。

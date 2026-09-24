@@ -112,7 +112,7 @@ OUTPUT_MODULES: list[OutputModuleDef] = [
         "label": "场景扩写",
         "signal_requirements": {
             "主模组文字版": "hard",
-            "场景与地理.regions": "optional",
+            "地理空间.terrain": "optional",
             "历史时间线.main_plot": "optional",
         },
     },
