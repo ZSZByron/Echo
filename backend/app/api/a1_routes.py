@@ -1060,6 +1060,22 @@ def get_live_projection(file_id: str) -> dict:
     return project_live(session)
 
 
+@router.get("/api/a1/file/{file_id}/persona-card")
+def get_persona_card(file_id: str) -> dict:
+    """人格卡只读投影（M4c，零 LLM 确定性渲染）。
+
+    命名（未决③占位）+ 视觉 + 一句话解读；数据源 = creator_profile +
+    impulse_coords（只看不判，绝不回流路由）。存量会话惰性初始化坐标
+    （确定性查表，与 impulse-coords 端点同款惯例）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.persona_card import render_persona_card
+    card = render_persona_card(session)
+    _save_store()
+    return {"file_id": file_id, "session_id": session.session_id, **card}
+
+
 def _recipe_module_ids(session: A1Session) -> list[str]:
     """Ordered in-recipe module ids (M1 recipe gate semantics).
 

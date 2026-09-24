@@ -19,7 +19,7 @@ export type ImpulseTelemetryEventName =
   | 'module_completed'; // 模块完成 { module_id }（能力地图关键节点模块）
 
 export interface ImpulseTelemetryEvent {
-  schema_version: 1;
+  schema_version: 1 | 2; // v2 = M4c（三项指标升级）；读取端版本容忍（v1 存量照常解析）
   event: ImpulseTelemetryEventName;
   ts: number; // Date.now()
   user_id: string; // localStorage 'user_id' 现有键（弱标识，非内容，D8）
@@ -27,8 +27,11 @@ export interface ImpulseTelemetryEvent {
   data?: Record<string, unknown>;
 }
 
+// 存储键保持 a1_telemetry_v1（物理键名不变，schema 版本演进在事件字段内——
+// 升级/降级都不得破坏既有本地数据）。
 const STORAGE_KEY = 'a1_telemetry_v1';
 const MAX_EVENTS = 500;
+const SCHEMA_VERSION = 2 as const;
 
 /**
  * 读取并解析事件日志。损坏 / 缺失时重置为空数组。
@@ -59,7 +62,7 @@ export function logImpulseEvent(
 ): void {
   const events = getImpulseTelemetry();
   const entry: ImpulseTelemetryEvent = {
-    schema_version: 1,
+    schema_version: SCHEMA_VERSION,
     event,
     ts: Date.now(),
     user_id: localStorage.getItem('user_id') ?? '',
@@ -108,4 +111,92 @@ export function exportImpulseTelemetry(): void {
   a.download = `a1-telemetry-${stamp}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// M4c 埋点三项升级（v2）：跳过率 / 完成度 / 自报-行为错位地图
+// 全部为事件日志上的确定性派生函数（零 LLM、零网络），对 v1/v2 事件版本容忍。
+// ---------------------------------------------------------------------------
+
+/** 跳过率：impulse_card_skipped / (selected + skipped)；无决策 → 0。 */
+export function computeSkipRate(events: ImpulseTelemetryEvent[]): number {
+  let skipped = 0;
+  let selected = 0;
+  for (const e of events) {
+    if (e.event === 'impulse_card_skipped') skipped++;
+    else if (e.event === 'impulse_card_selected') selected++;
+  }
+  const decisions = skipped + selected;
+  return decisions === 0 ? 0 : skipped / decisions;
+}
+
+/** 完成度：去重后已完成模块数 + 首问是否已回答。 */
+export function computeModuleCompletion(events: ImpulseTelemetryEvent[]): {
+  completed_modules: number;
+  first_question_answered: boolean;
+} {
+  const modules = new Set<string>();
+  let firstQuestion = false;
+  for (const e of events) {
+    if (e.event === 'module_completed') {
+      const mid = e.data?.['module_id'];
+      if (typeof mid === 'string') modules.add(mid);
+    } else if (e.event === 'first_question_answered') {
+      firstQuestion = true;
+    }
+  }
+  return {
+    completed_modules: modules.size,
+    first_question_answered: firstQuestion,
+  };
+}
+
+export interface MismatchMapEntry {
+  selected: number;
+  skipped: number;
+  completed_modules: number;
+  /** 自报（选了该冲动）但零模块完成 = 错位。 */
+  mismatched: boolean;
+}
+
+/**
+ * 自报-行为错位地图：按自报冲动（impulse_card_selected data.primary）分组，
+ * 对照行为面（该冲动下的选/跳 + 全局模块完成去重数）。确定性派生，无版本
+ * 门槛（v1 事件同样参与统计）。
+ */
+export function computeStatedBehaviorMismatchMap(
+  events: ImpulseTelemetryEvent[],
+): Record<string, MismatchMapEntry> {
+  const map: Record<string, MismatchMapEntry> = {};
+  const { completed_modules } = computeModuleCompletion(events);
+  for (const e of events) {
+    if (e.event !== 'impulse_card_selected') continue;
+    const primary = e.data?.['primary'];
+    if (typeof primary !== 'string' || primary === '') continue;
+    const entry = (map[primary] ??= {
+      selected: 0,
+      skipped: 0,
+      completed_modules,
+      mismatched: false,
+    });
+    entry.selected++;
+    entry.completed_modules = completed_modules;
+  }
+  for (const e of events) {
+    if (e.event !== 'impulse_card_skipped') continue;
+    const primary = e.data?.['primary'];
+    if (typeof primary !== 'string' || primary === '') continue;
+    const entry = (map[primary] ??= {
+      selected: 0,
+      skipped: 0,
+      completed_modules,
+      mismatched: false,
+    });
+    entry.skipped++;
+    entry.completed_modules = completed_modules;
+  }
+  for (const entry of Object.values(map)) {
+    entry.mismatched = entry.selected > 0 && entry.completed_modules === 0;
+  }
+  return map;
 }

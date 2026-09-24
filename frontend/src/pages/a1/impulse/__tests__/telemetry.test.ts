@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attachSessionId,
+  computeSkipRate,
+  computeStatedBehaviorMismatchMap,
+  computeModuleCompletion,
   exportImpulseTelemetry,
   getImpulseTelemetry,
   logImpulseEvent,
+  type ImpulseTelemetryEvent,
   type ImpulseTelemetryEventName,
 } from '../telemetry';
 
@@ -83,10 +87,10 @@ describe('telemetry (a1_telemetry_v1)', () => {
     createObjectURLSpy.mockRestore();
   });
 
-  it('always sets schema_version to 1', () => {
+  it('always sets schema_version to 2 (v2 write, plan M4c)', () => {
     logImpulseEvent('module_completed', { module_id: 'm1' });
     const events = getImpulseTelemetry();
-    expect(events[0].schema_version).toBe(1);
+    expect(events[0].schema_version).toBe(2);
   });
 
   it('falls back to empty user_id when key missing', () => {
@@ -123,5 +127,189 @@ describe('telemetry (a1_telemetry_v1)', () => {
     localStorage.setItem('a1_telemetry_v1', '{broken json');
     expect(() => attachSessionId('a1_abc123')).not.toThrow();
     expect(getImpulseTelemetry()).toHaveLength(0);
+  });
+});
+
+describe('telemetry v2 (M4c: 三项指标 + E0 v1 兼容读取)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('a1_telemetry_v1');
+    localStorage.removeItem('user_id');
+  });
+
+  it('E0 v1 compatibility: stored v1 payloads (schema_version 1, no new fields) still parse', () => {
+    // v1 存量数据（升级前写入）——版本容忍读取，不得丢弃/报错
+    const v1Event: Record<string, unknown> = {
+      schema_version: 1,
+      event: 'impulse_card_selected',
+      ts: 1700000000000,
+      user_id: 'u-legacy',
+      data: { primary: 'plot', secondary: null },
+    };
+    localStorage.setItem(
+      'a1_telemetry_v1',
+      JSON.stringify([v1Event]),
+    );
+    const events = getImpulseTelemetry();
+    expect(events).toHaveLength(1);
+    expect(events[0].schema_version).toBe(1);
+    expect(events[0].event).toBe('impulse_card_selected');
+    expect(events[0].user_id).toBe('u-legacy');
+  });
+
+  it('mixed v1+v2 payloads coexist in one log', () => {
+    const v1: Record<string, unknown> = {
+      schema_version: 1,
+      event: 'impulse_card_shown',
+      ts: 1700000000000,
+      user_id: 'u',
+    };
+    logImpulseEvent('impulse_card_shown'); // v2 write
+    localStorage.setItem(
+      'a1_telemetry_v1',
+      JSON.stringify([v1, ...getImpulseTelemetry()]),
+    );
+    const events = getImpulseTelemetry();
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.schema_version).sort()).toEqual([1, 2]);
+  });
+
+  it('skip_rate = skipped / (selected + skipped); 0 decisions → 0', () => {
+    expect(computeSkipRate([])).toBe(0);
+    const events: ImpulseTelemetryEvent[] = [
+      { schema_version: 2, event: 'impulse_card_skipped', ts: 1, user_id: 'u' },
+      { schema_version: 2, event: 'impulse_card_skipped', ts: 2, user_id: 'u' },
+      {
+        schema_version: 2,
+        event: 'impulse_card_selected',
+        ts: 3,
+        user_id: 'u',
+        data: { primary: 'plot', secondary: null },
+      },
+    ];
+    expect(computeSkipRate(events)).toBeCloseTo(2 / 3);
+  });
+
+  it('module_completion counts distinct completed modules + first question', () => {
+    expect(computeModuleCompletion([])).toEqual({
+      completed_modules: 0,
+      first_question_answered: false,
+    });
+    const events: ImpulseTelemetryEvent[] = [
+      {
+        schema_version: 2,
+        event: 'module_completed',
+        ts: 1,
+        user_id: 'u',
+        data: { module_id: '剧情' },
+      },
+      {
+        schema_version: 2,
+        event: 'module_completed',
+        ts: 2,
+        user_id: 'u',
+        data: { module_id: '剧情' }, // duplicate — counted once
+      },
+      {
+        schema_version: 2,
+        event: 'module_completed',
+        ts: 3,
+        user_id: 'u',
+        data: { module_id: '世界本体' },
+      },
+      {
+        schema_version: 2,
+        event: 'first_question_answered',
+        ts: 4,
+        user_id: 'u',
+        data: { elapsed_ms: 900 },
+      },
+    ];
+    expect(computeModuleCompletion(events)).toEqual({
+      completed_modules: 2,
+      first_question_answered: true,
+    });
+  });
+
+  it('mismatch map: stated impulse with zero module completion = mismatched', () => {
+    // 语义：completed_modules 为全局去重完成数——存在任一完成行为即视为
+    // 有行为面；仅当"自报了冲动但全局零完成"时标 mismatched。
+    const events: ImpulseTelemetryEvent[] = [
+      {
+        schema_version: 2,
+        event: 'impulse_card_selected',
+        ts: 1,
+        user_id: 'u',
+        data: { primary: 'romance', secondary: null },
+      },
+      {
+        schema_version: 2,
+        event: 'impulse_card_selected',
+        ts: 2,
+        user_id: 'u',
+        data: { primary: 'plot', secondary: null },
+      },
+    ];
+    const map = computeStatedBehaviorMismatchMap(events);
+    expect(map.romance).toEqual({
+      selected: 1,
+      skipped: 0,
+      completed_modules: 0,
+      mismatched: true,
+    });
+    expect(map.plot).toEqual({
+      selected: 1,
+      skipped: 0,
+      completed_modules: 0,
+      mismatched: true,
+    });
+  });
+
+  it('mismatch map: any module completion behavior clears the mismatch flag', () => {
+    const events: ImpulseTelemetryEvent[] = [
+      {
+        schema_version: 2,
+        event: 'impulse_card_selected',
+        ts: 1,
+        user_id: 'u',
+        data: { primary: 'romance', secondary: null },
+      },
+      {
+        schema_version: 2,
+        event: 'module_completed',
+        ts: 2,
+        user_id: 'u',
+        data: { module_id: '剧情' },
+      },
+    ];
+    const map = computeStatedBehaviorMismatchMap(events);
+    expect(map.romance).toEqual({
+      selected: 1,
+      skipped: 0,
+      completed_modules: 1,
+      mismatched: false,
+    });
+  });
+
+  it('mismatch map is empty for behavior-only logs (no stated impulse)', () => {
+    const events: ImpulseTelemetryEvent[] = [
+      {
+        schema_version: 2,
+        event: 'module_completed',
+        ts: 1,
+        user_id: 'u',
+        data: { module_id: '剧情' },
+      },
+    ];
+    expect(computeStatedBehaviorMismatchMap(events)).toEqual({});
+  });
+
+  it('metrics tolerate v1 events (version-tolerant derived computation)', () => {
+    const v1: ImpulseTelemetryEvent = {
+      schema_version: 1,
+      event: 'impulse_card_skipped',
+      ts: 1,
+      user_id: 'u',
+    };
+    expect(computeSkipRate([v1])).toBe(1);
   });
 });
