@@ -47,7 +47,7 @@ def test_pyproject_toml_content() -> None:
     """Verify pyproject.toml contains required configurations"""
     root = Path(__file__).parent.parent
     pyproject = root / "pyproject.toml"
-    content = pyproject.read_text()
+    content = pyproject.read_text(encoding="utf-8")
 
     # Check for essential dependencies
     required_deps = [
