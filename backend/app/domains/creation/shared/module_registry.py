@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.domains.creation.a1.tier_map import TIER_MAP
+from app.domains.creation.modules.output_modules import OUTPUT_MODULES
 from app.domains.creation.seed.a1_question_tree import MODULES
 from app.domains.creation.seed.story_modules import STORY_MODULES
 
@@ -86,7 +87,12 @@ class ModuleDef:
     """One pool module. M1: worldview family referencing question-tree data.
 
     family: "worldview"（M1）/"story"（M2 story_modules.py 入池）/
-    "output"（M3 modules/ 入池）。tier 复用既有 tier 映射（DN2 默认）。
+    "output"（M3 modules/output_modules.py 入池）。tier 复用既有 tier
+    映射（DN2 默认）。
+
+    signal_requirements（M3，H §2.2 信号映射表转译）：产出模块专用，
+    dict[信号源模块 id, 档位]——required/optional/hard 三档闭集
+    （hard = 前置产物依赖，缺 → 409；optional = 缺省+ledger 披露）。
     """
 
     id: str
@@ -94,6 +100,9 @@ class ModuleDef:
     family: str
     fields: list[dict[str, Any]]  # 引用 a1_question_tree SubField 数据（零拷贝语义）
     tier: int
+    signal_requirements: dict[str, str] = field(default_factory=dict)
+    # M3 产出模块专用：输入依赖声明（required/optional/hard 三档，
+    # H §2.2 L174）；访谈模块为空 dict。
 
 
 #: 模块池：原 10 世界建构模块引用（M1）+ M11 角色 / M12 剧情故事模块（M2，
@@ -118,6 +127,19 @@ _MODULE_POOL.update({
         tier=TIER_MAP[m["id"]],
     )
     for m in STORY_MODULES
+})
+# M3：产出模块三件入池（family="output"）——终局生产者，无问卷字段、
+# 不进任何 Recipe；signal_requirements 声明输入依赖（H §2.2 转译）。
+_MODULE_POOL.update({
+    m["id"]: ModuleDef(
+        id=m["id"],
+        label=m["label"],
+        family="output",
+        fields=[],
+        tier=TIER_MAP[m["id"]],
+        signal_requirements=dict(m["signal_requirements"]),
+    )
+    for m in OUTPUT_MODULES
 })
 
 MODULE_POOL: dict[str, ModuleDef] = _MODULE_POOL

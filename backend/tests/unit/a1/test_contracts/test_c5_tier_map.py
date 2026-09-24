@@ -14,6 +14,7 @@ from app.domains.creation.a1.tier_map import (
     TIER_MAP,
     module_tier_coverage,
 )
+from app.domains.creation.modules.output_modules import OUTPUT_MODULE_IDS
 from app.domains.creation.seed.a1_question_tree import module_ids
 from app.domains.creation.shared.module_registry import MODULE_POOL
 
@@ -23,7 +24,8 @@ def test_c5_pool_modules_have_tier() -> None:
     assert module_tier_coverage() == []
     assert set(MODULE_POOL) <= set(TIER_MAP)
     assert set(module_ids()) <= set(TIER_MAP)
-    assert set(module_ids()) | {"角色", "剧情"} == set(MODULE_POOL)  # M2：树+故事族（M3 产出模块入池后再放宽）
+    assert (set(module_ids()) | {"角色", "剧情"} | set(OUTPUT_MODULE_IDS)
+            == set(MODULE_POOL))  # M2 故事族 + M3 产出模块三件
 
 
 def test_c5_tier_values_within_closed_range() -> None:

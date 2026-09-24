@@ -33,6 +33,7 @@ from app.domains.creation.seed.a1_question_tree import (
     module_ids,
     subs_for_module,
 )
+from app.domains.creation.modules.output_modules import OUTPUT_MODULE_IDS
 from app.domains.creation.seed.story_modules import STORY_MODULES
 from app.domains.creation.shared.module_registry import (
     ANCHOR_BY_TYPE,
@@ -109,7 +110,9 @@ class TestStoryPoolEntry:
             assert MODULE_POOL[mid].family == "story"
 
     def test_pool_is_tree_plus_story(self):
-        assert set(MODULE_POOL) == set(module_ids()) | {M12_ID, M11_ID}
+        assert set(MODULE_POOL) == (
+        set(module_ids()) | {M12_ID, M11_ID} | set(OUTPUT_MODULE_IDS)
+    )  # M3：产出模块三件入池
 
     def test_story_recipes_reference_only_pool_modules(self):
         for ptype in STORY_TYPES:

@@ -143,6 +143,18 @@ def record_stale_usage(db_path: str | Path, graph_code: str) -> None:
         conn.commit()
 
 
+def is_stale(db_path: str | Path, graph_code: str) -> bool:
+    """Query staleness of a graph code (M3: stale 永不 409，只留痕).
+
+    Unknown codes are never stale (fresh artifacts)."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status FROM graph_registry WHERE graph_code = ?",
+            (graph_code,),
+        ).fetchone()
+    return bool(row) and row[0] == "stale"
+
+
 def list_user_graphs(db_path: str | Path, user_id: str) -> dict:
     """List all graphs for a user, grouped by IP code.
 

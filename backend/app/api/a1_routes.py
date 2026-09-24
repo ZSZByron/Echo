@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ValidationError
 
 from app.ai.config import load_provider_config
@@ -94,6 +95,18 @@ from app.domains.creation.a1.warning_ledger import (
     from_dead_edges,
     from_strings,
 )
+from app.domains.creation.modules.character_projector import (
+    DiceRequiredError,
+    project_character_template,
+)
+from app.domains.creation.modules.dice_projector import (
+    DiceTemplate,
+    project_dice_template,
+)
+from app.domains.creation.modules.main_module import (
+    compile_document,
+    render_markdown,
+)
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import (
     EdgeType,
@@ -144,6 +157,11 @@ _poster_generation_tasks: dict[str, Any] = {}
 
 _ISSUER_DB = Path(__file__).resolve().parents[2] / "data" / "a1_codes.db"
 _ISSUER_DB.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _registry_db() -> str:
+    """Path of the shared graph registry (stale_marker) database."""
+    return str(ASSETS_DIR / "ugc.db")
 
 _COMPILER = None  # deprecated: semantic compiler replaced by LLM interviewer
 
@@ -1190,7 +1208,7 @@ def finalize(file_id: str) -> dict:
     version = int(new_code.rsplit("-v", 1)[1])
 
     # Mark downstream stale on re-finalize (old version kept, never deleted).
-    registry_db = str(ASSETS_DIR / "ugc.db")
+    registry_db = _registry_db()
     stale_marker.ensure_registry(registry_db)
     if rec["graph_code"] and rec["graph_code"] != new_code:
         stale_marker.mark_downstream_stale(
@@ -2136,3 +2154,204 @@ def extract_concept_edges_v2(file_id: str) -> dict:
     _save_store()
     return {"success": True, "added": added,
             "edges": [e.model_dump() for e in result.edges]}
+
+
+# ---------------------------------------------------------------------------
+# M3 产出模块端点（A2 资产回收三件；D15：资源名 doc＝界面「文档输出」）。
+# 路径域裁决：随既有 a1_routes 惯例 /api/a1/file/{id}/*，不新开 /api/modules
+# 域——会话/文件/发号器/registry 全部复用 A1 基建，跨域只增耦合。
+# 契约族（S1:241-253 回收）：pending_finalize / missing_dice_template；
+# stale 永不 409（消费留痕 used_stale）；LLM 仅 module_compile 单点（DN5
+# 立项），失败降级确定性骨架 + ledger 披露；骰子/角色投影零 LLM 纯确定性。
+# ---------------------------------------------------------------------------
+
+
+def _graph_is_stale(user_id: str, graph_code: str) -> bool:
+    """Upstream superseded check — informational only, never a 409 gate.
+
+    Two signals (either ⇒ stale)：
+    1. registry status = stale（``stale_marker.is_stale``，M3 新增）；
+    2. 同 IP 同 stage 存在更高 (instance, version) 的产物（同代际已被
+       重定稿/新实例取代——覆盖「W1 未注册但 W2 已注册」的测试与运行态）。
+    """
+    try:
+        if stale_marker.is_stale(_registry_db(), graph_code):
+            return True
+        listing = stale_marker.list_user_graphs(_registry_db(), user_id)
+    except Exception:  # noqa: BLE001 — 查询失败按未过期处理（不阻断）
+        return False
+    parts = graph_code.split("-")
+    if len(parts) < 3:
+        return False
+    ip, stage_inst = parts[0], parts[1]
+    stage = stage_inst[0]
+    cur = (int(stage_inst[1:]), int(graph_code.rsplit("-v", 1)[1]))
+    for group in listing.get("ips", []):
+        for art in group.get("artifacts", []):
+            if art.get("stage") != stage:
+                continue
+            if not str(art.get("graph_code", "")).startswith(f"{ip}-{stage}"):
+                continue
+            inst_str = str(art.get("graph_code", "")).split("-")[1][1:]
+            try:
+                cand = (int(inst_str), int(art.get("version", 0)))
+            except ValueError:
+                continue
+            if cand > cur:
+                return True
+    return False
+
+
+def _cst_constraints(rec: dict) -> list[str]:
+    """cst_* 约束节点描述文本（骰子 Step4 边界钳制输入）。"""
+    nodes = (rec.get("graph_json") or {}).get("nodes", [])
+    return [
+        str(n.get("description") or "")
+        for n in nodes
+        if str(n.get("id") or "").startswith("cst_") and n.get("description")
+    ]
+
+
+def _require_finalized(rec: dict) -> None:
+    if rec.get("status") != "finalized" or not rec.get("graph_json"):
+        raise HTTPException(status_code=409, detail="pending_finalize")
+
+
+@router.post("/api/a1/file/{file_id}/doc")
+def generate_module_doc(file_id: str) -> dict:
+    """主模组文字版 finalize 八步（S1:397-410）：校验→拉输入→module_compile
+    （LLM 单点+降级）→确定性装配→发号→registry 注册→ledger 透传→持久化。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+
+    registry_db = _registry_db()
+    stale_marker.ensure_registry(registry_db)
+    stale = _graph_is_stale(session.user_id, rec["graph_code"])
+    if stale:
+        stale_marker.record_stale_usage(registry_db, rec["graph_code"])
+
+    # Provider 注入（与 finalize 同范式）；失败降级 None → 确定性骨架。
+    try:
+        provider = create_provider(load_provider_config())
+    except Exception:  # noqa: BLE001
+        provider = None
+
+    issuer = GraphCodeIssuer(_ISSUER_DB)
+    code = issuer.next(session.user_id, ip=rec["ip"], stage="M")
+    instance_no = int(code.split("-")[1][1:])
+    version = int(code.rsplit("-v", 1)[1])
+    graph_id = stale_marker.register_graph(
+        registry_db, session.user_id, code, "M",
+        instance_no, version, scene_id=session.session_id,
+        display_name=session.ip_code, parent_graph_code=rec["graph_code"],
+    )
+
+    ip_name = session.ip_code or session.seed_name or "未命名世界"
+    doc, output_ledger = compile_document(
+        session.answers,
+        title=f"{ip_name}：主模组",
+        ip_name=ip_name,
+        graph_code=code,
+        upstream_graph_code=rec["graph_code"],
+        provider=provider,
+        used_stale=stale,
+        upstream_ledger=rec.get("warnings", []),
+    )
+    doc_json = doc.model_dump(mode="json")
+    doc_md = render_markdown(doc)
+
+    # 持久化（additive 键；产物 warnings 独立落键——重定稿 ledger 通道不混写）
+    rec["module_doc"] = {
+        "graph_id": graph_id, "doc_code": code,
+        "doc_json": doc_json, "doc_md": doc_md,
+        "warnings": output_ledger, "used_stale": stale,
+    }
+    _save_store()
+    return {
+        "doc_code": code, "graph_id": graph_id, "used_stale": stale,
+        "ledger": list(rec.get("warnings", [])) + output_ledger,
+    }
+
+
+@router.get("/api/a1/file/{file_id}/doc")
+def get_module_doc(file_id: str, format: str = "md") -> Any:
+    rec = _get_file(file_id)
+    stored = rec.get("module_doc")
+    if not stored:
+        raise HTTPException(status_code=409, detail="pending_finalize")
+    if format == "json":
+        return stored["doc_json"]
+    return PlainTextResponse(
+        stored["doc_md"], media_type="text/markdown; charset=utf-8")
+
+
+@router.post("/api/a1/file/{file_id}/dice-template")
+def generate_dice_template(file_id: str) -> dict:
+    """骰子投影（TD）——确定性四步法，零 LLM（D-A2-3）。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+
+    registry_db = _registry_db()
+    stale_marker.ensure_registry(registry_db)
+    stale = _graph_is_stale(session.user_id, rec["graph_code"])
+    if stale:
+        stale_marker.record_stale_usage(registry_db, rec["graph_code"])
+
+    issuer = GraphCodeIssuer(_ISSUER_DB)
+    code = issuer.next(session.user_id, ip=rec["ip"], stage="TD")
+    template = project_dice_template(
+        session.answers,
+        graph_code=code,
+        upstream_graph_code=rec["graph_code"],
+        used_stale=stale,
+        constraints=_cst_constraints(rec),
+    )
+    dump = template.model_dump(mode="json")
+    rec["dice_template"] = dump
+    _save_store()
+    return {"graph_code": code, "template": dump, "used_stale": stale,
+            "warnings": template.warnings}
+
+
+@router.post("/api/a1/file/{file_id}/character-template")
+def generate_character_template(file_id: str) -> dict:
+    """角色投影（TC）——4 相位；缺骰子产物 → 409 missing_dice_template
+    （S1:247 契约逐字：模块间 hard 依赖的 API 表达）。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+    dice_dump = rec.get("dice_template")
+    if not dice_dump:
+        raise HTTPException(status_code=409, detail="missing_dice_template")
+
+    registry_db = _registry_db()
+    stale_marker.ensure_registry(registry_db)
+    stale = _graph_is_stale(session.user_id, rec["graph_code"])
+    if stale:
+        stale_marker.record_stale_usage(registry_db, rec["graph_code"])
+
+    dice = DiceTemplate.model_validate(dice_dump)
+    issuer = GraphCodeIssuer(_ISSUER_DB)
+    code = issuer.next(session.user_id, ip=rec["ip"], stage="TC")
+    open_questions = [
+        str(q.get("question") or "")
+        for q in rec.get("open_questions", [])
+        if isinstance(q, dict) and q.get("question")
+    ]
+    try:
+        template = project_character_template(
+            session.answers, dice,
+            graph_code=code,
+            upstream_graph_code=rec["graph_code"],
+            used_stale=stale,
+            open_questions=open_questions,
+        )
+    except DiceRequiredError:  # 防御：存储被外力清空的兜底契约
+        raise HTTPException(status_code=409, detail="missing_dice_template")
+    dump = template.model_dump(mode="json")
+    rec["character_template"] = dump
+    _save_store()
+    return {"graph_code": code, "template": dump, "used_stale": stale,
+            "warnings": template.warnings}

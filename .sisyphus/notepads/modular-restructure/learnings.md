@@ -42,3 +42,15 @@
 - 契约测试重锚五处（C5 池语义/graphify 层级表/E1 冒烟首问=剧情.核心抉择/legacy 响应键+recipe_id/队列子集改池语义）全是故事子集语义面，TestDefaultByteEquivalence 六用例零改动仍绿。
 - interviewer prompt 单骨架（R2）再验证：素材桥/配方目录都是数据注入 *([...] if cond else [])，default 面零变化。
 - M2 新代码覆盖：story_modules 100% / module_registry 100% / guide_engine 93%；interviewer 76% 为存量面（forced_allocate 等），不属新代码核算。
+
+
+## [2026-09-24] Task: M3 A2 产出模块入池（modules/ 域 + doc 端点 + TD/TC 投影）
+
+- **路径域裁决落定**：端点随既有 a1_routes 惯例 `/api/a1/file/{id}/doc|dice-template|character-template`，不新开 `/api/modules` 域——会话/文件/发号器/registry 全部复用 A1 基建，跨域只增耦合；资源名 = doc（D15，界面「文档输出」）。
+- **双写手会话实录（本次最险）**：并发会话与本项目同时在 modules/ 与 a1_routes 落盘——对方写了 `output_modules.py`（池清单纯数据面，保留采纳）+ 一套 dict 风格端点，我方写了 pydantic 风格投影器 + 另一套端点，a1_routes 内出现**两套完整重复端点块 + 双份 import 块 + 双份 _registry_db**。处置：AST dup-symbol sweep（ast.walk 收 FunctionDef 计数）逐符号去重，采纳对方端点块（含 cst_* 约束提取进骰子 Step4、DiceRequiredError 防御性 409 兜底，设计更优），删我方 208 行重复块；测试全绿不代表无重复——收尾必须跑 AST 级 sweep，肉眼 grep 会漏。
+- **Edit 工具整段替换的陷阱**：去重 import 时 oldString 跨含"单份夹心 import"的大段，newString 只留重复块之一——瞬间删掉 stale_marker/graphify/warning_ledger 等 8 个单份 import。教训：跨多符号的 import 去重，先 AST 列单份清单再动手，删后必须 `python -c "import app"` 级冒烟。
+- **409 契约族接线**：draft → `pending_finalize`（沿用既有裸串 detail 风格）；角色投影缺 TD 产物 → `missing_dice_template`（S1:247 逐字）。分两层：模块层抛 `DiceRequiredError`（纯函数可测），路由层 try/except 转 409——契约语义归路由，依赖判定归域层。
+- **stale 永不 409 的双信号判别**：`_graph_is_stale` = registry status==stale **或** 同 IP/stage 存在更高 (instance, version) 产物（覆盖"W1 行未标 stale 但 W2 已注册"的重定稿态）；消费即 `record_stale_usage` 留痕，仅 informational 不阻断。stale_marker 新增 `is_stale()`（additive）。
+- **signal_requirements 三档闭集**：required/optional/hard（H §2.2 L174 转译）——optional=缺省+ledger 披露（骰子四步法逐级兜底），hard=前置产物依赖缺→409（角色←骰子、doc⑦⑧节←TD/TC）。键用字段级 `"{module}.{subfield}"`（S2 ★信号源地图转译），入池经 `ModuleDef.signal_requirements: dict[str,str]`（默认空 dict，worldview/story 零扰动）。
+- **module_compile 免费线设计**：LLM 单点只产文案（module_fantasy + 节导语），九节树/ScopeBoundary/数值全确定性装配；provider 缺席/异常/形状不符三路都 → None → 答案原文骨架兜底 + `module_compile_degraded` ledger 条目。provider 兼容同步/异步双形态（inspect.isawaitable 分支）——conftest 的 StubLLMProvider 是 async 而测试内临时 stub 常是 sync。
+- **测试基建坑**：conftest autouse `_isolated_a1_store` 每测清空 _SESSIONS/_FILES——fixture 注入式造数必须在**测试体内**调用（漏调一行 = 404 file not found，且单测隔离复现更容易误导为路由问题）；boulder 编排方已终验 1162/0 + 81.43% + tsc 0 + vitest 231。

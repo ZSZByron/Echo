@@ -102,9 +102,15 @@ class TestRegistryShape:
         assert RECIPES["healing"].anchor != ""  # nostalgia/healing 锚点保留
         assert RECIPES["nostalgia"].anchor != ""
 
-    def test_module_pool_covers_tree_story_and_tiers(self):
-        """M2：池 = 问卷树 10 模块 + M12 剧情 + M11 角色（产出归 M3）。"""
-        assert set(MODULE_POOL) == set(module_ids()) | {"剧情", "角色"}
+    def test_module_pool_covers_tree_story_output_and_tiers(self):
+        """M3：池 = 问卷树 10 模块 + 剧情/角色 + 产出三件（family=output）。"""
+        from app.domains.creation.modules.output_modules import (
+            OUTPUT_MODULE_IDS,
+        )
+
+        assert set(MODULE_POOL) == (
+            set(module_ids()) | {"剧情", "角色"} | set(OUTPUT_MODULE_IDS)
+        )
         assert module_tier_coverage() == []
 
     def test_e1_lite_dicts_reexported_from_registry(self):
