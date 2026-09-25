@@ -198,7 +198,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `fix(a1): deflect-to-skip placeholder advance + story-detail-to-sketch archive + story-aware suggestions (M0 stopgap)`
   **Acceptance**: 翻车记录四场景（重问死循环/误判提案/聋建议/纪元题——纪元题的根治在 M2 配方，M0 验收前三件）在 pytest 重放中全部翻绿；全量回归无新增失败
 
-- [ ] 1. M1 模块注册表底座（前置 1a：测试环境清债）
+- [x] 1. M1 模块注册表底座（前置 1a：测试环境清债）
 
   **What to do**:
   - **M1a 前置清债（净基线）**（= D9 v2 闸门，2026-09-24 台账 D16 重定义——另含前后端交互层三项：vitest config 排除 Playwright spec / 前后端类型对齐基线盘点 / 全链路冒烟）：test_c7_loop_e2e 4 失败 + tests/xt/test_a1_warning_ledger 收集错误转正（根因 `ModuleNotFoundError: tests.unit/tests.xt`——修 conftest.py 或 pytest.ini importmode）；前端 tsc 已达标（2026-09-22 实测 exit 0）零工作量；graph.spec Playwright 存量失败只留档另立项。目标：三命令零 preexisting 失败——**这是甲计划的新基线**
@@ -223,7 +223,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): module registry + recipe-parameterized question tree + subset gate semantics (M1 core)`
   **Acceptance**: default 配方逐字节回归绿；plot 配方（临时测试用）子集生效；四处全集引用清零；全量三命令绿
 
-- [ ] 2. M2 故事模块族 + 故事型配方
+- [x] 2. M2 故事模块族 + 故事型配方
 
   **What to do**:
   - **数据落位定死（Momus F2 修订）**：故事模块放**独立 `story_modules.py` 经 MODULE_POOL 入池，不并入 a1_question_tree.MODULES**——理由：MODULES 全集消费面（worldview_upload 上传 prompt schema/interviewer prompt 目录/ip_poster 展板/tier 闭集断言）对设定型路径零扰动，"设定型逐字节不变"由此在架构上成立；上传链作用域：default 配方=今日行为不变，故事型×上传链组合语义归 **DN6**（默认：上传链仅 default/怀旧路径暴露）
@@ -238,7 +238,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): story module family + 4 story-type recipes (M2)`
   **Acceptance**: plot 新会话全程无"势力类型"类轰炸；首问=剧情主线.核心抉择（或终审文案）；romance 配方含情感线+边界声明；设定型回归绿
 
-- [ ] 3. M3 A2 产出模块入池
+- [x] 3. M3 A2 产出模块入池
 
   **What to do**:
   - 新建 `backend/app/domains/creation/modules/`：A2 资产平移 + A3 遗迹复活，**L2 五件 + L3 三件**（蓝图=代码模块设计 §2.4；规格行号见 `.sisyphus/evidence/a2-plan-mining-a2-specs.md` 与 `jia-mining-a2v02-and-a3.md`）：
@@ -253,7 +253,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): A2 asset salvage as output modules - main-module doc/dice/character projectors (M3)`
   **Acceptance**: 主模组文字版 finalize→Markdown 零加工可开团；骰子/角色投影确定性（同输入同输出断言）+溯源徽章；409 依赖链正确；零 LLM key 可跑通免费线
 
-- [ ] 4. M4a field_sources + 推断包
+- [x] 4. M4a field_sources + 推断包
 
   **What to do**（权威定义 impulse spec §3.1/§6，D12 已冻结）:
   - field_sources：平行元数据同键空间，四来源枚举（human/llm_fill/dice_rec/upload_prefill），四写入出口各接线一处（直答/_apply_fills/parse_modules/骰子推荐），都标自动标只看不判，契约测试"有值字段必有来源+键空间⊆配方并集"，存量 unknown 兜底
@@ -262,7 +262,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): field_sources four-outlet wiring + inference pack with confirm flow (M4a)`
   **Acceptance**: 四出口标记矩阵全绿（每写入出口各一用例+键空间⊆配方并集契约测试）；推断包 3-5 条生成/confirm 双写一致（坐标置信修正+fills 热启动经 J1）；存量为值字段 unknown 兜底不抛错；不直写 answers 断言绿
 
-- [ ] 5. M4b 冲动坐标观测 + ai_fill 字段级 + 看门狗 + live_projection
+- [x] 5. M4b 冲动坐标观测 + ai_fill 字段级 + 看门狗 + live_projection
 
   **What to do**（§10.1 逐字 + 未决①收口）:
   - 冲动坐标观测层：三件套（叙事-建构轴[0,100] 锚点初值逐字 L309/置信度/安全旗单向棘轮）存 creator_profile 扩展；确定性更新函数（只吃显式信号+全留痕）；四护栏（阻尼/可达性不变式进契约测试/安全旗棘轮）；**E2 只看不判**——落库+看板数据接口，不驱动路由
@@ -273,7 +273,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): impulse coordinate observation + field-level ai_fill + watchdog + live projection (M4b)`
   **Acceptance**: 坐标确定性更新断言（显式信号→可复现坐标变化+全留痕）；四护栏各一契约测试（防振荡：每会话≤1 次重排/可达性不变式/安全旗棘轮：升旗不降/确定性更新）；路由行为零变化（只看不判回归）；ai_fill 字段级过滤按配方策略生效；看门狗后半程回归提示触发；live_projection 零 LLM 快照测试绿
 
-- [ ] 6. M4c 人格卡 + 埋点三项 + sunset（可后置）
+- [x] 6. M4c 人格卡 + 埋点三项 + sunset（可后置）
 
   **What to do**:
   - 人格卡：命名+视觉+一句话解读（命名 DECISION NEEDED——未决③，默认"ECHO 创作人格"占位）；数据源=creator_profile+坐标
@@ -283,7 +283,7 @@ Wave FINAL（四审并行 → 用户终审）:
   **Commit**: `feat(modular): persona card + telemetry v2 + sunset interface (M4c)`
   **Acceptance**: 人格卡渲染（creator_profile+坐标数据源断言）；telemetry v2 写入+E0 v1 兼容读取回归；sunset 接口存在且默认关闭
 
-- [ ] 7. G 治理四件
+- [x] 7. G 治理四件
 
   **What to do**:
   - `docs/decision-log.md` 新增 **D14**：甲三裁决逐字 + E1-Lite 翻车证据引用 + 推翻/收编清单（09-20 顺序裁决 A2 P0 让位；D-A2-7 推翻；A2 规格收编）
@@ -296,12 +296,12 @@ Wave FINAL（四审并行 → 用户终审）:
   **Acceptance**: D14 含三裁决逐字+翻车证据引用+三红线显式翻案记录（门禁子集/tier 扩展/契约升版）；spec v1.3 含 §0 变更记录+§5.2 配方化重述+§8 重锚；A2 两规格归档头存在且指向甲计划；B1 提案留档
   **Acceptance**: D14 含甲三裁决逐字+三红线翻案记录（门禁语义[DN1 结果]/tier 契约[DN2 结果]/枚举扩展）+D12/D13 处置；spec v1.3 §0 有变更记录且 §5.2 配方化重述；两 A2 规格头部有归档注记；B1 提案落盘 docs/plans/
 
-- [ ] 8. FINAL 四审（同 E1-Lite 惯例）
+- [x] 8. FINAL 四审（同 E1-Lite 惯例）
 
-  - [ ] F1 计划合规审计 [ultrabrain]：Must Have/Nought 全核对+证据齐全
-  - [ ] F2 代码质量审查 [unspecified-high]：三命令+反模式+slop+回归铁律复核
-  - [ ] F3 真实手动 QA [unspecified-high]：**翻车场景全流程重放必须翻绿**（plot 用户：首问故事/偏转被尊重/细节入素材槽/建议贴故事）+ 设定型回归 + 主模组开团文档人审
-  - [ ] F4 范围忠实检查 [deep]：甲裁决 1:1、A2 材料只进不出阶段叙事、E2/E3 无遗漏、无蔓延
+  - [x] F1 计划合规审计 [ultrabrain]：Must Have/Nought 全核对+证据齐全
+  - [x] F2 代码质量审查 [unspecified-high]：三命令+反模式+slop+回归铁律复核
+  - [x] F3 真实手动 QA [unspecified-high]：**翻车场景全流程重放必须翻绿**（plot 用户：首问故事/偏转被尊重/细节入素材槽/建议贴故事）+ 设定型回归 + 主模组开团文档人审
+  - [x] F4 范围忠实检查 [deep]：甲裁决 1:1、A2 材料只进不出阶段叙事、E2/E3 无遗漏、无蔓延
 
 ---
 
