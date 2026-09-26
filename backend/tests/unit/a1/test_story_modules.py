@@ -5,8 +5,9 @@
 - 计划 modular-restructure TODO 2（M11 角色 6 字段 / M12 剧情 9 字段，
   2026-09-22 重锚定定版；情感线并入 M12 场景化字段 + M10 爱情 preset）。
 - 字段文案 = DECISION NEEDED 3 初稿（docs/plans/2026-09-22-jia-module-list-expansion.md §1.1）。
-- 配方矩阵 = 详细设计 §3.1（8+2 重锚版）；世界建构子集裁剪 = DN6 初稿
-  （plot/unsure 按翻车证据剔除 文明与社会——势力类型轰炸为验收场景）。
+- 配方矩阵 = 详细设计 §3.1（8+2 重锚版）；世界建构子集 = DN6 终审裁决
+  D19（产品方 2026-09-25）废除：故事配方 = 纯故事模块（剧情+角色），
+  世界建构模块仅设定线使用（推翻初稿 §5.2 前移序子集方案）。
 - tier 复用既有层值（DN2）：剧情→历史时间线层(3)、角色→文明与社会层(2)。
 - 回归铁律：default 配方逐字节不变（m1_default_snapshot.json 用例不改仍绿）。
 """
@@ -121,13 +122,15 @@ class TestStoryPoolEntry:
 
 
 class TestStoryRecipes:
-    """配方矩阵（详细设计 §3.1，8+2 重锚版）+ 计划 Must Have §102
-    （故事四型 = 剧情+角色+有限世界建构子集）。序 = DN6 初稿待终审。"""
+    """配方矩阵（详细设计 §3.1，8+2 重锚版）。世界建构子集 = DN6 终审
+    裁决 D19（产品方 2026-09-25）废除：故事配方 = 纯故事模块（剧情+角色），
+    世界建构模块仅设定线使用。"""
 
-    def test_all_story_recipes_contain_both_story_modules(self):
+    def test_all_story_recipes_are_pure_story_modules(self):
         for ptype in STORY_TYPES:
-            mids = RECIPES[ptype].module_ids
-            assert M12_ID in mids and M11_ID in mids, ptype
+            assert RECIPES[ptype].module_ids in (
+                (M12_ID, M11_ID), (M11_ID, M12_ID),
+            ), ptype
 
     def test_plot_opens_on_story_modules(self):
         mids = RECIPES["plot"].module_ids
@@ -141,18 +144,17 @@ class TestStoryRecipes:
     def test_unsure_excludes_faction_bombardment_module(self):
         assert "文明与社会" not in RECIPES["unsure"].module_ids
 
-    def test_character_driven_matrix_order(self):
-        """角色驱动：M11 打头 → M5 冲突=对手 → M12 命运轨道（§3.1 矩阵）。"""
+    def test_character_driven_leads_with_role_and_story_only(self):
+        """D19：角色驱动 = 角色→剧情，无 文明与社会 等世界建构尾随。"""
         mids = RECIPES["character_driven"].module_ids
         assert mids[0] == M11_ID
-        assert mids.index("文明与社会") < mids.index(M12_ID)
+        assert tuple(mids) == (M11_ID, M12_ID)
 
     def test_romance_matrix_order_and_emotional_coverage(self):
-        """爱情：M11 双人关系卡打头 → M1 套路库 → M12 情感线事件（§3.1）。"""
+        """爱情：M11 双人关系卡打头 → M12 情感线（D19 纯故事序）。"""
         mids = RECIPES["romance"].module_ids
         assert mids[0] == M11_ID
-        assert mids.index("IP定位") < mids.index(M12_ID)
-        assert "视觉设计" in mids
+        assert tuple(mids) == (M11_ID, M12_ID)
         # 情感线并入 M12 场景化字段（重锚定：无独立情感线模块）
         keys = set(all_subfield_keys(recipe=list(mids)))
         assert {f"{M12_ID}.opening_event", f"{M12_ID}.tension_hole"} <= keys
@@ -160,11 +162,13 @@ class TestStoryRecipes:
             m["id"] == "情感线" for m in STORY_MODULES
         )
 
-    def test_m10_boundary_global_tail_in_every_story_recipe(self):
-        """全局规则 1：M10 永远在场（不进优先序，常驻收尾）。"""
+    def test_zero_worldview_modules_in_every_story_recipe(self):
+        """D19 灵魂契约：世界建构族模块（含原"永远在场"的 M10 设定边界）
+        全部退出故事线——边界语义由 romance 合规边界锚点承载。"""
         for ptype in STORY_TYPES:
             mids = RECIPES[ptype].module_ids
-            assert mids[-1] == "设定边界"
+            assert not (set(mids) & set(module_ids())), ptype
+        assert "合规边界" in RECIPES["romance"].anchor
 
     def test_story_recipes_dedupe_and_subset_of_pool(self):
         for ptype in STORY_TYPES:

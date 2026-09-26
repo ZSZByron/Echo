@@ -26,10 +26,18 @@ def make_session(**kw: Any) -> A1Session:
     return s
 
 
+def _first_half(s: A1Session) -> list[str]:
+    return list(s.recipe_modules[: len(s.recipe_modules) // 2])
+
+
+def _second_half(s: A1Session) -> list[str]:
+    return list(s.recipe_modules[len(s.recipe_modules) // 2 :])
+
+
 def _fill_half(s: A1Session) -> None:
-    """填充前半模块（romance 配方 6 模块 → 前 3 个全答）。"""
+    """填充前半模块（D19 后 romance 配方 = 剧情+角色 2 模块 → 前 1 个全答）。"""
     from app.domains.creation.seed.a1_question_tree import subs_for_module
-    for mid in s.recipe_modules[:3]:
+    for mid in _first_half(s):
         for f in subs_for_module(mid):
             s.answers[f"{mid}.{f['id']}"] = f"{mid}的答案{f['id']}"
 
@@ -38,7 +46,7 @@ class TestWatchdog:
     def test_no_fire_when_all_visited(self):
         s = make_session()
         _fill_half(s)
-        for mid in s.recipe_modules[3:]:
+        for mid in _second_half(s):
             from app.domains.creation.seed.a1_question_tree import subs_for_module
             f = subs_for_module(mid)[0]
             s.answers[f"{mid}.{f['id']}"] = "x"
@@ -47,14 +55,14 @@ class TestWatchdog:
 
     def test_fires_second_half_with_unvisited_module(self):
         s = make_session()
-        _fill_half(s)  # 后半 3 模块全未访
+        _fill_half(s)  # 后半（剧情）全未访
         s.message_rounds = 5  # N=5 的倍数 + 进度过半
         wd = check_watchdog(s)
         assert wd is not None
         assert "watchdog" == wd["kind"]
         assert wd["unvisited_modules"], "应列出未访模块"
         # 确定性提示内容
-        assert s.recipe_modules[3] in [m["id"] for m in wd["unvisited_modules"]]
+        assert s.recipe_modules[-1] in [m["id"] for m in wd["unvisited_modules"]]
         assert "要不要" in wd["suggestion"]
 
     def test_not_fired_before_n_multiple(self):
@@ -130,7 +138,7 @@ class TestLiveProjection:
         bg = [n for n in nodes if n["level"] == 1]
         assert len(bg) == 1
         l2_ids = {n["id"] for n in nodes if n["level"] == 2}
-        assert set(s.recipe_modules[:3]) <= l2_ids
+        assert set(_first_half(s)) <= l2_ids
         # TREE 边：bg → module
         assert all(e["edge_type"] == "tree" for e in proj["edges"])
         # 披露：非定稿快照
@@ -147,4 +155,4 @@ class TestLiveProjection:
         _fill_half(s)
         proj = project_live(s)
         l2_ids = {n["id"] for n in proj["nodes"] if n["level"] == 2}
-        assert l2_ids == set(s.recipe_modules[:3])
+        assert l2_ids == set(_first_half(s))

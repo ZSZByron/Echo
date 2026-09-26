@@ -148,3 +148,14 @@
 - F3 根因与教训：_build_graph 声明 nodes: dict[str, GraphNode]，单元 fixture 的 graph_json.nodes 用空列表（[]）导致"类型上不可能"的假设未被单测覆盖；真实定稿落库后 nodes 可混入纯字符串 id。消费端（_cst_constraints）必须对持久化 JSON 形态做 isinstance 容错，而非信任内存类型注解。
 - 回归测试模式：直接在 fixture rec["graph_json"]["nodes"] 注入混合形态（dict + 字符串 cst id + 普通 dict），TestClient 级别断言 200——最小可复现 F3 的 500 链（dice 未落库 → character 409 永锁）。
 - F1：signal key 必须逐字匹配 a1_question_tree.py 的 module.field id；"场景与地理" 模块不存在，地理空间 无 regions 子字段（terrain/vertical/special_geo），场景语义最近的是 terrain（主世界→地区→区域层级）。
+
+## 2026-09-26 重新开始按钮（A1Workspace 返回冲动入口，计划外 UX 补丁）
+- 返回用户恢复（E0 规则）与"重新开始"是一对互补能力：恢复是默认，退出必须是显式按钮+确认弹窗，缺退出路径会在真实用户身上立刻暴露。
+- 全量状态重置清单以 useState 声明为唯一真相源逐个核对；API 缓存类状态（seeds）注明"保留"理由，比默默跳过更防回归。
+- 埋点事件名为 TS 字面量联合类型时，新事件必须同步扩 telemetry.ts 的 union，否则编译期才暴露；schema v2 注释已声明容忍任意事件名，类型层是唯一守门员。
+- Windows git 工作流红线：任何 git checkout -- . 类命令即使"以为是无害守卫"也会静默丢弃未提交修改——恢复手段只能是重放编辑，勿在生产会话依赖 stash。
+
+## 2026-09-26 DN6 终审落地：故事配方纯故事模块（D19）
+- 配方收窄类变更的下游破裂点不在"显式契约"而在"隐式形状依赖"：watchdog/live_projection 测试用 recipe_modules[:3] 硬编码 romance 旧 6 模块的"半程"位置——半程语义必须写成 len//2 通用切片，配方长度变化才不炸。
+- TDD 红灯批次要一次翻完所有同族断言（三个测试文件 9 处）再跑全量，否则 GREEN 后还会被二阶依赖（进度摘要含"历史时间线"断言）再拉回 RED。
+- 灵魂契约断言写成独立命名测试（zero worldview modules），而非塞进既有子集测试的附加行——终审裁决的"不可回退性"由测试名承载，回填意图会在测试名上先撞墙。

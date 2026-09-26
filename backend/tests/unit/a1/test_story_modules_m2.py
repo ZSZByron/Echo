@@ -6,8 +6,9 @@
    复用 a1_question_tree 的 Module/SubField TypedDict（不重定义）。
 2. 注册：MODULE_POOL family="story" 入池；TIER_MAP 复用既有层值（DN2）；
    问卷树门面解析故事模块（get_module/subs_for_module/all_subfield_keys）。
-3. 4 故事型配方：故事模块前置 + §5.2 世界建构子集（DN6 初稿）；
-   plot 首问 = 剧情.核心抉择；romance 含情感线（M12）+ 边界声明（设定边界）。
+3. 4 故事型配方：纯故事模块（剧情+角色）——DN6 终审裁决 D19
+   （产品方 2026-09-25：每分类只调用本族模块，零世界建构问卷）；
+    plot 首问 = 剧情.核心抉择；romance 含情感线（M12）+ 边界声明（锚点）。
 4. G5 泄露修复：interviewer prompt 目录/进度只渲染配方内字段——
    故事会话零"势力类型"类世界建构字段泄露；_parse 拒配方外 fills。
 5. M0 桥接：character_sketch 素材注入角色模块 prompt 块。
@@ -167,34 +168,27 @@ class TestStoryRegistration:
 
 
 class TestStoryRecipes:
-    def test_story_modules_precede_worldview_subset(self):
+    def test_story_recipes_are_pure_story_modules(self):
+        """DN6 终审裁决（D19，产品方 2026-09-25）：故事配方 = 纯故事模块
+        （剧情+角色），世界建构模块仅设定线使用。"""
+        expected = {
+            "plot": ("剧情", "角色"),
+            "unsure": ("剧情", "角色"),
+            "romance": ("角色", "剧情"),
+            "character_driven": ("角色", "剧情"),
+        }
         for ptype in STORY_TYPES:
-            mids = list(RECIPES[ptype].module_ids)
-            story_ids = [mid for mid in mids if mid in ("角色", "剧情")]
-            assert story_ids, f"{ptype} 配方必须含故事模块"
-            # 故事模块前置（90 秒故事入口）
-            assert mids[0] in ("角色", "剧情"), (
-                f"{ptype} 配方首模块必须是故事模块，实际 {mids[0]}"
-            )
-            # 世界建构部分 = §5.2 前移序子集且保序
-            # （设定边界 = M10 全局规则"永远在场"收尾，不属 §5.2 前移子集）
-            wv = [
-                mid for mid in mids
-                if mid in FULL_IDS and mid != "设定边界"
-            ]
-            priority = {
-                "plot": ["历史时间线", "文明与社会", "世界本体"],
-                "unsure": ["历史时间线", "文明与社会", "世界本体"],
-                "romance": ["IP定位", "历史时间线", "视觉设计"],
-                "character_driven": [
-                    "文明与社会", "历史时间线", "世界本体", "力量体系",
-                ],
-            }[ptype]
-            expected = [mid for mid in priority if mid in wv]
-            assert wv == expected, f"{ptype} 世界建构子集须保 §5.2 前移序"
-            # 无重复、无未知模块
-            assert len(mids) == len(set(mids))
-            assert set(mids) <= FULL_IDS | {"角色", "剧情"}
+            mids = RECIPES[ptype].module_ids
+            assert set(mids) == {"剧情", "角色"}, ptype
+            assert tuple(mids) == expected[ptype], ptype
+
+    def test_story_recipes_contain_zero_worldview_modules(self):
+        """D19 灵魂契约：每个故事型配方的 module_ids 与世界建构族交集为空
+        ——故事用户零世界建构问卷（"每个分类只调用本族模块"）。"""
+        worldview_ids = set(module_ids())
+        for ptype in STORY_TYPES:
+            overlap = set(RECIPES[ptype].module_ids) & worldview_ids
+            assert not overlap, f"{ptype} 混入世界建构模块: {overlap}"
 
     def test_plot_recipe_contains_core_dilemma_and_entry(self):
         r = RECIPES["plot"]
@@ -214,11 +208,12 @@ class TestStoryRecipes:
 
     def test_romance_recipe_has_love_line_and_boundary_semantics(self):
         r = RECIPES["romance"]
-        # 情感线并入 M12 场景化字段：romance 必含 剧情
+        # 情感线并入 M12 场景化字段：romance 必含 剧情（D19：仅本族两模块）
         assert "剧情" in r.module_ids
-        # 边界声明（M10 preset 语义）：romance 必含 设定边界
-        assert "设定边界" in r.module_ids
         assert "角色" in r.module_ids
+        # 边界声明不再靠 M10 模块（D19 世界建构退出故事线），
+        # 由 §9 合规边界锚点措辞承载
+        assert "合规边界" in r.anchor
 
     def test_unsure_recipe_opens_with_single_question_startup(self):
         r = RECIPES["unsure"]
@@ -284,7 +279,9 @@ class TestG5PromptNoLeak:
 
         summary = _progress_summary({}, recipe=self._plot_recipe())
         assert "剧情: 0/9" in summary
-        assert "历史时间线" in summary
+        # D19：世界建构模块彻底退出故事线（进度摘要零世界建构）
+        assert "历史时间线" not in summary
+        assert "世界本体" not in summary and "设定边界" not in summary
         assert "IP定位" not in summary and "势力类型" not in summary
 
     def test_story_session_prompt_has_zero_out_of_recipe_fields(self):
@@ -307,12 +304,13 @@ class TestG5PromptNoLeak:
         prompt = iv._build_prompt(module, subfield, session)
         # 首问 = 故事问题
         assert "核心抉择" in prompt or "core_dilemma" in prompt
-        # 配方外世界建构模块零泄露（逐模块目录行；plot 配方含 剧情/角色/
-        # 历史时间线/世界本体/设定边界——其余世界建构字段不得出现）
+        # 配方外世界建构模块零泄露（逐模块目录行；D19 后 plot 配方仅
+        # 剧情/角色——全部世界建构字段不得出现）
         for leak in (
             "IP定位.name", "文明与社会.faction_type", "势力类型",
             "骰子设定.probability", "玩法设计DNA.player_role",
-            "地理空间.terrain",
+            "地理空间.terrain", "历史时间线.time_span",
+            "世界本体.reality_rule", "设定边界.immutable_core",
         ):
             assert leak not in prompt, f"配方外字段泄露：{leak}"
         # 进度摘要同样只渲染配方内

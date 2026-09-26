@@ -180,53 +180,44 @@ def _full_permutation(head: list[str]) -> tuple[str, ...]:
     return tuple(head) + tuple(mid for mid in _DEFAULT_ORDER if mid not in head)
 
 
-# M2 故事型配方矩阵（详细设计 §3.1，8+2 重锚版；计划 Must Have §102：
-# 故事四型 = M12 剧情 + M11 角色 + 有限世界建构子集）。
-# 世界建构子集的裁剪与序 = **DECISION NEEDED 6 初稿待终审**：
-# - 世界建构部分 = §5.2 前移序的**保序子集**（子集序即前移序，DN6）；
-# - plot/unsure 剔除 文明与社会——翻车证据验收场景②（势力类型轰炸）
-#   的根治项，终审可回填；
+# M2 故事型配方矩阵（详细设计 §3.1，8+2 重锚版）。
+# **DN6 终审裁决 2026-09-25 产品方：故事线纯故事模块（剧情+角色），
+# 世界建构模块仅设定线使用**（D19：推翻初稿的 §5.2 前移序子集方案；
+# 理由：模块化原则——每分类只调用本族模块，故事用户零世界建构问卷，
+# "自由引导"；边界语义由 romance 合规边界锚点承载，不再靠 M10 常驻）。
 # - unsure 入口 = M12 开场事件单问启动（模块清单拓展文档 §3 S0 直落
 #   opening_event）；plot 入口 = 核心抉择（验收 §239 首问）；
 # - romance 入口 = 角色.关键关系（双人关系卡打头，§3.1 矩阵）；
-# - 设定边界（M10）按全局规则 1"永远在场"常驻各型收尾。
+# - 锚点（情感张力/合规边界）逐字保留，不受配方裁剪影响。
 _STORY_RECIPES: dict[str, Recipe] = {
     "plot": Recipe(
         id="plot",
         impulse_type="plot",
-        module_ids=(
-            "剧情", "角色", "历史时间线", "世界本体", "设定边界",
-        ),
+        module_ids=("剧情", "角色"),
         entry_subfield=("剧情", "core_dilemma"),
         anchor=ANCHOR_BY_TYPE["plot"],
     ),
     "unsure": Recipe(
         id="unsure",
         impulse_type="unsure",
-        module_ids=(
-            "剧情", "角色", "历史时间线", "世界本体", "设定边界",
-        ),
+        module_ids=("剧情", "角色"),
         entry_subfield=("剧情", "opening_event"),
         anchor=ANCHOR_BY_TYPE["unsure"],
     ),
     "romance": Recipe(
         id="romance",
         impulse_type="romance",
-        module_ids=(
-            "角色", "IP定位", "剧情", "历史时间线", "视觉设计", "设定边界",
-        ),
+        module_ids=("角色", "剧情"),
         entry_subfield=("角色", "key_relations"),
         anchor=ANCHOR_BY_TYPE["romance"],  # §9 合规边界措辞逐字保留
         # M4b 未决①收口：romance 型 faction_type 留给用户（plan §269 例）。
+        # D19 后 配方内已无 文明与社会 模块，此过滤为无害防御，保留。
         ai_fill_exclude=("文明与社会.faction_type",),
     ),
     "character_driven": Recipe(
         id="character_driven",
         impulse_type="character_driven",
-        module_ids=(
-            "角色", "文明与社会", "剧情", "历史时间线",
-            "世界本体", "力量体系", "设定边界",
-        ),
+        module_ids=("角色", "剧情"),
         entry_subfield=("角色", "identity"),
         anchor=ANCHOR_BY_TYPE["character_driven"],
     ),

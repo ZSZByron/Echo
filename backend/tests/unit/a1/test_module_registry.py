@@ -80,10 +80,8 @@ class TestRegistryShape:
         assert list(RECIPES["default"].module_ids) == module_ids()
 
     def test_story_recipes_are_ordered_subsets_of_pool(self):
-        """M2：故事四型 = M12 剧情 + M11 角色 + 世界建构子集（池内有序子集）。
-
-        矩阵序/子集裁剪细则（DN6 初稿）见 test_story_modules.py。
-        """
+        """M2 → D19：故事四型 = 纯故事模块（剧情+角色，池内有序子集），
+        世界建构模块仅设定线使用（DN6 终审裁决 2026-09-25）。"""
         pool = set(MODULE_POOL)
         for ptype in STORY_TYPES:
             r = RECIPES[ptype]
@@ -91,6 +89,8 @@ class TestRegistryShape:
             assert set(mids) <= pool, f"{ptype} recipe must be a pool subset"
             assert len(mids) == len(set(mids)), f"{ptype} recipe must dedupe"
             assert "剧情" in mids and "角色" in mids, ptype
+            # D19 灵魂契约：故事配方零世界建构模块
+            assert not (set(mids) & set(module_ids())), ptype
 
     def test_recipe_entry_and_anchor(self):
         """M2：故事型入口 = 剧情.核心抉择（plot 验收 §239）/ 开场事件
