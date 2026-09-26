@@ -383,6 +383,8 @@ export function A1Workspace() {
   const [pendingUploadConfirm, setPendingUploadConfirm] = useState<{ prefillCount: number; seedName: string } | null>(null);
   const [uploadHighlight, setUploadHighlight] = useState(false);
   const [entryNotice, setEntryNotice] = useState<string | null>(null);
+  // 重新开始确认弹窗（一键返回冲动入口，清除本地工作区状态）
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const cardShownTsRef = useRef<number | null>(null);
   const firstAnswerLoggedRef = useRef(false);
   const moduleCompletedRef = useRef<Set<string>>(new Set());
@@ -450,6 +452,63 @@ export function A1Workspace() {
     setIpCode(null);
     setWorkspaceState('seed_selector');
     setStaleSessionNotice(true);
+  };
+
+  // 重新开始：清除持久化工作区状态 + 重置全部会话状态，回到冲动卡入口（E0 屏）。
+  // 仅用户显式确认后触发；保留 user_id（身份不属于工作区状态）与埋点历史事件。
+  const handleRestartToEntry = () => {
+    setShowRestartConfirm(false);
+    try {
+      localStorage.removeItem(A1_STORAGE_KEY);
+      localStorage.removeItem('a1_return_intent');
+    } catch { /* localStorage 不可用时忽略，继续走内存态重置 */ }
+    // 打点（v2 schema 容忍任意事件名）：重启回入口
+    logImpulseEvent('restart_to_entry');
+
+    // Session State
+    setSessionId(null);
+    setFileId(null);
+    setIpCode(null);
+    setSeedInfo(null);
+    // Chat State
+    setMessages([]);
+    setFile(null);
+    setProgressSections([]);
+    setFinalizable(false);
+    setIsChatLoading(false);
+    setPendingQuestion(null);
+    setPendingQuestionsCount(0);
+    setOpenQuestions([]);
+    setStaleSessionNotice(false);
+    setPendingProposals([]);
+    // Graph State
+    setGraphCode(null);
+    setFileData(null);
+    // Classification Modal
+    setClassificationProposal(null);
+    setShowClassificationModal(false);
+    // Upload State
+    setIsUploading(false);
+    setUploadError(null);
+    setCopyrightReport(null);
+    setPendingUploadId(null);
+    setUploadedInnovations([]);
+    setIsConverting(false);
+    // Error / Entry State
+    setError(null);
+    setMissingSections(null);
+    setGroupedSeeds(null);
+    setPendingUploadConfirm(null);
+    setUploadHighlight(false);
+    setEntryNotice(null);
+    // 种子列表（seeds）为 API 缓存非用户进度，保留不重置；isLoadingSeeds 同理
+    // Refs: 重置会话期去重/暂存标记（cardShownTsRef 由 impulse_cards 曝光 effect 重写）
+    cardShownTsRef.current = null;
+    firstAnswerLoggedRef.current = false;
+    moduleCompletedRef.current = new Set();
+    pendingImpulseRef.current = null;
+
+    setWorkspaceState('impulse_cards');
   };
 
   // 去回答闭环：回到访谈页时若无 chat 实时 pending_question（null），
@@ -1068,9 +1127,19 @@ export function A1Workspace() {
   const renderSeedSelector = () => (
     <div className="min-h-screen starry-gradient p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="glass-panel p-8 mb-8">
-          <h1 className="text-3xl font-bold text-stardust-300 mb-2 glow-starlight">世界观工坊</h1>
-          <p className="text-void-400">Choose a seed to start your creative journey</p>
+        <div className="glass-panel p-8 mb-8 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-stardust-300 mb-2 glow-starlight">世界观工坊</h1>
+            <p className="text-void-400">Choose a seed to start your creative journey</p>
+          </div>
+          <button
+            onClick={() => setShowRestartConfirm(true)}
+            data-testid="restart-to-entry"
+            aria-haspopup="dialog"
+            className="shrink-0 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-void-400 hover:text-stardust-300 hover:border-stardust-400/40 transition-colors"
+          >
+            ⟲ 重新开始
+          </button>
         </div>
         
         {isLoadingSeeds ? (
@@ -1179,12 +1248,22 @@ export function A1Workspace() {
                   </p>
                 </div>
               </div>
-            <button
-              onClick={() => { localStorage.removeItem(A1_STORAGE_KEY); window.location.href = '/a1'; }}
-              className="text-void-400 hover:text-stardust-300 transition-colors"
-            >
-              ← 返回种子选择
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => { localStorage.removeItem(A1_STORAGE_KEY); window.location.href = '/a1'; }}
+                className="text-void-400 hover:text-stardust-300 transition-colors"
+              >
+                ← 返回种子选择
+              </button>
+              <button
+                onClick={() => setShowRestartConfirm(true)}
+                data-testid="restart-to-entry"
+                aria-haspopup="dialog"
+                className="border border-white/10 rounded-lg px-3 py-1.5 text-sm text-void-400 hover:text-stardust-300 hover:border-stardust-400/40 transition-colors"
+              >
+                ⟲ 重新开始
+              </button>
+            </div>
             </div>
           </div>
           
@@ -1413,6 +1492,14 @@ export function A1Workspace() {
               >
                 查看完整展示板 →
               </button>
+              <button
+                onClick={() => setShowRestartConfirm(true)}
+                data-testid="restart-to-entry"
+                aria-haspopup="dialog"
+                className="border border-white/10 rounded-lg px-3 py-1.5 text-sm text-void-400 hover:text-stardust-300 hover:border-stardust-400/40 transition-colors"
+              >
+                ⟲ 重新开始
+              </button>
             </div>
           </div>
         </div>
@@ -1458,6 +1545,41 @@ export function A1Workspace() {
         <div data-testid="impulse-entry-notice" role="status" className="glass-panel flex items-center justify-between gap-4 px-4 py-3 border border-stardust-400/30">
           <p className="text-stardust-300 text-sm">{entryNotice}</p>
           <button onClick={() => setEntryNotice(null)} className="text-void-400 hover:text-stardust-300 text-sm transition-colors">知道了</button>
+        </div>
+      )}
+      {showRestartConfirm && (
+        <div className="fixed inset-0 bg-space-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-8">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="返回冲动入口？"
+            data-testid="restart-confirm-dialog"
+            className="glass-panel max-w-md w-full p-8"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="text-cosmos-error text-2xl">⟲</div>
+              <h2 className="text-stardust-300 text-xl font-medium">返回冲动入口？</h2>
+            </div>
+            <p className="text-gray-200 text-sm leading-relaxed mb-6">
+              当前创作进度与本地状态将被清除，此操作不可撤销。确定要重新开始吗？
+            </p>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setShowRestartConfirm(false)}
+                data-testid="restart-cancel"
+                className="flex-1 bg-space-700 text-stardust-300 px-6 py-3 rounded-lg font-medium hover:bg-space-600 transition-colors border border-white/10"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleRestartToEntry}
+                data-testid="restart-confirm"
+                className="flex-1 bg-cosmos-error/80 text-white px-6 py-3 rounded-lg font-medium hover:bg-cosmos-error transition-colors"
+              >
+                确认重开
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {workspaceState === 'impulse_cards' && (

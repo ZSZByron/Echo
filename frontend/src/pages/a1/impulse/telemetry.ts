@@ -16,7 +16,8 @@ export type ImpulseTelemetryEventName =
   | 'impulse_card_selected' // 选中冲动 { primary, secondary: string | null }
   | 'impulse_card_skipped' // 跳过冲动（R1 对照组 + 冲动"流失率"指标）
   | 'first_question_answered' // 首问回答 { elapsed_ms }（R1：卡片冲动 vs 自然发问）
-  | 'module_completed'; // 模块完成 { module_id }（能力地图关键节点模块）
+  | 'module_completed' // 模块完成 { module_id }（能力地图关键节点模块）
+  | 'restart_to_entry'; // 重新开始：用户确认后清除本地工作区状态回到冲动入口
 
 export interface ImpulseTelemetryEvent {
   schema_version: 1 | 2; // v2 = M4c（三项指标升级）；读取端版本容忍（v1 存量照常解析）
