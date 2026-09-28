@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from app.ai.provider import LLMProvider
+from app.domains.creation.a1 import graph_digest  # T14: 模块引用（测试可 patch）
 from app.domains.creation.a1.interaction_log import log_event, truncate
 from app.domains.creation.seed.a1_question_tree import (
     all_subfield_keys,
@@ -405,6 +406,10 @@ class RealLLMInterviewer:
             if sketch and module.get("id") == "角色"
             else []
         )
+        graph_lines = graph_digest.graph_digest_block(
+            graph_digest.lookup_graph_json(session),
+            invited=list(getattr(session, "worldview_invites", []) or []),
+        )
         return "\n".join(
             [
                 "你是TRPG世界观设计的访谈引导者，正在引导用户构建世界观设定。",
@@ -421,6 +426,10 @@ class RealLLMInterviewer:
                 "",
                 "【用户已确定的内容】",
                 _answers_digest(answers),
+                # T14/DN5（D20 注入模式）：定稿图谱摘要只读注入——纯代码
+                # 确定性装配（零 LLM）；无图时为空列表，prompt 与基线逐字节
+                # 一致（零回归）。键域契约：块内无裸 {模块id}. 形态。
+                *graph_lines,
                 "",
                 "【你的任务】",
                 "1. 理解用户输入。它可能直接回答当前问题，也可能一口气包含多个字段的设定信息"

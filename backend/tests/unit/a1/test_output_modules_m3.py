@@ -472,7 +472,8 @@ class TestMainModuleDocument:
 
 class TestRegistryOutputModules:
     def test_eight_output_modules_in_pool(self):
-        """§96 逐字锁定：L2×5 + L3×3 = 8 件产出模块全量入池。"""
+        """§96 逐字锁定：L2×5 + L3×3 = 8 件产出模块全量入池
+        （+ D22 三件 = 11）。"""
         expected = (
             "主模组文字版", "骰子投影", "角色投影",
             "玩法设计完整形态", "商业分析报告",
@@ -482,12 +483,17 @@ class TestRegistryOutputModules:
         for mid in expected:
             assert mid in MODULE_POOL, mid
             assert MODULE_POOL[mid].family == "output"
+        for mid in ("world_bible", "character_codex", "story_outline"):
+            assert mid in MODULE_POOL, mid
+            assert MODULE_POOL[mid].family == "output"
 
     def test_output_module_ids_order_locked(self):
         assert OUTPUT_MODULE_IDS == (
             "主模组文字版", "骰子投影", "角色投影",
             "玩法设计完整形态", "商业分析报告",
             "场景扩写", "资产管线", "叙事渲染",
+            # D22 追加三件（清单序锁定）
+            "world_bible", "character_codex", "story_outline",
         )
 
     def test_all_output_modules_signal_requirements_valid(self):
@@ -524,3 +530,83 @@ class TestRegistryOutputModules:
     def test_output_modules_have_no_questionnaire_fields(self):
         for mid in ("主模组文字版", "骰子投影", "角色投影"):
             assert MODULE_POOL[mid].fields == []
+
+
+# ---------------------------------------------------------------------------
+# 6. D22 产出池注册：世界圣经 / 人物志 / 故事大纲（全 optional 档）
+# ---------------------------------------------------------------------------
+
+D22_IDS = ("world_bible", "character_codex", "story_outline")
+
+
+class TestD22PoolRegistration:
+    def test_three_ids_in_closed_set(self):
+        """D22 三件入 OUTPUT_MODULE_IDS 闭集（追加在 8 件之后）。"""
+        from app.domains.creation.modules.output_modules import (
+            OUTPUT_MODULE_IDS,
+        )
+        for mid in D22_IDS:
+            assert mid in OUTPUT_MODULE_IDS, mid
+
+    def test_all_d22_signal_requirements_optional(self):
+        """D22 权威：signal_requirements 全 optional 档（薄图谱照出、
+        缺料缺省 + ledger 披露、不 409）。零 required / hard。"""
+        from app.domains.creation.modules.output_modules import (
+            get_output_module,
+        )
+        for mid in D22_IDS:
+            m = get_output_module(mid)
+            assert m is not None, mid
+            assert m["signal_requirements"], mid
+            assert all(v == "optional"
+                       for v in m["signal_requirements"].values()), mid
+
+    def test_d22_zero_required_or_hard_occurrences(self):
+        """字面断言：三件条目序列化后不出现 required/hard 字样。"""
+        import json
+
+        from app.domains.creation.modules.output_modules import (
+            get_output_module,
+        )
+        for mid in D22_IDS:
+            blob = json.dumps(get_output_module(mid), ensure_ascii=False)
+            assert "required" not in blob, mid
+            assert '"hard"' not in blob, mid
+
+    def test_d22_in_module_pool_family_output(self):
+        """MODULE_POOL 查得三件：family="output"、tier 经 TIER_MAP 入池。"""
+        for mid in D22_IDS:
+            assert mid in MODULE_POOL, mid
+            assert MODULE_POOL[mid].family == "output", mid
+            assert MODULE_POOL[mid].fields == [], mid
+            assert 0 <= MODULE_POOL[mid].tier <= 6, mid
+
+    def test_d22_signal_key_domains(self):
+        """信号键域锁定：世界圣经=设定模块键；人物志=角色.*；
+        故事大纲=剧情.*（M11/M12 字段）。"""
+        from app.domains.creation.modules.output_modules import (
+            get_output_module,
+        )
+        bible = set(get_output_module("world_bible")["signal_requirements"])
+        assert "世界本体.reality_rule" in bible
+        assert "文明与社会.faction_type" in bible
+        assert "历史时间线.main_plot" in bible
+        assert "地理空间.terrain" in bible
+        assert "力量体系.cost" in bible
+        assert "设定边界.immutable_core" in bible
+        codex = set(
+            get_output_module("character_codex")["signal_requirements"])
+        for key in ("角色.identity", "角色.desire",
+                    "角色.key_relations", "角色.arc_direction"):
+            assert key in codex, key
+        outline = set(
+            get_output_module("story_outline")["signal_requirements"])
+        for key in ("剧情.opening_event", "剧情.core_dilemma",
+                    "剧情.branch_trees", "剧情.lead_chain",
+                    "剧情.secret_layer", "剧情.tension_hole"):
+            assert key in outline, key
+
+    def test_d22_never_in_recipes(self):
+        """产出模块不入任何配方（终局生产者，先例延续）。"""
+        for recipe in RECIPES.values():
+            assert not set(recipe.module_ids) & set(D22_IDS), recipe.id

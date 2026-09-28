@@ -24,6 +24,8 @@ from app.ai.visual_bg import run_visual_bg_pipeline
 from app.config.paths import ASSETS_DIR
 from app.domains.creation.a1.guide_engine import (
     A1Session,
+    apply_recipe_switch,
+    core_recipe_modules,
     handle_message,
     progress,
     sync_position,
@@ -110,6 +112,18 @@ from app.domains.creation.modules.dice_projector import (
 from app.domains.creation.modules.main_module import (
     compile_document,
     render_markdown,
+)
+from app.domains.creation.modules.character_codex import (
+    compile_codex,
+    render_markdown as _render_codex_md,
+)
+from app.domains.creation.modules.story_outline import (
+    compile_outline,
+    render_markdown as _render_outline_md,
+)
+from app.domains.creation.modules.world_bible import (
+    compile_world_bible,
+    render_markdown as _render_bible_md,
 )
 from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import (
@@ -674,6 +688,14 @@ def start_session(req: StartRequest) -> dict:
     session.recipe_modules = (
         [] if recipe_id == "default" else list(RECIPES[recipe_id].module_ids)
     )
+    # D21⑦ 主∪次联合边界（spec §5.4 L67）：主+次双有效时，次配方独有
+    # 模块按次序追加在主序之后（重叠模块只计一次，归属主配方规则——
+    # 主序为基、recipe_id 仍随主）。仅主冲动 / 次无效 / default → 不进
+    # 此分支，行为与既有实现逐字节一致（零回归铁律）。
+    if recipe_id != "default" and session.creator_secondary:
+        for mid in RECIPES[resolve_recipe_id(session.creator_secondary)].module_ids:
+            if mid not in session.recipe_modules:
+                session.recipe_modules.append(mid)
 
     sync_position(session)
 
@@ -1047,6 +1069,49 @@ def get_impulse_coords(file_id: str) -> dict:
     return {"file_id": file_id, "session_id": session.session_id, **data}
 
 
+class RecipeSwitchRequest(BaseModel):
+    """D21⑦ 主次配方切换请求：target = 本会话主/次冲动类型之一。"""
+
+    target: str
+
+
+@router.post("/api/a1/file/{file_id}/recipe-switch")
+def recipe_switch(file_id: str, req: RecipeSwitchRequest) -> dict:
+    """D21⑦ 主次配方结合切换（spec §5.4 L67）：联合边界内未访序调整。
+
+    切换 = 只重排 ``session.recipe_modules``（主∪次联合边界），已访进度
+    保留不重问（sync_position 依 answers 跳过），未访模块按 target 配方
+    前移（R6 forward-only，绝不跳过）；invited_modules 不清零不重置
+    （D20 契约）。选择端点而非聊天内信号：控制流动作在既有架构中一律
+    显式端点（finalize/confirm 先例），LLM 不进控制流（铁律）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    if req.target not in (session.creator_primary, session.creator_secondary):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "target must be the session's primary or secondary "
+                "impulse type"
+            ),
+        )
+    applied = apply_recipe_switch(session, req.target)
+    if not applied:
+        raise HTTPException(
+            status_code=409,
+            detail="no active recipe boundary to switch (default session)",
+        )
+    log_event(session.session_id, "recipe_switch", target=applied)
+    _save_store()
+    return {
+        "file_id": file_id,
+        "session_id": session.session_id,
+        "applied": applied,
+        "recipe_modules": list(session.recipe_modules),
+        "first_question": _question_payload(session),
+    }
+
+
 @router.get("/api/a1/file/{file_id}/live-projection")
 def get_live_projection(file_id: str) -> dict:
     """半成品背景树 L0-L2 投影（零 LLM，确定性快照——plan §271）。
@@ -1058,22 +1123,6 @@ def get_live_projection(file_id: str) -> dict:
     session = _session_for_file_or_404(file_id)
     from app.domains.creation.a1.live_projection import project_live
     return project_live(session)
-
-
-@router.get("/api/a1/file/{file_id}/persona-card")
-def get_persona_card(file_id: str) -> dict:
-    """人格卡只读投影（M4c，零 LLM 确定性渲染）。
-
-    命名（未决③占位）+ 视觉 + 一句话解读；数据源 = creator_profile +
-    impulse_coords（只看不判，绝不回流路由）。存量会话惰性初始化坐标
-    （确定性查表，与 impulse-coords 端点同款惯例）。
-    """
-    _load_once()
-    session = _session_for_file_or_404(file_id)
-    from app.domains.creation.a1.persona_card import render_persona_card
-    card = render_persona_card(session)
-    _save_store()
-    return {"file_id": file_id, "session_id": session.session_id, **card}
 
 
 def _recipe_module_ids(session: A1Session) -> list[str]:
@@ -1277,8 +1326,10 @@ def finalize(file_id: str) -> dict:
     # Finalize gate (M1 DN1 subset semantics): every module *in the
     # session's recipe* must have STRICTLY more than 50% of its subfields
     # answered; out-of-recipe modules = 不适用 (never listed).
+    # D20 门禁零强制：invited 模块不进 missing_sections（机会性增益不阻塞
+    # 定稿）；core_recipe_modules 对存量/default 会话退化为原 walk。
     missing = [
-        mid for mid in _recipe_module_ids(session)
+        mid for mid in core_recipe_modules(session)
         if not is_module_over_half(mid, session.answers)
     ]
     if missing:
@@ -2455,3 +2506,172 @@ def generate_character_template(file_id: str) -> dict:
     _save_store()
     return {"graph_code": code, "template": dump, "used_stale": stale,
             "warnings": template.warnings}
+
+
+# ---------------------------------------------------------------------------
+# D22 产出三对端点（八步范式逐件照 doc 端点：校验→stale 留痕→provider 注入
+# 失败降级 None→发号→注册→渲染器 compile→md/json 双序列化→additive 持久化）。
+# D22 全 optional：三件 finalize 后皆可产，零 LLM key 免费线照常出骨架，
+# 缺料/降级诚实披露进 ledger，永不 409（stale 同 M3 惯例只留痕）。
+# ---------------------------------------------------------------------------
+
+
+def _d22_provider() -> Any:
+    """Provider 注入（与 finalize/doc 同范式）；失败降级 None → 确定性骨架。"""
+    try:
+        return create_provider(load_provider_config())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _d22_stale_and_code(
+    rec: dict, session: Any, stage: str,
+) -> tuple[Any, str, bool]:
+    """stale 检测留痕 + 发号 + registry 注册（doc 端点 Step2-6 逐件复刻）。"""
+    registry_db = _registry_db()
+    stale_marker.ensure_registry(registry_db)
+    stale = _graph_is_stale(session.user_id, rec["graph_code"])
+    if stale:
+        stale_marker.record_stale_usage(registry_db, rec["graph_code"])
+
+    issuer = GraphCodeIssuer(_ISSUER_DB)
+    code = issuer.next(session.user_id, ip=rec["ip"], stage=stage)
+    instance_no = int(code.split("-")[1][1:])
+    version = int(code.rsplit("-v", 1)[1])
+    graph_id = stale_marker.register_graph(
+        registry_db, session.user_id, code, stage,
+        instance_no, version, scene_id=session.session_id,
+        display_name=session.ip_code, parent_graph_code=rec["graph_code"],
+    )
+    return graph_id, code, stale
+
+
+def _d22_store_and_respond(
+    rec: dict, key: str, code_key: str, code: str, graph_id: Any,
+    stale: bool, doc: Any, doc_md: str, output_ledger: list[dict[str, Any]],
+) -> dict:
+    """additive 键持久化 + 响应（doc 端点 Step7-8 同构）。"""
+    doc_json = doc.model_dump(mode="json")
+    rec[key] = {
+        "graph_id": graph_id, f"{code_key[:-5]}_code": code,
+        "doc_json": doc_json, "doc_md": doc_md,
+        "warnings": output_ledger, "used_stale": stale,
+    }
+    _save_store()
+    return {
+        code_key: code, "graph_id": graph_id, "used_stale": stale,
+        "ledger": list(rec.get("warnings", [])) + output_ledger,
+    }
+
+
+@router.post("/api/a1/file/{file_id}/world-bible")
+def generate_world_bible(file_id: str) -> dict:
+    """世界圣经（B）finalize 八步：校验→stale 留痕→provider→发号→注册
+    →compile_world_bible→双序列化→additive 持久化（D22①）。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+    graph_id, code, stale = _d22_stale_and_code(rec, session, "B")
+
+    ip_name = session.ip_code or session.seed_name or "未命名世界"
+    doc, output_ledger = compile_world_bible(
+        session.answers,
+        title=f"{ip_name}：世界圣经",
+        ip_name=ip_name,
+        graph_code=code,
+        upstream_graph_code=rec["graph_code"],
+        provider=_d22_provider(),
+        used_stale=stale,
+        upstream_ledger=rec.get("warnings", []),
+    )
+    return _d22_store_and_respond(
+        rec, "world_bible", "bible_code", code, graph_id, stale,
+        doc, _render_bible_md(doc), output_ledger,
+    )
+
+
+@router.get("/api/a1/file/{file_id}/world-bible")
+def get_world_bible(file_id: str, format: str = "md") -> Any:
+    rec = _get_file(file_id)
+    stored = rec.get("world_bible")
+    if not stored:
+        raise HTTPException(status_code=409, detail="pending_finalize")
+    if format == "json":
+        return stored["doc_json"]
+    return PlainTextResponse(
+        stored["doc_md"], media_type="text/markdown; charset=utf-8")
+
+
+@router.post("/api/a1/file/{file_id}/character-codex")
+def generate_character_codex(file_id: str) -> dict:
+    """人物志（C）finalize 八步：校验→stale 留痕→provider→发号→注册
+    →compile_codex→双序列化→additive 持久化（D22①）。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+    graph_id, code, stale = _d22_stale_and_code(rec, session, "C")
+
+    ip_name = session.ip_code or session.seed_name or "未命名世界"
+    doc, output_ledger = compile_codex(
+        session.answers,
+        character_name=ip_name,
+        graph_code=code,
+        upstream_graph_code=rec["graph_code"],
+        provider=_d22_provider(),
+        used_stale=stale,
+        upstream_ledger=rec.get("warnings", []),
+    )
+    return _d22_store_and_respond(
+        rec, "character_codex", "codex_code", code, graph_id, stale,
+        doc, _render_codex_md(doc), output_ledger,
+    )
+
+
+@router.get("/api/a1/file/{file_id}/character-codex")
+def get_character_codex(file_id: str, format: str = "md") -> Any:
+    rec = _get_file(file_id)
+    stored = rec.get("character_codex")
+    if not stored:
+        raise HTTPException(status_code=409, detail="pending_finalize")
+    if format == "json":
+        return stored["doc_json"]
+    return PlainTextResponse(
+        stored["doc_md"], media_type="text/markdown; charset=utf-8")
+
+
+@router.post("/api/a1/file/{file_id}/story-outline")
+def generate_story_outline(file_id: str) -> dict:
+    """故事大纲（O）finalize 八步：校验→stale 留痕→provider→发号→注册
+    →compile_outline→双序列化→additive 持久化（D22①）。"""
+    rec = _get_file(file_id)
+    session = _SESSIONS[rec["session_id"]]
+    _require_finalized(rec)
+    graph_id, code, stale = _d22_stale_and_code(rec, session, "O")
+
+    ip_name = session.ip_code or session.seed_name or "未命名世界"
+    doc, output_ledger = compile_outline(
+        session.answers,
+        title=f"{ip_name}：故事大纲",
+        ip_name=ip_name,
+        graph_code=code,
+        upstream_graph_code=rec["graph_code"],
+        provider=_d22_provider(),
+        used_stale=stale,
+        upstream_ledger=rec.get("warnings", []),
+    )
+    return _d22_store_and_respond(
+        rec, "story_outline", "outline_code", code, graph_id, stale,
+        doc, _render_outline_md(doc), output_ledger,
+    )
+
+
+@router.get("/api/a1/file/{file_id}/story-outline")
+def get_story_outline(file_id: str, format: str = "md") -> Any:
+    rec = _get_file(file_id)
+    stored = rec.get("story_outline")
+    if not stored:
+        raise HTTPException(status_code=409, detail="pending_finalize")
+    if format == "json":
+        return stored["doc_json"]
+    return PlainTextResponse(
+        stored["doc_md"], media_type="text/markdown; charset=utf-8")

@@ -21,6 +21,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domains.creation.a1 import draft_version
+from app.domains.creation.a1 import graph_digest
 from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.interviewer import (
     Interviewer,
@@ -149,6 +151,34 @@ def _type_ordered_modules(session: A1Session) -> list[str]:
     return _session_recipe_modules(session)
 
 
+def apply_recipe_switch(session: A1Session, target_impulse: str) -> str:
+    """D21⑦ 主次配方结合切换：联合边界内未访序调整（spec §5.4 L67）。
+
+    - 边界不变：只重排 ``session.recipe_modules``（主∪次联合边界），
+      不增不删（R6 forward-only）——已答字段被 ``sync_position`` 依
+      answers 跳过，已访进度保留不重问；未访模块按 target 配方前移。
+    - 新序 = target 配方 module_ids（∩联合边界）+ 其余模块按原序
+      （invited_modules 天然留在"其余"段——D20 契约：切换不清零受邀
+      模块、不重置其进度）。
+    - target 闭集校验：仅接受本会话 creator_primary / creator_secondary；
+      default/存量会话（recipe_modules 空）→ no-op。
+    返回实际生效的 target impulse id（no-op 时返回 ""，调用方定 4xx）。
+    """
+    joint = list(session.recipe_modules)
+    if not joint:
+        return ""
+    if target_impulse not in (session.creator_primary, session.creator_secondary):
+        return ""
+    recipe = RECIPES.get(resolve_recipe_id(target_impulse))
+    if recipe is None:
+        return ""
+    head = [mid for mid in recipe.module_ids if mid in joint]
+    rest = [mid for mid in joint if mid not in recipe.module_ids]
+    session.recipe_modules = head + rest
+    sync_position(session)
+    return target_impulse
+
+
 def _initial_subfield() -> str:
     """Return the id of the first subfield of the first module."""
     m = first_module()
@@ -230,6 +260,27 @@ class A1Session(BaseModel):
     # default [] 零迁移（G3）。invited 是机会性增益：不进定稿门禁（零强制），
     # 每会话 ≤4，插入点 = 当前模块之后（语境相邻）。
     invited_modules: list[str] = Field(default_factory=list)
+    # D21 收尾三连问状态机（closing_flow.py，spec v1.3 §5.4）。
+    # closing_step: 0=未触发; 1..3=当前待答问题序号; settled 后归零。
+    # closing_settled: 三问全部落定（永不重触发）。closing_answers:
+    # q1/q2/q3 → 语义答案（generate_doc/continue/ai_fill_yes/...）。
+    # resume_later: 「改天继续」同会话持久化标记（D21⑨，不建新会话）。
+    # default 零迁移（G3 先例——存量会话 model_validate 直通）。
+    closing_step: int = 0
+    closing_settled: bool = False
+    closing_answers: dict[str, str] = Field(default_factory=dict)
+    resume_later: bool = False
+    # T16 对齐四动作提案池（alignment_flow.py，D21⑬）：additive 独立容器
+    # （照 pending_proposals 惯例但键独立，勿混用；default {} 零迁移 G3）。
+    # LLM 只提议（确定性校验器单点过滤）；应用 = 确定性代码，LLM 绝不直写。
+    pending_alignments: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # T15（D15③/D21⑬）：会话态草稿版本递进（α 体系）状态槽。结构见
+    # a1.draft_version.new_draft_state()——纯内存 dict（baseline/round/
+    # step），default 零迁移（G3 先例）。**硬红线：α 绝不进持久层**，
+    # graph_code_issuer 整型 vN 发号机制零改动。
+    draft_alpha: dict[str, int] = Field(
+        default_factory=lambda: draft_version.new_draft_state()
+    )
 
 
 def first_question() -> dict[str, Any]:
@@ -948,6 +999,10 @@ def _handle_message_impl(
     - phase 'completed' no longer blocks chat: the user may keep
       refining answers (fills overwrite) until they finalize.
     """
+    # T17 同帧定序锚点：模块边界（深对齐）与 provider（轻量检测守门）。
+    pre_module = session.current_module
+    provider = getattr(interviewer, "_provider", None)
+
     if session.phase == PHASE_COMPLETED:
         # Completed tree: keep the conversation open for refinement.
         # Falls through to the interviewer below — same routing rules.
@@ -1103,6 +1158,11 @@ def _handle_message_impl(
         _invited = _apply_worldview_invites(session, result.worldview_invites)
         if _invited:
             out_fills["reply"] += _invite_notice(_invited)
+        # D21 收尾三连问（T10）+ T17 对齐触发：轮末同帧定序
+        # （先对齐后收尾，ROUND_SIGNAL_ORDER；pending 时收尾延后）。
+        out_fills = _round_end_signals(
+            session, text, out_fills, provider, pre_module=pre_module
+        )
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
@@ -1119,7 +1179,116 @@ def _handle_message_impl(
     _invited = _apply_worldview_invites(session, result.worldview_invites)
     if _invited:
         out["reply"] += _invite_notice(_invited)
+    # D21 收尾三连问（T10）+ T17 对齐触发：同上（同帧定序）。
+    out = _round_end_signals(
+        session, text, out, provider, pre_module=pre_module
+    )
     return out
+
+
+# ---------------------------------------------------------------------------
+# T17 对齐触发时机 + 同帧定序（问题说明书 L185 触发双档；先对齐后收尾）
+# ---------------------------------------------------------------------------
+
+#: 同帧多信号定序规则（显式常量——代码可读出「先对齐后收尾」）：
+#: 对齐提案（pending_alignments 非空）时收尾提示延后至全部 resolve；
+#: D20 接缝语义保持（受邀问题不阻塞收尾——延后只由 pending 对齐触发）。
+ROUND_SIGNAL_ORDER: tuple[str, str] = ("alignment", "closing")
+
+
+def alignment_hit_terms(
+    user_input: str, graph: dict[str, Any] | None
+) -> list[str]:
+    """轻量命中检测（纯代码零 LLM）：用户新输入与图谱实体词的确定性交集。
+
+    实体词 = 图谱节点标题（与 T14 ``build_graph_digest`` 同源的节点数据、
+    同口径——绝不渲染裸节点 id）。空图 / 空输入 → 空交集（不触发）。
+    """
+    if not isinstance(graph, dict) or not user_input.strip():
+        return []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, dict):
+        return []
+    terms: set[str] = set()
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        title = str(node.get("title") or "").strip()
+        if len(title) >= 2 and title in user_input:
+            terms.add(title)
+    return sorted(terms)
+
+
+def alignment_light_hit(
+    user_input: str, graph: dict[str, Any] | None
+) -> bool:
+    """轻量档命中布尔判定（每轮检测零 LLM，命中才进 LLM 提议）。"""
+    return bool(alignment_hit_terms(user_input, graph))
+
+
+def _alignment_notice(session: A1Session) -> str:
+    """提案池的用户可见披露（render_proposal 说人话，键域消毒兜底）。"""
+    from app.domains.creation.a1.alignment_flow import render_proposal
+
+    graph = graph_digest.lookup_graph_json(session)
+    lines = [
+        render_proposal(entry["proposal"], graph)
+        for entry in session.pending_alignments.values()
+    ]
+    return "\n【设定对齐建议（待你确认）】\n" + "\n".join(lines)
+
+
+def _maybe_propose_alignment(
+    session: A1Session, text: str, provider: Any, *, pre_module: str
+) -> None:
+    """对齐触发双档（同帧信号 1，先于收尾执行）。
+
+    - 轻量档：每轮确定性关键词/实体命中（``alignment_light_hit``，
+      零 LLM 检测）→ 命中才调 ``AlignmentProposer.propose``（单次
+      chat_json，T16 提议流程）。
+    - 深档：模块完成边界（``sync_position`` 跨模块，current_module !=
+      pre_module）→ 无条件深对齐提议（消费 T14 图谱摘要）。
+    - 守门：无 provider / 已有 pending（不做多轮对齐嵌套）→ 零 LLM。
+    """
+    if provider is None or session.pending_alignments:
+        return
+    graph = graph_digest.lookup_graph_json(session)
+    deep = session.current_module != pre_module
+    hit = alignment_light_hit(text, graph)
+    if not (deep or hit):
+        return  # 每轮 LLM 调用 = 0（计数断言锚点）
+    from app.domains.creation.a1.alignment_flow import (
+        AlignmentProposer,
+        install_proposals,
+    )
+
+    pack = AlignmentProposer(provider).propose(graph, text)
+    if pack.proposals:
+        install_proposals(session, pack.proposals)
+
+
+def _round_end_signals(
+    session: A1Session,
+    text: str,
+    out: dict[str, Any],
+    provider: Any,
+    *,
+    pre_module: str,
+) -> dict[str, Any]:
+    """轮末同帧定序（``ROUND_SIGNAL_ORDER``）：先对齐，后收尾。
+
+    - 信号 1 对齐：``_maybe_propose_alignment``（命中/边界 → 提案装包）。
+    - 信号 2 收尾：pending_alignments 非空 → 收尾提示延后至 resolve
+      （resolve_proposal 先例：提案保留、新消息照常处理，无死锁）；
+      为空 → closing_flow.interject 原样接线（T10 已绿行为逐字节保持）。
+    """
+    _maybe_propose_alignment(session, text, provider, pre_module=pre_module)
+    if session.pending_alignments:
+        out["reply"] = out.get("reply", "") + _alignment_notice(session)
+        return out
+    from app.domains.creation.a1.closing_flow import interject as _closing_hook
+
+    return _closing_hook(session, text, out)
 
 
 def progress(session: A1Session) -> dict[str, Any]:

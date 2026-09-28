@@ -92,6 +92,10 @@ class ModuleDocument(BaseModel):
     upstream_graph_code: str
     generated_at: str = ""
     used_stale: bool = False
+    # D21⑬/T15：可选 α 版本可见标记（会话态草稿期 = "α0.1" 等，见
+    # a1.draft_version）。定稿/存量产物为 None（默认缺省，零迁移）——
+    # 纯展示标记，α 绝不进持久层（graph_code 仍为整型 vN）。
+    version_label: str | None = None
     upstream_ledger: list[dict[str, Any]] = Field(default_factory=list)
 
 

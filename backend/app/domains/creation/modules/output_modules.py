@@ -135,6 +135,51 @@ OUTPUT_MODULES: list[OutputModuleDef] = [
             "场景扩写": "optional",
         },
     },
+    # ---------------------------------------------------------------------------
+    # D22 产出池注册三件（2026-09-28）：全 optional 档——薄图谱照出、
+    # 缺料缺省 + ledger 披露、不 409（docs/decision-log.md D22；
+    # plan「功能分级与成本基线」§36）。入池消费方：T11-13 渲染 / T18 端点。
+    # ---------------------------------------------------------------------------
+    {
+        # 世界圣经：设定模块信号全景，缺任一维度走该维度保守缺省 + 披露
+        "id": "world_bible",
+        "label": "世界圣经",
+        "signal_requirements": {
+            "世界本体.reality_rule": "optional",
+            "世界本体.core_conflict": "optional",
+            "文明与社会.faction_type": "optional",
+            "历史时间线.main_plot": "optional",
+            "地理空间.terrain": "optional",
+            "力量体系.cost": "optional",
+            "力量体系.acquire": "optional",
+            "设定边界.immutable_core": "optional",
+        },
+    },
+    {
+        # 人物志：M11 角色模块字段投影，缺省 = 该角色维度留白 + 披露
+        "id": "character_codex",
+        "label": "人物志",
+        "signal_requirements": {
+            "角色.identity": "optional",
+            "角色.desire": "optional",
+            "角色.key_relations": "optional",
+            "角色.arc_direction": "optional",
+            "世界本体.reality_rule": "optional",
+        },
+    },
+    {
+        # 故事大纲：M12 剧情模块字段投影，缺省 = 该剧情层留白 + 披露
+        "id": "story_outline",
+        "label": "故事大纲",
+        "signal_requirements": {
+            "剧情.opening_event": "optional",
+            "剧情.core_dilemma": "optional",
+            "剧情.branch_trees": "optional",
+            "剧情.lead_chain": "optional",
+            "剧情.secret_layer": "optional",
+            "剧情.tension_hole": "optional",
+        },
+    },
 ]
 
 #: 产出模块 id 闭集（清单序锁定，plan §96 L2 序）。
