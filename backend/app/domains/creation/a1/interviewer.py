@@ -81,6 +81,11 @@ class InterviewResult(BaseModel):
     # M0 止血：叙事素材归档槽——故事型会话中用户输入的人物/场景/情节片段
     # （无可映射世界建构子字段语义）→ 原文要点提取，不生成 fills/提案。
     story_material: str | None = None
+    # D20 动态模块调用（2026-09-25 产品方裁决）——LLM 提议通道：
+    # 用户本轮输入提及世界建构设定内容 → 建议调用的模块 id 列表。
+    # **仅提议，不写状态**：确定性校验（闭集/去重/上限/插入点）在
+    # guide_engine 单消费侧（D-A2-4 铁律）。可选键向前兼容（G6b 先例）。
+    worldview_invites: list[str] = Field(default_factory=list)
 
 
 class Interviewer(Protocol):
@@ -114,6 +119,7 @@ class FakeInterviewer:
         open_question_answered: dict | None = None,
         deflect: bool = False,
         story_material: str | None = None,
+        worldview_invites: list[str] | None = None,
     ) -> None:
         self.fills = fills or []
         self.guidance_reply = guidance_reply
@@ -126,6 +132,7 @@ class FakeInterviewer:
         self._open_question_answered = open_question_answered
         self._deflect = deflect
         self._story_material = story_material
+        self._worldview_invites = worldview_invites or []
         self._pending_open_question: dict | None = None
         self.calls = 0
         self.suggest_calls = 0
@@ -154,6 +161,7 @@ class FakeInterviewer:
             open_question_answered=self._open_question_answered,
             deflect=self._deflect,
             story_material=self._story_material,
+            worldview_invites=list(self._worldview_invites),
         )
 
     def suggest_examples(
@@ -180,6 +188,23 @@ class FakeInterviewer:
 # ---------------------------------------------------------------------------
 # Real LLM implementation
 # ---------------------------------------------------------------------------
+
+
+# D20 动态模块调用：世界建构模块域描述符（prompt 语义目录，逐模块一行）。
+# 数据目录（R2：差异是数据不是代码）；id 闭集由 guide_engine 的
+# WORLDVIEW_MODULE_IDS（MODULE_POOL family="worldview"）确定性锁定。
+WORLDVIEW_DOMAIN_CATALOG: dict[str, str] = {
+    "力量体系": "魔法/力量/超自然能力规则",
+    "地理空间": "地理/区域/地图/空间格局",
+    "文明与社会": "阵营/势力/社会结构/核心价值",
+    "历史时间线": "历史/纪元/大事记/时间跨度",
+    "世界本体": "世界的本质/基本法则/真实性规则",
+    "视觉设计": "视觉风格/美术基调/建筑材质",
+    "IP定位": "IP 定位/受众/商业化方向",
+    "玩法设计DNA": "玩法机制/玩家角色/核心行动",
+    "骰子设定": "骰子/概率/检定/成功机制",
+    "设定边界": "不可动设定/禁忌/边界",
+}
 
 
 def _progress_summary(
@@ -428,7 +453,7 @@ class RealLLMInterviewer:
                 "重叠（用实例冒充类型）的情况。若存在冲突，该 fill 必须标记 "
                 "conflict_note 字段（用世界观语言描述冲突原因），value 仍按用户原意提取。",
                 "",
-                "【不可动清单】（设定边界.不可变集中的锚点，绝对不可覆盖）",
+                "【不可动清单】（「设定边界」模块中不可变集的锚点，绝对不可覆盖）",
                 _immutable_block(answers),
                 "",
                 "3.6 红线记忆：与【不可动清单】中任何一条冲突的内容，拒绝提取到 fills，"
@@ -453,6 +478,21 @@ class RealLLMInterviewer:
                 "置 deflect=true，fills 必须留空（一条也不生成）；guidance_reply 先"
                 "共情确认用户的选择，再用一句话自然引向下一个话题（贴合语气锚点基调，"
                 "不纠缠当前问题）。",
+                # D20 动态模块调用（2026-09-25 产品方裁决）：世界建构域目录 +
+                # 提议指令（无侵入数据注入——目录只描述领域，不改变可填清单）
+                "7.6 动态模块调用：用户在对话中**提及**某领域世界观设定内容时"
+                "（不是顺带出现的单个词，而是表达了该领域的设定内容），对照"
+                "【世界建构模块域目录】把对应模块 id 写入 worldview_invites "
+                "数组（可多个；本轮无提及则留空数组）：",
+                "【世界建构模块域目录】",
+                *[
+                    f"　　{mid}：{desc}"
+                    for mid, desc in WORLDVIEW_DOMAIN_CATALOG.items()
+                ],
+                "　　注意：这是提议信号，由系统确定性校验后才生效；你不得在 "
+                "guidance_reply 中承诺加入任何模块，也不得因此改变 fills 行为。",
+                "　　契约说明：worldview_invites 为新增可选键，旧解析器忽略未知"
+                "键，向前兼容（G6b/M0 偏转先例，D20）。",
                 "8. guidance_reply（中文，总共不超过三句话）：先用一句话确认已记录的"
                 "设定——引用用户输入中的具体关键词，给出有内容的确认而非套话；"
                 "再用一句话衔接收尾即可。**问句单源铁律：guidance_reply 中严禁出现任何"
@@ -482,7 +522,8 @@ class RealLLMInterviewer:
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
                 ' "user_confused": false, "search_query": null, "divergent_question": null,',
-                ' "deflect": false, "story_material": null, "open_question_answered": null}',
+                ' "deflect": false, "story_material": null, "open_question_answered": null,',
+                ' "worldview_invites": []}',
             ]
         )
 
@@ -724,6 +765,15 @@ class RealLLMInterviewer:
             else None
         )
 
+        # D20：worldview_invites 解析（仅提取字符串候选；闭集/去重/上限等
+        # 确定性校验在 guide_engine 消费侧——LLM 不进控制流）。
+        invites_raw = raw.get("worldview_invites")
+        worldview_invites = (
+            [s.strip() for s in invites_raw if isinstance(s, str) and s.strip()]
+            if isinstance(invites_raw, list)
+            else []
+        )
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -737,6 +787,7 @@ class RealLLMInterviewer:
             open_question_answered=open_question_answered,
             deflect=deflect,
             story_material=story_material,
+            worldview_invites=worldview_invites,
         )
 
 

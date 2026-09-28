@@ -30,6 +30,7 @@ from app.domains.creation.a1.interviewer import (
 from app.domains.creation.a1.open_questions import OpenQuestion
 from app.domains.creation.shared.module_registry import (
     ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    MODULE_POOL,
     RECIPES,
     TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
     TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
@@ -224,6 +225,11 @@ class A1Session(BaseModel):
     impulse_coords: dict[str, Any] = Field(default_factory=dict)
     # M4b 看门狗轮次计数（handle_message 每次调用 +1；default 0 零迁移）。
     message_rounds: int = 0
+    # D20 动态模块调用（2026-09-25 产品方裁决）：用户提及世界观设定内容 →
+    # 动态加入会话的世界建构模块 id（LLM 提议 + 确定性校验，LLM 绝不直写）。
+    # default [] 零迁移（G3）。invited 是机会性增益：不进定稿门禁（零强制），
+    # 每会话 ≤4，插入点 = 当前模块之后（语境相邻）。
+    invited_modules: list[str] = Field(default_factory=list)
 
 
 def first_question() -> dict[str, Any]:
@@ -307,6 +313,89 @@ def sync_position(session: A1Session) -> None:
                 session.current_subfield = sid
                 return
     session.phase = PHASE_COMPLETED
+
+
+#: D20 闭集：可被动态调用的模块 = 世界建构族（故事/产出模块永不可调用）。
+WORLDVIEW_MODULE_IDS: frozenset[str] = frozenset(
+    mid for mid, d in MODULE_POOL.items() if d.family == "worldview"
+)
+
+#: D20 护栏：每会话动态调用上限（防重复轰炸）。
+_INVITE_CAP = 4
+
+
+def core_recipe_modules(session: A1Session) -> list[str]:
+    """定稿门禁视角的核心配方（D20）：recipe_modules - invited_modules。
+
+    invited 模块 = 机会性增益，绝不强制完成（提及魔法一次不得强迫答完
+    力量体系 8 问）。存量/默认会话 invited 恒空 → 与原行为逐字节一致。
+    """
+    walk = session.recipe_modules or module_ids()
+    invited = set(session.invited_modules)
+    return [mid for mid in walk if mid not in invited]
+
+
+def _apply_worldview_invites(
+    session: A1Session, invites: list[str]
+) -> list[str]:
+    """D20 单点消费：worldview_invites 的确定性校验与应用。
+
+    LLM 提议（interview JSON 可选键）→ 此处闭集校验后写状态（D-A2-4：
+    LLM 永不直写 session 状态）：
+    - 闭集 = 世界建构族（WORLDVIEW_MODULE_IDS；故事/产出模块永不可调用）
+    - 去重（本轮列表内 + 会话历史）+ 跳过已在游走清单的模块
+      （default 全集会话 = 天然 no-op）
+    - 每会话上限 4（_INVITE_CAP 护栏）
+    - 插入点 = 当前模块之后（语境相邻——在被提及时顺势展开），多个
+      按列出顺序依次紧随当前模块插入
+    返回实际接受的模块 id（用于披露文案与审计）。
+    """
+    accepted: list[str] = []
+    # 存量/default 会话（recipe_modules 空 = 走查表全集路径）不插入：往空
+    # 列表插入会把游走清单收窄为 invited 子集——全集视角天然覆盖，跳过。
+    if not invites or not session.recipe_modules:
+        return accepted
+    walk = session.recipe_modules
+    cur_idx = (
+        walk.index(session.current_module)
+        if session.current_module in walk
+        else len(walk) - 1
+    )
+    for mid in invites:
+        if len(session.invited_modules) >= _INVITE_CAP:
+            break
+        if (
+            mid not in WORLDVIEW_MODULE_IDS
+            or mid in accepted
+            or mid in session.invited_modules
+            or mid in walk
+        ):
+            continue
+        cur_idx += 1
+        walk.insert(cur_idx, mid)
+        session.invited_modules.append(mid)
+        accepted.append(mid)
+    if accepted:
+        log_event(
+            session.session_id,
+            "worldview_invoked",
+            modules=list(accepted),
+            trigger="user_mention",
+        )
+        _reset_stall_tracking(session)
+    return accepted
+
+
+def _invite_notice(accepted: list[str]) -> str:
+    """D20 披露文案（确定性模板，初稿措辞）：诚实可观测。"""
+    labels = "、".join(
+        MODULE_POOL[mid].label if mid in MODULE_POOL else mid
+        for mid in accepted
+    )
+    return (
+        f"你提到了{labels}——我把它加入了接下来的引导。"
+        "不想聊可以随时说跳过。"
+    )
 
 
 def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any]:
@@ -928,17 +1017,27 @@ def _handle_message_impl(
 
     # ---- M0 止血：偏转 → 占位跳过推进指针 ----
     if getattr(result, "deflect", False) and not result.fills:
-        return _handle_deflection(session, result, cur_key)
+        _invited = _apply_worldview_invites(session, result.worldview_invites)
+        out_deflect = _handle_deflection(session, result, cur_key)
+        if _invited:
+            out_deflect["reply"] += _invite_notice(_invited)
+        return out_deflect
 
     # ---- M0 止血：叙事素材 → character_sketch 归档（不触发提案三连） ----
     material = getattr(result, "story_material", None)
     if material and material.strip() and not result.fills:
-        return _archive_story_material(session, result)
+        _invited = _apply_worldview_invites(session, result.worldview_invites)
+        out_material = _archive_story_material(session, result)
+        if _invited:
+            out_material["reply"] += _invite_notice(_invited)
+        return out_material
 
     # ---- genuine innovation -> confirmation flow ----
     if not result.fills and result.is_innovative:
+        _invited = _apply_worldview_invites(session, result.worldview_invites)
         return {
-            "reply": result.guidance_reply or "这段内容超出当前分类体系，请确认是否新增。",
+            "reply": (result.guidance_reply or "这段内容超出当前分类体系，请确认是否新增。")
+            + (_invite_notice(_invited) if _invited else ""),
             "next_question": None,
             "file_diff": [],
             "progress": progress(session),
@@ -998,8 +1097,12 @@ def _handle_message_impl(
         # Let stall guard run (preserves stall tracking even when intercepted)
         guard = _apply_stall_guard(session, text, cur_key, out_fills, interviewer)
         if guard is not None:
-            return guard
-
+            out_fills = guard
+        # D20 提议消费（stall guard 之后）：闭集校验+写状态+审计；有接受
+        # → 追加披露文案（说人话）。置于 guard 后保证 stall 重置不被覆盖。
+        _invited = _apply_worldview_invites(session, result.worldview_invites)
+        if _invited:
+            out_fills["reply"] += _invite_notice(_invited)
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
@@ -1011,7 +1114,12 @@ def _handle_message_impl(
         "phase": session.phase,
     }
     guard = _apply_stall_guard(session, text, cur_key, out_chat, interviewer)
-    return guard if guard is not None else out_chat
+    out = guard if guard is not None else out_chat
+    # D20 提议消费（stall guard 之后）：同上，stall 重置不被 guard 覆盖。
+    _invited = _apply_worldview_invites(session, result.worldview_invites)
+    if _invited:
+        out["reply"] += _invite_notice(_invited)
+    return out
 
 
 def progress(session: A1Session) -> dict[str, Any]:
@@ -1053,6 +1161,10 @@ def progress(session: A1Session) -> dict[str, Any]:
         "done": done_count,
         "total": len(ordered),
         "sections": sections,
-        # Finalize gate: every module strictly over 50% subfields answered.
-        "finalizable": is_finalizable(session.answers, recipe=ordered),
+        # Finalize gate (D20 门禁零强制)：只在核心配方上判定——invited 模块
+        # 是机会性增益，不参与 finalizable；core_recipe_modules 对存量/default
+        # 会话退化为原 walk（行为逐字节不变）。
+        "finalizable": is_finalizable(
+            session.answers, recipe=core_recipe_modules(session)
+        ),
     }
