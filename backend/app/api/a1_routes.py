@@ -1205,6 +1205,68 @@ def alignment_resolve(file_id: str, key: str, req: _AlignmentResolveRequest) -> 
     return resp
 
 
+class _ImpulseSignalRequest(BaseModel):
+    """T3 用户直纠信号请求：白名单三值 only（离散，无连续滑杆值）。"""
+
+    signal: str
+
+
+#: T3 用户直纠三值白名单（端点级校验——与领域护栏阻尼 200 分离：
+#: 白名单外 = 400 请求错；白名单内被护栏阻尼 = 200 applied=false 诚实透传）。
+_NUDGE_SIGNAL_WHITELIST = frozenset({
+    "user_nudge_story", "user_nudge_builder", "user_nudge_confirm",
+})
+
+
+@router.post("/api/a1/file/{file_id}/impulse-coords/signal")
+def post_impulse_signal(file_id: str, req: _ImpulseSignalRequest) -> dict:
+    """用户直纠三值信号（D21 前端 phase T3，spec §10.1 显式信号闭集）。
+
+    更像讲故事 / 更像建设定 / 差不多 → apply_signal 确定性更新三件套；
+    阻尼（每会话上限/冷却轮）→ 200 + applied=false（护栏语义透传不隐藏）。
+    """
+    _load_once()
+    if req.signal not in _NUDGE_SIGNAL_WHITELIST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"signal must be one of {sorted(_NUDGE_SIGNAL_WHITELIST)}",
+        )
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.impulse_coords import apply_signal
+    result = apply_signal(session, req.signal)
+    _save_store()
+    return {
+        "file_id": file_id,
+        "session_id": session.session_id,
+        "applied": result["applied"],
+        "axis": result["coords"]["axis"],
+        "confidence": result["coords"]["confidence"],
+    }
+
+
+@router.get("/api/a1/file/{file_id}/draft-version")
+def get_draft_version(file_id: str) -> dict:
+    """会话态草稿版本（D21 前端 phase T3，纯内存投影，零 LLM 零落库）。
+
+    读 ``session.draft_alpha``（{baseline, round, step} 纯内存 dict），
+    版本串经 a1.draft_version.draft_label() 真实输出（α0.{round} /
+    α0.{round}{n}）；草稿期外（round=0 或 step=0）→ {available: false}。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1 import draft_version
+    state = session.draft_alpha or {}
+    label = draft_version.draft_label(state) if state else None
+    if label is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "version": label,
+        "baseline": state["baseline"],
+        "round": state["round"],
+    }
+
+
 def _recipe_module_ids(session: A1Session) -> list[str]:
     """Ordered in-recipe module ids (M1 recipe gate semantics).
 
