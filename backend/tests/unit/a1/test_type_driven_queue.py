@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """E1-Lite T2 — type-driven forward-only queue reordering (R6 conservative).
 
 M1 重锚（plan TODO 1 契约测试重锚）：

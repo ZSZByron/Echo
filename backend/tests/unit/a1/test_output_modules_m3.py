@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3 A2 产出模块入池 — 契约测试（先于实现，TDD RED）。
 
 证据锚点（.sisyphus/evidence/a2-plan-mining-a2-specs.md）：

@@ -102,6 +102,7 @@ def _group_nodes(
         if mid not in known:
             unknown += 1
             continue
+        assert mid is not None  # mid ∈ known ⊆ 非空模块 id 集（mypy 收窄）
         groups.setdefault(mid, []).append((sid, title, node))
     return groups, len(nodes), unknown
 
@@ -161,7 +162,7 @@ def build_graph_digest(
                 else:
                     sub_label = ""
                     try:
-                        sf = get_subfield(mid, sid) or {}
+                        sf: Any = get_subfield(mid, sid) or {}
                         sub_label = _safe(sf.get("label") or "")
                     except Exception:
                         sub_label = ""

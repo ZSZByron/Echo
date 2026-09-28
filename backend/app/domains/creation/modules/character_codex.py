@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """人物志渲染器（D22 · C——角色数据小说化渲染）——五件套模具复用。
 
 证据：docs/decision-log.md D22①「人物志（角色数据小说化渲染）」逐字；
@@ -123,7 +122,7 @@ def _as_coro(awaitable: Any) -> Any:
     return _run()
 
 
-def codex_compile_copy(provider: Any, answers: dict[str, str]) -> dict | None:
+def codex_compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | None:
     """codex_compile —— LLM 导语单生产点（模具：module_compile 同构）。
 
     只请求小说化导语（codex_fantasy + 章导语）；任何失败（provider

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """D22 三对端点契约测试 — world-bible / character-codex / story-outline。
 
 八步范式逐件照 doc 端点（test_doc_endpoints_m3.py 模式）：

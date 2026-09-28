@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """世界圣经（M3 产出模块 · D22①）——五件套模具逐字复用（B 信）。
 
 证据：``docs/decision-log.md`` D22①②（五件套模具复用 verbatim，
@@ -56,7 +55,7 @@ class BibleChapter(BaseModel):
     heading: str
     level: int
     body: str = ""
-    children: list["BibleChapter"] = Field(default_factory=list)
+    children: list[BibleChapter] = Field(default_factory=list)
 
 
 class BibleDocument(BaseModel):
@@ -118,7 +117,7 @@ def _as_coro(awaitable: Any) -> Any:
     return _run()
 
 
-def bible_compile_copy(provider: Any, answers: dict[str, str]) -> dict | None:
+def bible_compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | None:
     """bible_compile —— **LLM 单生产点**（镜像 main_module:139-176）。
 
     只请求文案（overview + 章导语）；任何失败（provider 缺席/网络/

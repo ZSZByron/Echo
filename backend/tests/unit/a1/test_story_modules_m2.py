@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M2 故事模块族 + 故事型配方 — 契约测试（TDD RED 先行）。
 
 覆盖面（plan modular-restructure TODO 2 / §231-232 / DN3 DN6 默认）：

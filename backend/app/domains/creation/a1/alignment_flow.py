@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T16: 对齐四动作提案域（alignment_flow，D21⑬）。
 
 铁律（D21⑬）：**LLM 只提议；应用 = 确定性代码执行；
@@ -85,7 +84,7 @@ def graph_target_keys(graph: dict[str, Any]) -> set[str]:
         return keys
     nodes = graph.get("nodes")
     if isinstance(nodes, dict):
-        keys.update(k for k in nodes.keys() if isinstance(k, str))
+        keys.update(k for k in nodes if isinstance(k, str))
     edges = graph.get("edges")
     if isinstance(edges, list):
         for e in edges:

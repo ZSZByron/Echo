@@ -255,3 +255,116 @@ class TestPromptInjection:
             p1 = _build_prompt_for(s)
             p2 = _build_prompt_for(s)
         assert p1 == p2
+
+
+# ---------------------------------------------------------------------------
+# lookup_graph_json（F2 补测：三条查找路径 + 失败降级）
+
+
+class TestLookupGraphJson:
+    def test_direct_session_graph_returns_it(self, full_graph):
+        """会话对象自身挂有效 graph_json → 直接返回（路径①）。"""
+        s = _bare_session()
+        object.__setattr__(s, "graph_json", full_graph)
+        assert graph_digest.lookup_graph_json(s) is full_graph
+
+    def test_direct_invalid_and_no_sid_returns_none(self):
+        """graph_json 非法且无 session_id → None（路径②早退）。"""
+        s = _bare_session()
+        object.__setattr__(s, "graph_json", {"nodes": {}})
+        object.__setattr__(s, "session_id", None)
+        assert graph_digest.lookup_graph_json(s) is None
+
+    def test_routes_import_failure_returns_none(self, monkeypatch):
+        """a1_routes 惰性导入失败 → None（不崩，路径③降级）。"""
+        import sys
+
+        s = _bare_session()
+        monkeypatch.setitem(sys.modules, "app.api", None)
+        assert graph_digest.lookup_graph_json(s) is None
+
+    def test_files_not_dict_returns_none(self, monkeypatch):
+        s = _bare_session()
+        monkeypatch.setattr(
+            "app.api.a1_routes._FILES", None, raising=False
+        )
+        assert graph_digest.lookup_graph_json(s) is None
+
+    def test_scans_files_and_returns_matching_graph(self, full_graph, monkeypatch):
+        """_FILES 反查：非 dict/异 session 跳过，命中返回其图（路径④）。"""
+        s = _bare_session()
+        fake_files = {
+            "f1": "not-a-dict",
+            "f2": {"session_id": "other", "graph_json": full_graph},
+            "f3": {"session_id": "a1_digest_test", "graph_json": full_graph},
+        }
+        monkeypatch.setattr(
+            "app.api.a1_routes._FILES", fake_files, raising=False
+        )
+        assert graph_digest.lookup_graph_json(s) is full_graph
+
+    def test_matching_rec_with_invalid_graph_returns_none(self, monkeypatch):
+        s = _bare_session()
+        fake_files = {
+            "f1": {"session_id": "a1_digest_test", "graph_json": {"nodes": {}}},
+        }
+        monkeypatch.setattr(
+            "app.api.a1_routes._FILES", fake_files, raising=False
+        )
+        assert graph_digest.lookup_graph_json(s) is None
+
+
+# ---------------------------------------------------------------------------
+# _group_nodes 边界（F2 补测：非法节点 / 畸形 d: 键 / 重复子字段 / 标签异常）
+
+
+class TestGroupNodesBoundaries:
+    def test_non_dict_node_counted_unknown_not_crash(self):
+        graph = {
+            "nodes": {
+                "力量体系": _node("力量体系", "1"),
+                "junk-entry": 42,  # 非法载荷：不崩，计入 unknown 跳过
+            },
+            "edges": [],
+        }
+        digest = build_graph_digest(graph)
+        assert "「力量体系」" in digest
+        assert "42" not in digest.split("结构化标记")[0]
+
+    def test_malformed_deep_key_without_dot_skipped(self):
+        """``d:前缀`` 后无 ``.`` 的畸形键 → 安全跳过，不产出内容。"""
+        graph = {
+            "nodes": {
+                "力量体系": _node("力量体系", "1"),
+                "d:畸形键": _node("d:畸形键", "9"),
+            },
+            "edges": [],
+        }
+        digest = build_graph_digest(graph)
+        assert "畸形键" not in digest.split("结构化标记")[0]
+
+    def test_duplicate_subfield_rendered_once(self):
+        """同模块同子字段两条（subfield 形态 + 无 title 深键）→ 只渲染一次。"""
+        graph = {
+            "nodes": {
+                "力量体系.source": _node("力量体系.source", "1-1", "力量来源"),
+                "d:力量体系.source": _node("d:力量体系.source", "1-1-x"),
+            },
+            "edges": [],
+        }
+        digest = build_graph_digest(graph)
+        assert digest.count("力量来源") == 1
+
+    def test_subfield_label_lookup_failure_degrades(self, monkeypatch):
+        """子字段中文标签查询异常 → 降级为「已建档」，不崩。"""
+        graph = {
+            "nodes": {"力量体系.source": _node("力量体系.source", "1-1")},
+            "edges": [],
+        }
+        monkeypatch.setattr(
+            graph_digest,
+            "get_subfield",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("lookup fail")),
+        )
+        digest = build_graph_digest(graph)
+        assert "已建档" in digest

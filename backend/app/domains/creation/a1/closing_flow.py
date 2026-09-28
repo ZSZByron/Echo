@@ -129,7 +129,7 @@ DOC_ENDPOINTS: tuple[str, ...] = (
 DOC_ARTIFACT_NAMES = "世界圣经、人物志、故事大纲"
 
 
-def _after_answer(session: A1Session, step: int, ans: str) -> str:
+def _after_answer(session: A1Session, step: int, ans: str) -> str:  # noqa: ARG001 (session: 状态机签名约定，供调用方统一传参)
     """作答后的确认 + 下一问文案（覆盖本轮闲聊噪声回复，说人话）。"""
     if step == 1:
         if ans == "generate_doc":

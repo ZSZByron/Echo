@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """C6 契约测试：open_questions 结构化模型 round-trip + 状态机 + 迁移。"""
 import pytest
 from pydantic import ValidationError

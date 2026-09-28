@@ -22,6 +22,19 @@ from app.ai.config import load_provider_config
 from app.ai.provider import create_provider
 from app.ai.visual_bg import run_visual_bg_pipeline
 from app.config.paths import ASSETS_DIR
+from app.domains.creation.a1.concept_edge_extractor import (
+    ConceptTerm,
+    extract_concept_relations,
+)
+from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
+from app.domains.creation.a1.graphify import (
+    GraphifyResult,
+    dedupe_items,
+    depth_id,
+    graphify_llm,
+    is_title_truncated,
+    validate_anchors,
+)
 from app.domains.creation.a1.guide_engine import (
     A1Session,
     apply_recipe_switch,
@@ -44,13 +57,45 @@ from app.domains.creation.a1.interviewer import (
     RealLLMInterviewer,
 )
 from app.domains.creation.a1.ip_poster import build_poster
-
-logger = logging.getLogger(__name__)
 from app.domains.creation.a1.open_questions import OpenQuestion, OpenQuestionLog
 from app.domains.creation.a1.semantic_compiler import (
     derive_dice_recommendation,
 )
+from app.domains.creation.a1.warning_ledger import (
+    SOURCE_ANSWERS,
+    SOURCE_ASSEMBLE,
+    SOURCE_FINALIZE,
+    SOURCE_GRAPHIFY,
+    SOURCE_UPLOAD,
+    entry as ledger_entry,
+    from_dead_edges,
+    from_strings,
+)
 from app.domains.creation.graph.constraint_topology import apply_constraints
+from app.domains.creation.modules.character_codex import (
+    compile_codex,
+    render_markdown as _render_codex_md,
+)
+from app.domains.creation.modules.character_projector import (
+    DiceRequiredError,
+    project_character_template,
+)
+from app.domains.creation.modules.dice_projector import (
+    DiceTemplate,
+    project_dice_template,
+)
+from app.domains.creation.modules.main_module import (
+    compile_document,
+    render_markdown,
+)
+from app.domains.creation.modules.story_outline import (
+    compile_outline,
+    render_markdown as _render_outline_md,
+)
+from app.domains.creation.modules.world_bible import (
+    compile_world_bible,
+    render_markdown as _render_bible_md,
+)
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
     all_subfield_keys,
@@ -77,62 +122,14 @@ from app.models.dimension import (
     SocOutput,
     WstOutput,
 )
-from app.domains.creation.a1.concept_edge_extractor import (
-    ConceptTerm,
-    EdgesV2Result,
-    extract_concept_relations,
-)
-from app.domains.creation.a1.concept_relation_vocab import RelationRegistry
-from app.domains.creation.a1.graphify import (
-    GraphifyResult,
-    dedupe_items,
-    depth_id,
-    graphify_llm,
-    is_title_truncated,
-    validate_anchors,
-)
-from app.domains.creation.a1.warning_ledger import (
-    SOURCE_ASSEMBLE,
-    SOURCE_ANSWERS,
-    SOURCE_FINALIZE,
-    SOURCE_GRAPHIFY,
-    SOURCE_UPLOAD,
-    entry as ledger_entry,
-    from_dead_edges,
-    from_strings,
-)
-from app.domains.creation.modules.character_projector import (
-    DiceRequiredError,
-    project_character_template,
-)
-from app.domains.creation.modules.dice_projector import (
-    DiceTemplate,
-    project_dice_template,
-)
-from app.domains.creation.modules.main_module import (
-    compile_document,
-    render_markdown,
-)
-from app.domains.creation.modules.character_codex import (
-    compile_codex,
-    render_markdown as _render_codex_md,
-)
-from app.domains.creation.modules.story_outline import (
-    compile_outline,
-    render_markdown as _render_outline_md,
-)
-from app.domains.creation.modules.world_bible import (
-    compile_world_bible,
-    render_markdown as _render_bible_md,
-)
-from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import (
     EdgeType,
     GraphEdge,
     GraphNode,
     KnowledgeGraph,
-    NodeStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -977,7 +974,7 @@ def chat_confirm(req: ConfirmRequest) -> dict:
 # M4a 推断包（DN5：A1 域新 LLM 生产方，单生产单消费留痕）
 # ---------------------------------------------------------------------------
 
-def _get_inference_packer() -> "InferencePacker":
+def _get_inference_packer() -> InferencePacker:
     """Lazy packer factory（同 _get_interviewer 的降级姿态：构造失败 →
     provider=None → 免费线空包）。测试经 monkeypatch 覆盖本工厂。"""
     try:

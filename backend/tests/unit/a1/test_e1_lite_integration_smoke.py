@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """E1-Lite T6 — integration smoke test: one test chain wires the three
 features delivered by T1-T3 through the API layer:
 

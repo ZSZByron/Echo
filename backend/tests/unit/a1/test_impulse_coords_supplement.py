@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M4b impulse_coords 补充契约测试（新代码覆盖线 ≥85% 收口）。
 
 本会话（Sisyphus-Junior 双写手）补充：未知信号 fail-loud / dashboard

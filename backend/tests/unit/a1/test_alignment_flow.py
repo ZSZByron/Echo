@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """对齐四动作（alignment_flow，T16，D21⑬）契约测试。
 
 铁律（D21⑬）：LLM 只提议；应用 = 确定性代码执行；
@@ -318,3 +317,214 @@ class TestPlainLanguageCopy:
             # 不报模块/字段名：无裸 "{mid}." 形态（G5 同款雷区）
             assert "世界本体." not in text
             assert "d:" not in text
+
+
+# ── F2 补测：边界分支（目标别名 / 校验闸门上限 / 降级路径） ─────────────────
+
+
+class TestGraphTargetKeysBoundaries:
+    def test_non_dict_graph_returns_empty_set(self):
+        from app.domains.creation.a1.alignment_flow import graph_target_keys
+
+        assert graph_target_keys(None) == set()  # type: ignore[arg-type]
+        assert graph_target_keys("junk") == set()  # type: ignore[arg-type]
+
+    def test_edges_fallback_and_non_dict_entries(self):
+        """边无 key → source->target 兜底；非 dict 边跳过。"""
+        from app.domains.creation.a1.alignment_flow import graph_target_keys
+
+        graph = {
+            "nodes": {"a": {"title": "A"}},
+            "edges": [
+                None,  # 非 dict：跳过
+                {"key": "", "source": "a", "target": "a"},  # 空 key → 兜底
+                {"key": 42, "source": "a", "target": "a"},  # 非 str key → 兜底
+            ],
+        }
+        keys = graph_target_keys(graph)
+        assert "a" in keys
+        assert "a->a" in keys
+
+
+class TestTargetDisplayAlias:
+    def _render_with_graph(self, node: dict[str, Any], target: str) -> str:
+        from app.domains.creation.a1.alignment_flow import AlignProposal, render_proposal
+
+        p = AlignProposal(action="link", target=target, content="说明")
+        return render_proposal(p, graph={"nodes": {target: node}})
+
+    def test_title_used_as_alias(self):
+        text = self._render_with_graph({"title": "灵潮潮汐"}, "t1")
+        assert "「灵潮潮汐」" in text
+
+    def test_description_excerpt_when_no_title(self):
+        text = self._render_with_graph({"title": "", "description": "灵潮的周期涨落"}, "t2")
+        assert "灵潮的周期涨落" in text
+
+    def test_empty_node_generic_alias(self):
+        text = self._render_with_graph({"title": "", "description": ""}, "t3")
+        assert "一条已有记录" in text
+
+    def test_unknown_target_generic_alias(self):
+        text = self._render_with_graph({}, "missing-target")
+        assert "一条已有记录" in text
+
+
+class TestGateMaxAndWhitespace:
+    def test_whitespace_only_content_dropped(self):
+        from app.domains.creation.a1.alignment_flow import validate_raw_proposals
+
+        valid, dropped = validate_raw_proposals(
+            make_graph(),
+            [{"action": "link", "target": "世界本体", "content": "   "}],
+        )
+        assert valid == []
+        assert dropped == 1
+
+    def test_more_than_five_proposals_overflow_dropped(self):
+        """闸门上限 5：第 6 条起确定性丢弃（不计入提案池）。"""
+        from app.domains.creation.a1.alignment_flow import (
+            ALIGN_MAX_PROPOSALS,
+            validate_raw_proposals,
+        )
+
+        raw = [
+            {"action": "link", "target": "世界本体", "content": f"合法提案 {i}"}
+            for i in range(ALIGN_MAX_PROPOSALS + 2)
+        ]
+        valid, dropped = validate_raw_proposals(make_graph(), raw)
+        assert len(valid) == ALIGN_MAX_PROPOSALS
+        assert dropped == 2
+
+
+class TestRegistryChildrenDegrade:
+    def test_empty_db_path_returns_empty(self):
+        from app.domains.creation.a1.alignment_flow import _registry_children
+
+        assert _registry_children("", "IP0001-W1-v1") == []
+
+    def test_connect_failure_returns_empty_not_crash(self, tmp_path):
+        """registry_db 指向目录 → sqlite 连接失败降级空清单。"""
+        from app.domains.creation.a1.alignment_flow import _registry_children
+
+        assert _registry_children(str(tmp_path), "IP0001-W1-v1") == []
+
+    def test_stale_warning_children_without_code_no_downstream_line(self, tmp_path):
+        """下游行 graph_code 为空 → 不追加「受影响的下游产物」行（分支覆盖）。"""
+        import sqlite3
+
+        from app.domains.creation.a1.alignment_flow import build_stale_warning
+
+        db = str(tmp_path / "registry.db")
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE graph_registry "
+            "(graph_code TEXT, status TEXT, parent_graph_code TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO graph_registry VALUES ('', 'done', 'IP0001-W1-v1')"
+        )
+        conn.commit()
+        conn.close()
+        warning = build_stale_warning("IP0001-W1-v1", registry_db=db)
+        assert any("过期" in w for w in warning)
+        assert not any(w.startswith("受影响的下游产物") for w in warning)
+
+
+class TestProposeDegradeShapes:
+    def test_async_provider_supported(self):
+        """异步 provider：chat_json 返回 awaitable → asyncio.run 消费。"""
+
+        class AsyncProvider:
+            def __init__(self, payload: Any) -> None:
+                self._payload = payload
+
+            async def chat_json(self, messages: Any) -> Any:
+                return self._payload
+
+        provider = AsyncProvider({
+            "proposals": [
+                {"action": "link", "target": "世界本体", "content": "合法", "quote": "q"}
+            ],
+        })
+        pack = AlignmentProposer(provider).propose(make_graph(), "x")
+        assert len(pack.proposals) == 1
+
+    def test_non_dict_response_degrades(self):
+        provider = SyncStubProvider(["not", "a", "dict"])
+        pack = AlignmentProposer(provider).propose(make_graph(), "x")
+        assert pack.proposals == []
+        assert "形状不符" in pack.note
+
+    def test_proposals_not_a_list_degrades(self):
+        provider = SyncStubProvider({"proposals": {"action": "link"}})
+        pack = AlignmentProposer(provider).propose(make_graph(), "x")
+        assert pack.proposals == []
+        assert "形状不符" in pack.note
+
+    def test_all_filtered_note_explains(self):
+        provider = SyncStubProvider({
+            "proposals": [
+                {"action": "delete", "target": "世界本体", "content": "x"}
+            ],
+        })
+        pack = AlignmentProposer(provider).propose(make_graph(), "x")
+        assert pack.proposals == []
+        assert "无有效建议" in pack.note
+
+
+class TestInstallKeyCollision:
+    def test_existing_key_gets_suffixed(self):
+        """提案键冲突 → 加后缀不覆盖既有提案（additive 容器纪律）。"""
+        session = make_session()
+        from app.domains.creation.a1.alignment_flow import AlignProposal
+
+        session.pending_alignments["align-001"] = {"proposal": "既有的"}
+        keys = install_proposals(session, [AlignProposal(action="link", target="世界本体", content="c")])
+        assert keys[0] != "align-001"
+        assert session.pending_alignments["align-001"]["proposal"] == "既有的"
+
+
+class TestResolveIdempotentArchive:
+    def test_accept_with_preexisting_archive_entry_skips_duplicate(self):
+        """同 id 归档已存在 → 不重复追加（幂等分支）。"""
+        from app.domains.creation.a1.alignment_flow import AlignProposal, install_proposals
+
+        session = make_session()
+        keys = install_proposals(
+            session, [AlignProposal(action="link", target="世界本体", content="c", quote="q")]
+        )
+        # 预置同 id 归档记录
+        from app.domains.creation.a1.alignment_flow import render_proposal
+
+        session.open_question_archive.append({
+            "id": f"oq-align-{keys[0]}",
+            "question": render_proposal(session.pending_alignments[keys[0]]["proposal"]),
+            "status": "answered",
+            "answer": "旧答案",
+            "source_hint": "alignment:link",
+        })
+        before = len(session.open_question_archive)
+        result = resolve_alignment(session, keys[0], accept=True)
+        assert result["applied"] is True
+        assert len(session.open_question_archive) == before  # 未重复追加
+        assert session.open_question_archive[-1]["answer"] == "旧答案"
+
+
+class TestRenderEdgeForms:
+    def test_render_without_quote_omits_quote_segment(self):
+        from app.domains.creation.a1.alignment_flow import AlignProposal, render_proposal
+
+        text = render_proposal(AlignProposal(action="dedupe", target="x", content="重复记录"))
+        assert "你说过" not in text
+        assert "重复记录" in text
+
+    def test_render_appends_stale_warning(self):
+        from app.domains.creation.a1.alignment_flow import AlignProposal, render_proposal
+
+        p = AlignProposal(
+            action="update", target="x", content="改这条",
+            stale_warning=["这项修改会使已生成的成果「IP0001-W1-v1」过期"],
+        )
+        text = render_proposal(p)
+        assert "过期" in text

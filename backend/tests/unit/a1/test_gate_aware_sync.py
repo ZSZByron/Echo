@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Gate-aware sync_position tests (有缺失，在窗口询问)."""
 
 from app.domains.creation.a1.guide_engine import A1Session, sync_position

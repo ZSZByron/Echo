@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """故事大纲渲染器（M3 产出模块 · D22③）——剧情信号叙事化渲染。
 
 镜像 ``main_module.py`` 五件套模具（D22 施工纪律：渲染器一律复用
@@ -110,7 +109,7 @@ def _as_coro(awaitable: Any) -> Any:
     return _run()
 
 
-def compile_copy(provider: Any, answers: dict[str, str]) -> dict | None:
+def compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | None:
     """compile_copy —— 本模块**唯一 LLM 生产点**（模具契约：copy-only）。
 
     只请求叙事化文案（lead_in + 节导语）；任何失败（provider 缺席/网络/
@@ -210,4 +209,5 @@ def compile_outline(
 
 def issue_outline_code(issuer: Any, user_id: str, ip: int) -> str:
     """O 字母编号签发（graph_code_issuer.StageCode.OUTLINE，D22③）。"""
-    return issuer.next(user_id, ip, stage="O")
+    code: str = issuer.next(user_id, ip, stage="O")
+    return code

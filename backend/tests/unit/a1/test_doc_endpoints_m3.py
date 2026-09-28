@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """M3 端点契约测试 — 文档输出（doc，D15）+ TD/TC 依赖 409 链。
 
 - 409 依赖链：draft → pending_finalize；缺骰子 → missing_dice_template

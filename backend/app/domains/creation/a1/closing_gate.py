@@ -30,8 +30,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.domains.creation.a1.guide_engine import (
-    A1Session,
     PHASE_COMPLETED,
+    A1Session,
     core_recipe_modules,
 )
 from app.domains.creation.seed.a1_question_tree import (
@@ -79,7 +79,7 @@ def is_preset_phase_complete(session: A1Session) -> bool:
     auto fills（FIELD_SOURCE 直写路径）不在 pending_proposals 中，
     不阻塞收尾——只有 write-guard 拦截的冲突提案算「待确认」。
     """
-    return closing_status(session)["complete"]
+    return bool(closing_status(session)["complete"])
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def is_preset_phase_complete(session: A1Session) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _superseded_exists(listing: dict, graph_code: str) -> str | None:
+def _superseded_exists(listing: dict[str, Any], graph_code: str) -> str | None:
     """同 IP 同 stage 存在更高 (instance, version) → 返回取代者代码。
 
     口径与 a1_routes._graph_is_stale 信号 2 一致（覆盖「W1 未注册但
