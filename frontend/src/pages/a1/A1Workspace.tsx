@@ -22,6 +22,7 @@ import { groupSeedsByType } from './impulse/seedGrouping';
 import { logImpulseEvent, attachSessionId } from './impulse/telemetry';
 import { IMPULSE_CARDS, type ImpulseTypeId } from './impulse/impulseCards.config';
 import type { A1Proposal } from '../../types/a1';
+import { plainQuestion } from '../../labels/plainQuestion';
 import '../../components/theme.css';
 
 // API Types
@@ -266,13 +267,9 @@ interface ConvertResponse {
 type WorkspaceState = 'seed_selector' | 'guided_chat' | 'graph_view' | 'impulse_cards';
 
 // Format a question payload for display, with example hint for the user.
+// T4 (D21-11)：去头逻辑抽入纯函数 plainQuestion（labels/plainQuestion.ts），此处仅薄接线。
 function formatQuestion(nq: QuestionPayload | null): string {
-  if (!nq) return '';
-  const header = nq.sub_label
-    ? `【${nq.section_label || nq.section} · ${nq.sub_label}】`
-    : `【${nq.section_label || nq.section}】`;
-  const example = nq.example ? `\n💡 示例：${nq.example}` : '';
-  return `${header}${nq.question}${example}`;
+  return plainQuestion(nq);
 }
 
 const A1_STORAGE_KEY = 'a1_workspace_v1';
