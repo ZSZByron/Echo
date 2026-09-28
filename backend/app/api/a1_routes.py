@@ -781,6 +781,7 @@ async def chat(req: ChatRequest) -> dict:
             "divergent_question": None,
         }
         out.update(_open_question_payload(oq_log, session))
+        out["closing"] = _closing_signal(session)
         _save_store()
         return out
 
@@ -861,6 +862,7 @@ async def chat(req: ChatRequest) -> dict:
     # A 触发点：视觉设计模块填满时启动后台预生成
     await _trigger_visual_bg_if_filled(session.session_id)
 
+    out["closing"] = _closing_signal(session)
     _save_store()
     return out
 
@@ -1120,6 +1122,38 @@ def get_live_projection(file_id: str) -> dict:
     session = _session_for_file_or_404(file_id)
     from app.domains.creation.a1.live_projection import project_live
     return project_live(session)
+
+
+def _closing_signal(session: A1Session) -> dict[str, Any]:
+    """chat 响应 additive 收尾信号（D21 前端 phase T1）。
+
+    triggered = closing_step > 0 and not closing_settled——既有字段
+    一个不动，只追加 closing 键。
+    """
+    return {
+        "step": session.closing_step,
+        "settled": session.closing_settled,
+        "triggered": session.closing_step > 0 and not session.closing_settled,
+    }
+
+
+@router.get("/api/a1/file/{file_id}/closing-state")
+def get_closing_state(file_id: str) -> dict:
+    """收尾询问状态快照（D21 前端 phase T1，零 LLM 纯投影）。
+
+    triggered = closing_step > 0 and not closing_settled；preview 复用
+    build_output_preview（收尾询问唯一数据源，D22⑤/⑦）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.closing_gate import build_output_preview
+    return {
+        "file_id": file_id,
+        "closing_step": session.closing_step,
+        "closing_settled": session.closing_settled,
+        "triggered": session.closing_step > 0 and not session.closing_settled,
+        "preview": build_output_preview(file_id),
+    }
 
 
 def _recipe_module_ids(session: A1Session) -> list[str]:
