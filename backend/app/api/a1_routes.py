@@ -782,6 +782,7 @@ async def chat(req: ChatRequest) -> dict:
         }
         out.update(_open_question_payload(oq_log, session))
         out["closing"] = _closing_signal(session)
+        out["pending_alignments"] = _pending_alignments_payload(session)
         _save_store()
         return out
 
@@ -863,6 +864,7 @@ async def chat(req: ChatRequest) -> dict:
     await _trigger_visual_bg_if_filled(session.session_id)
 
     out["closing"] = _closing_signal(session)
+    out["pending_alignments"] = _pending_alignments_payload(session)
     _save_store()
     return out
 
@@ -1124,6 +1126,27 @@ def get_live_projection(file_id: str) -> dict:
     return project_live(session)
 
 
+def _pending_alignments_payload(session: A1Session) -> list[dict[str, Any]]:
+    """chat 响应 additive 对齐提案序列化（D21 前端 phase T2）。
+
+    五字段：key（dict 键，resolve 端点惯例）/ action / content / quote /
+    stale_warning。**target（节点 id）与 graph_code 绝不外露**（G5 雷区）。
+    """
+    payload: list[dict[str, Any]] = []
+    for key, entry in session.pending_alignments.items():
+        p: Any = entry["proposal"]
+        payload.append(
+            {
+                "key": key,
+                "action": p.action,
+                "content": p.content,
+                "quote": p.quote,
+                "stale_warning": list(p.stale_warning),
+            }
+        )
+    return payload
+
+
 def _closing_signal(session: A1Session) -> dict[str, Any]:
     """chat 响应 additive 收尾信号（D21 前端 phase T1）。
 
@@ -1154,6 +1177,32 @@ def get_closing_state(file_id: str) -> dict:
         "triggered": session.closing_step > 0 and not session.closing_settled,
         "preview": build_output_preview(file_id),
     }
+
+
+class _AlignmentResolveRequest(BaseModel):
+    accept: bool
+
+
+@router.post("/api/a1/file/{file_id}/alignment/{key:path}/resolve")
+def alignment_resolve(file_id: str, key: str, req: _AlignmentResolveRequest) -> dict:
+    """解析一条待定对齐提案（D21 前端 phase T2，resolve_proposal 先例）。
+
+    未知 key → 200 + {applied: false, error: "not_found"}（幂等不抛错，
+    领域函数 resolve_alignment 已如此）。registry_db 接线同既有端点
+    （_registry_db()，stale 传播用）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.alignment_flow import resolve_alignment
+
+    result = resolve_alignment(session, key, req.accept, registry_db=_registry_db())
+    resp: dict[str, Any] = {
+        "applied": bool(result.get("applied")),
+        "accept": req.accept,
+    }
+    if result.get("error"):
+        resp["error"] = result["error"]
+    return resp
 
 
 def _recipe_module_ids(session: A1Session) -> list[str]:
