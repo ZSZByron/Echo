@@ -24,91 +24,68 @@ describe("DimensionProgress", () => {
     { id: "10", label: "设定边界", done: false, done_fields: 0, total_fields: 2 },
   ];
 
-  it("renders 10 grid cells regardless of section count", () => {
-    const { container } = render(
-      <DimensionProgress sections={mockSections} />
-    );
+  // T5: 3/7 fixture — non-10 total guards against hardcoded /10 assumptions
+  const sevenSections = [
+    { id: "1", label: "IP定位", done: true },
+    { id: "2", label: "世界本体", done: true },
+    { id: "3", label: "力量体系", done: true },
+    { id: "4", label: "地理空间", done: false },
+    { id: "5", label: "文明与社会", done: false },
+    { id: "6", label: "历史时间线", done: false },
+    { id: "7", label: "视觉设计", done: false },
+  ];
 
-    const gridCells = container.querySelectorAll('.grid-cols-10 > div');
-    expect(gridCells).toHaveLength(10);
+  it("renders plain progress label 聊聊你的世界 3/7 for a 7-section fixture", () => {
+    render(<DimensionProgress sections={sevenSections} />);
+
+    expect(screen.getByText(/聊聊你的世界 3\/7/)).toBeInTheDocument();
   });
 
-  it("renders exactly 10 cells for 10 modules (one-to-one mapping)", () => {
-    const { container } = render(
-      <DimensionProgress sections={tenModuleSections} />
-    );
+  it("renders zero module label text (no leakage of module names)", () => {
+    render(<DimensionProgress sections={tenModuleSections} />);
 
-    const gridCells = container.querySelectorAll('.grid-cols-10 > div');
-    expect(gridCells).toHaveLength(10);
+    expect(screen.queryByText("IP定位")).not.toBeInTheDocument();
+    expect(screen.queryByText("历史时间线")).not.toBeInTheDocument();
+    expect(screen.queryByText("世界本体")).not.toBeInTheDocument();
+    const { container } = render(<DimensionProgress sections={tenModuleSections} />);
+    expect(container.textContent).not.toContain("IP定位");
+    expect(container.textContent).not.toContain("历史时间线");
+  });
+
+  it("renders one cell per section (count derived from sections.length, not hardcoded 10)", () => {
+    const { container } = render(<DimensionProgress sections={sevenSections} />);
+
+    const cells = container.querySelectorAll("[data-progress-cell]");
+    expect(cells).toHaveLength(7);
+  });
+
+  it("preserves done/undone cell visual distinction", () => {
+    const { container } = render(<DimensionProgress sections={sevenSections} />);
+
+    const cells = container.querySelectorAll("[data-progress-cell]");
+    expect(cells[0].className).toContain("bg-stardust-400");
+    expect(cells[6].className).not.toContain("bg-stardust-400");
   });
 
   it("displays correct completion count", () => {
     render(<DimensionProgress sections={mockSections} />);
 
-    expect(screen.getByText("2/4")).toBeInTheDocument();
-    expect(screen.getByText("50% Complete")).toBeInTheDocument();
-  });
-
-  it("displays field progress when available", () => {
-    render(<DimensionProgress sections={tenModuleSections} />);
-
-    // Check that module names appear (using getAllByText since they appear in multiple places)
-    expect(screen.getAllByText("IP定位")).toHaveLength(2); // tooltip + section label
-    expect(screen.getAllByText("世界本体")).toHaveLength(2);
-    expect(screen.getAllByText("力量体系")).toHaveLength(2);
-  });
-
-  it("highlights completed sections with success glow", () => {
-    const { container } = render(
-      <DimensionProgress sections={mockSections} />
-    );
-
-    const completedIndicator = container.querySelector(".bg-cosmos-success");
-    expect(completedIndicator).toBeInTheDocument();
-  });
-
-  it("shows checkmarks for completed sections", () => {
-    render(<DimensionProgress sections={mockSections} />);
-
-    const checkmarks = screen.getAllByText("✓");
-    expect(checkmarks).toHaveLength(2);
-  });
-
-  it("renders all section labels including Chinese module names", () => {
-    const { container } = render(<DimensionProgress sections={tenModuleSections} />);
-
-    // Check that module names appear in the section labels area (not tooltips)
-    const sectionLabels = container.querySelector('.space-y-2');
-    expect(sectionLabels?.textContent).toContain("IP定位");
-    expect(sectionLabels?.textContent).toContain("世界本体");
-    expect(sectionLabels?.textContent).toContain("力量体系");
-    expect(sectionLabels?.textContent).toContain("骰子设定");
-    expect(sectionLabels?.textContent).toContain("设定边界");
+    expect(screen.getByText(/聊聊你的世界 2\/4/)).toBeInTheDocument();
   });
 
   it("handles empty sections array", () => {
     render(<DimensionProgress sections={[]} />);
 
-    expect(screen.getByText("0/0")).toBeInTheDocument();
-    expect(screen.getByText("0% Complete")).toBeInTheDocument();
+    expect(screen.getByText(/聊聊你的世界 0\/0/)).toBeInTheDocument();
   });
 
-  it("applies glow-starlight class to percentage display", () => {
+  it("applies glow-starlight class to the progress count", () => {
     const { container } = render(
       <DimensionProgress sections={mockSections} />
     );
 
     const glowElement = container.querySelector(".glow-starlight");
     expect(glowElement).toBeInTheDocument();
-  });
-
-  it("shows tooltips on hover for module cells", () => {
-    const { container } = render(
-      <DimensionProgress sections={tenModuleSections} />
-    );
-
-    const tooltips = container.querySelectorAll('.group-hover\\:opacity-100');
-    expect(tooltips.length).toBeGreaterThan(0);
   });
 
   // New tests for two-level structure with subs
@@ -131,28 +108,13 @@ describe("DimensionProgress", () => {
         { id: "2-2", label: "魔法系统", done: false }
       ]
     },
-    { 
-      id: "3", 
-      label: "力量体系", 
-      done: false,
-      subs: [
-        { id: "3-1", label: "等级制度", done: false },
-        { id: "3-2", label: "能力限制", done: false }
-      ]
-    },
   ];
 
-  it("displays sub-item progress for sections with subs", () => {
-    render(<DimensionProgress sections={mockSectionsWithSubs} />);
+  it("renders count and no labels for sections with subs", () => {
+    const { container } = render(<DimensionProgress sections={mockSectionsWithSubs} />);
 
-    expect(screen.getAllByText(/sub-items/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/1\/2 sub-items/)).toBeInTheDocument();
-  });
-
-  it("handles sections without subs gracefully", () => {
-    render(<DimensionProgress sections={mockSections} />);
-
-    // Should not display sub-item counts for sections without subs
-    expect(screen.queryByText(/sub-items/)).not.toBeInTheDocument();
+    expect(screen.getByText(/聊聊你的世界 2\/2/)).toBeInTheDocument();
+    expect(container.textContent).not.toContain("IP定位");
+    expect(container.textContent).not.toContain("核心概念");
   });
 });
