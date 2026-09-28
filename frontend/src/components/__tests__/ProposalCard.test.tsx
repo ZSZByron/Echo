@@ -216,7 +216,7 @@ describe('ProposalCard', () => {
     expect(screen.getByText('输入"跳过"将跳过当前问题而非处理提案')).toBeInTheDocument();
   });
 
-  it('should use default field label when none provided', () => {
+  it('should show human fallback text when fieldLabel is not provided', () => {
     const proposal = createMockProposal({
       module: 'Geography',
       subfield: 'special_geo',
@@ -230,6 +230,27 @@ describe('ProposalCard', () => {
       />
     );
 
-    expect(screen.getByText('字段：Geography.special_geo')).toBeInTheDocument();
+    expect(screen.getByText('字段：你刚才说的内容')).toBeInTheDocument();
+    // Must never expose the internal module.subfield machine key
+    expect(document.body.textContent).not.toMatch(/[a-z_]+\.[a-z_]+/);
+  });
+
+  it('should show real fieldLabel when provided', () => {
+    const proposal = createMockProposal({
+      module: 'Geography',
+      subfield: 'special_geo',
+    });
+
+    render(
+      <ProposalCard
+        proposal={proposal}
+        sessionId={mockSessionId}
+        onResolved={mockOnResolved}
+        fieldLabel="地理特征"
+      />
+    );
+
+    expect(screen.getByText('字段：地理特征')).toBeInTheDocument();
+    expect(screen.queryByText('字段：Geography.special_geo')).not.toBeInTheDocument();
   });
 });

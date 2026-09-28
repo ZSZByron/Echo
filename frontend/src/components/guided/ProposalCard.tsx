@@ -54,7 +54,7 @@ export function ProposalCard({
         )}
         <div className="flex-1">
           <div className="text-stardust-300 text-sm font-medium mb-1">
-            字段：{fieldLabel || `${proposal.module}.${proposal.subfield}`}
+            字段：{fieldLabel || '你刚才说的内容'}
           </div>
           {proposal.conflict_note && (
             <div className="text-cosmos-warning text-xs">
