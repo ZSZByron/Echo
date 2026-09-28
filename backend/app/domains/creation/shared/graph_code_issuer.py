@@ -5,7 +5,9 @@ Example: IP0142-M2-S1-v2
 
 Rules:
 - IP序号: 4位零填充 (IP0001), 每次new_ip递增, 废弃归档不回收
-- 阶段码: 封闭枚举 W/M/S/TD/TC/R/G (不允许添加或修改)
+- 阶段码: 封闭枚举 W/M/S/TD/TC/R/B/C/O/G
+  （2026-09-28 D22 施工翻案：B/C/O 三字母经产品方裁决加入（decision-log D22③）；
+  仍为封闭枚举，新字母须台账登记，不允许擅改）
 - 实例号: 同范围最大+1 (S在其父M内递增, 其余IP内递增)
 - 版本号: 同实例当前+1, 永不覆盖只追加
 
@@ -23,7 +25,8 @@ from pathlib import Path
 
 
 # ── Closed stage code enumeration ──────────────────────────────────────────
-# DO NOT add or modify these values.
+# 2026-09-28 D22 施工翻案：B/C/O 三字母经产品方裁决加入（decision-log D22③）。
+# 仍为封闭枚举，新字母须台账登记，DO NOT add or modify without a ledger entry.
 
 
 class StageCode(str, Enum):
@@ -31,13 +34,20 @@ class StageCode(str, Enum):
 
     W=Working  M=Module  S=Secondary(次级)
     TD=Template Dice  TC=Template Character
+    B=World Bible(世界圣经)  C=Character Codex(人物志)  O=Story Outline(故事大纲)
     R=Report  G=Graph
+
+    语义区分：C(人物志 Character Codex) ≠ TC(角色投影模板 Template Character)。
+    C 是 IP 定稿人物志正典文档；TC 是模板层的角色投影模板，二者互不相干。
     """
     WORKING = "W"
     MODULE = "M"
     SECONDARY = "S"
     TEMPLATE_DICE = "TD"
     TEMPLATE_CHARACTER = "TC"
+    BIBLE = "B"       # 世界圣经 World Bible（D22③）
+    CODEX = "C"       # 人物志 Character Codex（D22③）；C(人物志) ≠ TC(角色投影模板)
+    OUTLINE = "O"     # 故事大纲 Story Outline（D22③）
     REPORT = "R"
     GRAPH = "G"
 

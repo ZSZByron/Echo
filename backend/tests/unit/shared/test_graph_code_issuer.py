@@ -162,3 +162,53 @@ class TestConcurrentIssuance:
                 f.result()
         assert len(results) == 50
         assert all(v == 1 for v in results.values())
+
+
+# ---------- D22③ B/C/O stage codes (task-8) ----------
+
+
+class TestStageCodeBCO:
+    """2026-09-28 D22 施工翻案：B/C/O 三字母加入（decision-log D22③）。"""
+
+    def test_enum_members_exist(self):
+        assert StageCode.BIBLE.value == "B"
+        assert StageCode.CODEX.value == "C"
+        assert StageCode.OUTLINE.value == "O"
+
+    def test_bco_format_and_from_str_roundtrip(self):
+        for name, letter in ((StageCode.BIBLE, "B"), (StageCode.CODEX, "C"), (StageCode.OUTLINE, "O")):
+            gc = GraphCode(ip_seq=1, stage=name, instance_no=1, version=1)
+            assert gc.code == f"IP0001-{letter}1-v1"
+            assert StageCode.from_str(letter) is name
+
+    def test_bco_issuer_new_instance_each_time(self, tmp_db: str):
+        """B/C/O behave like M/TD/TC: new instance each time (W is the only version-bump stage)."""
+        iss = GraphCodeIssuer(tmp_db)
+        iss.new_ip("u1")
+        assert iss.next("u1", ip=1, stage="B") == "IP0001-B1-v1"
+        assert iss.next("u1", ip=1, stage="B") == "IP0001-B2-v1"
+        assert iss.next("u1", ip=1, stage="C") == "IP0001-C1-v1"
+        assert iss.next("u1", ip=1, stage="C") == "IP0001-C2-v1"
+        assert iss.next("u1", ip=1, stage="O") == "IP0001-O1-v1"
+        assert iss.next("u1", ip=1, stage="O") == "IP0001-O2-v1"
+
+    def test_from_str_error_lists_bco(self):
+        with pytest.raises(ValueError) as exc:
+            StageCode.from_str("X")
+        msg = str(exc.value)
+        for letter in ("B", "C", "O", "W", "M", "TD", "TC", "R", "G"):
+            assert letter in msg
+
+    def test_db_legacy_stages_no_bco_conflict(self, tmp_db: str):
+        """DB 存量回归：既有持久化 stage 值 ⊆ {W,M,S,TD,TC,R,G}，B/C/O 互不冲突。"""
+        legacy = {"W", "M", "S", "TD", "TC", "R", "G"}
+        assert not (legacy & {"B", "C", "O"}), "B/C/O must not collide with legacy persisted stages"
+        iss = GraphCodeIssuer(tmp_db)
+        iss.new_ip("u1")
+        for stage in sorted(legacy - {"S"}):
+            iss.next("u1", ip=1, stage=stage)
+        # mixed issuance must not produce duplicates
+        codes = set()
+        for stage in ("B", "C", "O"):
+            codes.add(iss.next("u1", ip=1, stage=stage))
+        assert codes == {"IP0001-B1-v1", "IP0001-C1-v1", "IP0001-O1-v1"}
