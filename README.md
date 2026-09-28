@@ -35,7 +35,7 @@ graphify —— 一次 LLM 调用，把全部自然语言答案编译为 SIR 五
 2. **图谱装配确定性**：LLM 只在 graphify 单点产出结构（SIR），图谱（KG）由确定性代码装配——同输入可复现，杜绝幻觉直写图谱。
 3. **诚实与可观测**：答案真值闸（占位词不污染数据）、warning ledger（截断/丢失全披露落库）、预算护栏（答案/prompt/convert 三级限额+留痕）。
 
-**权威文档**：[docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md](docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md) 及其加固补丁 [2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4](docs/governance/2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4.md)。
+**权威文档**：[docs/SYSTEM_DESIGN_SPEC_v6.md](docs/SYSTEM_DESIGN_SPEC_v6.md)（模块化架构规范正文，D14）+ [docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md](docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md) 及其加固补丁 [2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4](docs/governance/2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4.md)（管线契约经 v6 §0.2 继承声明继续有效）。
 
 ---
 
@@ -254,15 +254,16 @@ npx playwright test       # E2E
 
 | 文档 | 地位 |
 |------|------|
+| **[docs/HUB.md](docs/HUB.md)** | **总目录·唯一入口**（五大类索引——进度/决策/架构/治理/证据；嫌文档散就只看这页） |
 | [PROJECT_STATE.md](PROJECT_STATE.md) | **进度真相源**（唯一，每次会话更新） |
-| `docs/SYSTEM_DESIGN_SPEC_v5.md`（818 行） | 现行系统设计规范正文 |
-| `docs/SYSTEM_DESIGN_SPEC_v5.1.md`（259 行） | 现行规范增量补丁（与 v5 配套读） |
-| `docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md` | A1 唯一权威概念模型 |
+| `docs/decision-log.md` | 决策台账（D/B/P 编号唯一源，翻案须升版本号；最新 D21 综合立项 2026-09-27 + D20 补记） |
+| `docs/SYSTEM_DESIGN_SPEC_v6.md` | 现行系统设计规范正文（模块化架构，2026-09-22；v6.1 增补 2026-09-27，D20/D21） |
+| `docs/governance/2-A1-v0.5-内容图谱化统一模型与契约.md` | A1 权威概念模型（管线契约经 v6 §0.2 继续有效） |
 | `docs/governance/2-A1-v0.5.1-管线缺陷级联与修复接头J1-J4.md` | A1 加固记录（最新治理版） |
-| `docs/governance/0_index-v0.3.md` | 治理体系索引（最新版） |
-| `docs/README.md` | 文档中心 MOC（导航入口，2026-09-11 重写） |
+| `docs/governance/0_index-v0.7.md` | 治理体系索引（最新版） |
+| `docs/README.md` | 文档中心 MOC（导航入口） |
 
-> 版本规则：v1-v4 规格书为历史版本（六维管线时代，已移入 `docs/archive/`），现行规范 = **v5 + v5.1**。治理类文档一律"新版本顺延号新建文件，不修改原版"，参考时以最新版为准；过期版本移入对应 `archive/` 目录（规格书 → `docs/archive/`，治理文档 → `docs/governance/archive/`）。
+> 版本规则：v1–v5.1 规格书为历史版本（v1-v4 六维管线时代；v5/v5.1 阶段契约时代，2026-09-26 归档），现行规范 = **v6**（模块化架构，2026-09-22 起）。治理类文档一律"新版本顺延号新建文件，不修改原版"，参考时以最新版为准；过期版本移入对应 `archive/` 目录（规格书 → `docs/archive/`，治理文档 → `docs/governance/archive/`）。
 
 ---
 
