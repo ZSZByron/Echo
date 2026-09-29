@@ -10,6 +10,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
+import { ImpulseCompass } from '../../components/guided/ImpulseCompass';
+import { getImpulseCoords } from '../../api/a1';
+import type { ImpulseCoords } from '../../types/a1';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
 import { DimensionProgress } from '../../components/structured/DimensionProgress';
 import { PosterBoard } from '../../components/poster/PosterBoard';
@@ -336,6 +339,8 @@ export function A1Workspace() {
     (persisted.messages as Message[]) || []
   );
   const [file, setFile] = useState<StructuredFile | null>(null);
+  // D21-12 罗盘：坐标看板数据（挂载 GET 一次 + chat 后刷新；nudge 由组件内部处理）
+  const [compassCoords, setCompassCoords] = useState<ImpulseCoords | null>(null);
   const [progressSections, setProgressSections] = useState<Array<{ 
     id: string; 
     label: string; 
@@ -721,6 +726,20 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     }
   };
 
+  // D21-12 罗盘刷新（静默：端点不可达 → 组件渲染壳，不打扰访谈）
+  const refreshCompass = async (id: string) => {
+    try {
+      setCompassCoords(await getImpulseCoords(id));
+    } catch {
+      // 保留上一次坐标（或 null 壳）
+    }
+  };
+
+  // 挂载/换会话时 GET 一次罗盘坐标（无轮询）
+  useEffect(() => {
+    if (fileId) refreshCompass(fileId);
+  }, [fileId]);
+
   // Send chat message
   const sendMessage = async (text: string) => {
     if (!sessionId || isChatLoading) return;
@@ -790,6 +809,9 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       // C7: 待问提示卡 + 角标
       setPendingQuestion(response.pending_question ?? null);
       setPendingQuestionsCount(response.pending_questions_count ?? 0);
+
+      // D21-12：每次 chat 响应后轻量刷新罗盘坐标（复用本 fetch 时序，无轮询）
+      if (fileId) await refreshCompass(fileId);
 
       // D21 T10: 待对齐推测 → 消息流内卡片
       if (response.pending_alignments && response.pending_alignments.length > 0) {
@@ -1306,6 +1328,11 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
               sections={progressSections}
               className="glass-panel"
             />
+          )}
+
+          {/* D21-12 罗盘独立组件：访谈态常驻、全员显示（ux-flow §5.3） */}
+          {fileId && (
+            <ImpulseCompass fileId={fileId} coords={compassCoords} />
           )}
           
           {/* Innovations Module Display */}
