@@ -7,6 +7,9 @@
 
 import { useState, useEffect } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
+import { getDraftVersion } from '../../api/a1';
+import type { DraftVersion } from '../../types/a1';
+import { posterBadge } from '../../labels/draftBadge';
 import { PosterBoard } from '../../components/poster/PosterBoard';
 import '../../components/theme.css';
 
@@ -38,14 +41,24 @@ export function IPPoster() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [visualBgIndex, setVisualBgIndex] = useState(0);
-  
+  // T11: α draft-version badge — in-memory only; endpoint no-data / network
+  // error → null → degraded 「草稿」 label, never a fabricated version number.
+  const [draftVersion, setDraftVersion] = useState<DraftVersion | null>(null);
+
   // Get fileId from URL search params
   const getFileId = (): string | null => {
     const params = new URLSearchParams(window.location.search);
     return params.get('fileId');
   };
-  
+
   const fileId = getFileId();
+
+  useEffect(() => {
+    if (!fileId) return;
+    getDraftVersion(fileId)
+      .then(setDraftVersion)
+      .catch(() => setDraftVersion(null));
+  }, [fileId]);
   
   useEffect(() => {
     if (!fileId) {
@@ -88,6 +101,16 @@ export function IPPoster() {
     localStorage.setItem('a1_return_intent', 'chat');
     window.location.href = '/a1';
   };
+
+  // T11: α 草稿版本徽标（三态纯函数判定，见 labels/draftBadge.ts）
+  const draftBadgeNode = (
+    <span
+      data-testid="poster-draft-badge"
+      className="px-2 py-0.5 rounded bg-cosmos-warning/10 border border-cosmos-warning/30 text-cosmos-warning text-xs whitespace-nowrap"
+    >
+      {posterBadge(draftVersion, !!posterData)}
+    </span>
+  );
 
   const handleGenerateImage = async () => {
     if (!fileId || isGenerating) return;
@@ -177,6 +200,7 @@ export function IPPoster() {
         <div className="glass-panel max-w-2xl w-full p-8 bg-cosmos-error/10 border-cosmos-error/30">
           <h2 className="text-cosmos-error text-xl font-medium mb-4">加载展示板失败</h2>
           <p className="text-gray-300 mb-6">{error || '无法加载展示板数据'}</p>
+           {draftBadgeNode}
            <button
              onClick={handleBackToWorkspace}
              className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
@@ -257,6 +281,7 @@ export function IPPoster() {
               <h1 className="text-stardust-300 text-xl font-medium glow-starlight">IP Poster</h1>
               <p className="text-void-500 text-sm">Full showcase display</p>
             </div>
+            {draftBadgeNode}
           </div>
 
            <button

@@ -16,6 +16,7 @@ import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation, WarningLedgerEntry } from '../../types/a1';
 import type { OpenQuestionRecord } from '../../pages/a1/A1Workspace';
 import { relationLabel, translateRelationInProse } from '../../labels/relationLabel';
+import { draftStaleBarLabel } from '../../labels/draftBadge';
 
 interface A1GraphSectionProps {
   fileId: string;
@@ -668,7 +669,7 @@ export function A1GraphSection({
             className="glass-panel px-4 py-2 bg-cosmos-warning/10 border-cosmos-warning/30 rounded-lg hover:bg-cosmos-warning/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="text-cosmos-warning font-medium">
-              ⚠ 设定已更新——点此重新定稿查看新图（当前 v{version}）
+              ⚠ {draftStaleBarLabel(version)}
             </span>
           </button>
         </div>

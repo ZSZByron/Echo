@@ -134,6 +134,19 @@ describe('A1GraphSection - Status Badge (Mechanism 1)', () => {
       expect(screen.getByText(/设定已更新/)).toBeInTheDocument();
     });
   });
+
+  it('T11: stale bar copy carries the α draft-phase marker', async () => {
+    const mockGraph: KnowledgeGraph = { scene_id: 'test-scene', nodes: {}, edges: [] };
+    vi.mocked(fetchJson).mockResolvedValue(mockGraph);
+
+    render(<A1GraphSection fileId={mockFileId} returnToChat={mockReturnToChat} version={2} isStale={true} />);
+
+    await waitFor(() => {
+      const staleBar = screen.getByText(/设定已更新/);
+      expect(staleBar.textContent).toContain('α');
+      expect(staleBar.textContent).toContain('v2');
+    });
+  });
 });
 
 describe('A1GraphSection - One-Click Refinalize', () => {
