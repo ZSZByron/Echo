@@ -21,7 +21,7 @@ import { NostalgiaConfirmPage } from './impulse/NostalgiaConfirmPage';
 import { groupSeedsByType } from './impulse/seedGrouping';
 import { logImpulseEvent, attachSessionId } from './impulse/telemetry';
 import { IMPULSE_CARDS, type ImpulseTypeId } from './impulse/impulseCards.config';
-import type { A1Proposal } from '../../types/a1';
+import type { A1Proposal, AlignmentItem } from '../../types/a1';
 import { plainQuestion } from '../../labels/plainQuestion';
 import '../../components/theme.css';
 
@@ -103,6 +103,10 @@ interface ChatResponse {
   pending_question?: { id: string; question: string } | null;
   /** C7: 待问总数（状态角标「待问 N」） */
   pending_questions_count?: number;
+  /** D21 T10: 待对齐推测列表（消息流内卡片） */
+  pending_alignments?: AlignmentItem[];
+  /** D21 T10: 收尾信号（closing 三问流程指示） */
+  closing?: boolean;
 }
 
 /** T17+P0: open_questions 结构化记录契约（后端 C6：禁裸 list[str]） */
@@ -347,6 +351,8 @@ export function A1Workspace() {
   // C7: 待问开放问题提示卡 + 状态角标
   const [pendingQuestion, setPendingQuestion] = useState<{ id: string; question: string } | null>(null);
   const [pendingQuestionsCount, setPendingQuestionsCount] = useState(0);
+// D21 T10: 待对齐推测列表（chat 响应 pending_alignments → GuidedChat 卡片）
+const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
   // 去回答闭环：从服务端 file data 提升的归一化 open_questions（chat 实时值优先）
   const [openQuestions, setOpenQuestions] = useState<OpenQuestionRecord[]>([]);
   // stale fileId 恢复：一次性提示条（后端重启导致旧会话 404）
@@ -785,6 +791,11 @@ export function A1Workspace() {
       setPendingQuestion(response.pending_question ?? null);
       setPendingQuestionsCount(response.pending_questions_count ?? 0);
 
+      // D21 T10: 待对齐推测 → 消息流内卡片
+      if (response.pending_alignments && response.pending_alignments.length > 0) {
+        setPendingAlignments(response.pending_alignments);
+      }
+
       // Handle classification proposal
       if (response.classification_proposal) {
         setClassificationProposal(response.classification_proposal);
@@ -823,6 +834,10 @@ export function A1Workspace() {
       }]);
       setPendingQuestion(response.pending_question ?? null);
       setPendingQuestionsCount(response.pending_questions_count ?? 0);
+      // D21 T10: skip 路径同样可能携带待对齐推测
+      if (response.pending_alignments && response.pending_alignments.length > 0) {
+        setPendingAlignments(response.pending_alignments);
+      }
     } catch (err) {
       console.error('Failed to skip question:', err);
       setError('Failed to skip question. Please try again.');
@@ -1274,6 +1289,8 @@ export function A1Workspace() {
             pendingQuestion={pendingQuestion}
             pendingQuestionsCount={pendingQuestionsCount}
             onSkipQuestion={skipPendingQuestion}
+            alignments={pendingAlignments}
+            fileId={fileId || ''}
           />
         </div>
         

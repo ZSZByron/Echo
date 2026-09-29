@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import '../theme.css';
-import type { A1Proposal } from '../../types/a1';
+import type { A1Proposal, AlignmentItem } from '../../types/a1';
 import { ProposalCard } from './ProposalCard';
 import { ProposalTray } from './ProposalTray';
+import { AlignmentCard } from './AlignmentCard';
+import { resolveAlignment } from '../../api/a1';
 import { translateRelationInProse } from '../../labels/relationLabel';
 
 export interface DiceRecommendation {
@@ -46,6 +48,10 @@ export interface GuidedChatProps {
   pendingQuestionsCount?: number;
   /** C7: 跳过当前待问问题 */
   onSkipQuestion?: (id: string) => void;
+  /** D21 T10: pending alignment proposals from chat response (`pending_alignments`) */
+  alignments?: AlignmentItem[];
+  /** D21 T10: file id for alignment resolve API calls */
+  fileId?: string;
 }
 
 function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
@@ -87,11 +93,21 @@ export function GuidedChat({
   onProposalResolved,
   pendingQuestion = null,
   pendingQuestionsCount = 0,
-  onSkipQuestion
+  onSkipQuestion,
+  alignments = [],
+  fileId = ''
 }: GuidedChatProps) {
   const [input, setInput] = useState('');
   const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
   const [displayProposals, setDisplayProposals] = useState<A1Proposal[]>([]);
+  // D21 T10: local alignment list — synced from prop, removed on resolve
+  const [alignmentItems, setAlignmentItems] = useState<AlignmentItem[]>(alignments);
+  // D21 T10: inline idempotent hint after a not_found resolve (no error popup)
+  const [alignmentStaleHint, setAlignmentStaleHint] = useState(false);
+
+  useEffect(() => {
+    setAlignmentItems(alignments);
+  }, [alignments]);
 
   // Split proposals: first 3 go to display, rest to tray
   useState(() => {
@@ -145,6 +161,21 @@ export function GuidedChat({
     }
   };
 
+  // D21 T10: resolve an alignment — remove card; not_found also removes with
+  // an inline hint (idempotent path, no error popup)
+  const handleAlignmentResolved = async (key: string, accept: boolean) => {
+    if (!fileId) return;
+    try {
+      const res = await resolveAlignment(fileId, key, accept);
+      setAlignmentItems(prev => prev.filter(a => a.key !== key));
+      if (!res.applied && res.error === 'not_found') {
+        setAlignmentStaleHint(true);
+      }
+    } catch (err) {
+      console.error('Failed to resolve alignment:', err);
+    }
+  };
+
   // Suspend next_question when proposals are present
   const showSuspendedMessage = displayProposals.length > 0;
 
@@ -187,6 +218,23 @@ export function GuidedChat({
             />
           </div>
         ))}
+
+        {/* D21 T10: alignment proposal cards (inline with messages) */}
+        {alignmentItems.map(item => (
+          <div key={item.key} className="flex justify-start">
+            <AlignmentCard item={item} onResolve={handleAlignmentResolved} />
+          </div>
+        ))}
+
+        {/* D21 T10: idempotent hint when a card was already handled elsewhere */}
+        {alignmentStaleHint && (
+          <div
+            data-testid="alignment-stale-hint"
+            className="text-center text-void-400 text-xs py-2"
+          >
+            这条已经处理过了
+          </div>
+        )}
 
         {/* Suspended message placeholder */}
         {showSuspendedMessage && (
