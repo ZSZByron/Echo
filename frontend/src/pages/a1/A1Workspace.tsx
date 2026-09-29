@@ -11,8 +11,9 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
 import { ImpulseCompass } from '../../components/guided/ImpulseCompass';
-import { getImpulseCoords } from '../../api/a1';
-import type { ImpulseCoords } from '../../types/a1';
+import { ClosingPanel } from '../../components/guided/ClosingPanel';
+import { getImpulseCoords, getClosingState } from '../../api/a1';
+import type { ImpulseCoords, ClosingState } from '../../types/a1';
 import { StructuredFilePanel, type DiffChange, type StructuredFile } from '../../components/structured/StructuredFilePanel';
 import { DimensionProgress } from '../../components/structured/DimensionProgress';
 import { PosterBoard } from '../../components/poster/PosterBoard';
@@ -108,8 +109,8 @@ interface ChatResponse {
   pending_questions_count?: number;
   /** D21 T10: 待对齐推测列表（消息流内卡片） */
   pending_alignments?: AlignmentItem[];
-  /** D21 T10: 收尾信号（closing 三问流程指示） */
-  closing?: boolean;
+  /** D21 T10/T9: 收尾信号 {step, settled, triggered}（_closing_signal 形状） */
+  closing?: { step: number; settled: boolean; triggered: boolean };
 }
 
 /** T17+P0: open_questions 结构化记录契约（后端 C6：禁裸 list[str]） */
@@ -341,6 +342,13 @@ export function A1Workspace() {
   const [file, setFile] = useState<StructuredFile | null>(null);
   // D21-12 罗盘：坐标看板数据（挂载 GET 一次 + chat 后刷新；nudge 由组件内部处理）
   const [compassCoords, setCompassCoords] = useState<ImpulseCoords | null>(null);
+  // D21 T9: 收尾三连问 — closing-state 快照（挂载/换会话 GET + chat 信号刷新）
+  const [closingState, setClosingState] = useState<ClosingState | null>(null);
+  // chat 响应的 closing 信号（即时桥接；closing-state 刷新到位前也可见）
+  const [closingSignal, setClosingSignal] = useState<{
+    triggered: boolean;
+    settled: boolean;
+  } | null>(null);
   const [progressSections, setProgressSections] = useState<Array<{ 
     id: string; 
     label: string; 
@@ -740,6 +748,20 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     if (fileId) refreshCompass(fileId);
   }, [fileId]);
 
+  // D21 T9: 收尾状态刷新（静默降级：端点不可达 → 面板不出现，不崩溃）
+  const refreshClosing = async (id: string) => {
+    try {
+      setClosingState(await getClosingState(id));
+    } catch {
+      setClosingState(null);
+    }
+  };
+
+  // 刷新恢复：closing_step 持久化在服务端 → 换会话/刷新后 triggered 面板直接回来
+  useEffect(() => {
+    if (fileId) refreshClosing(fileId);
+  }, [fileId]);
+
   // Send chat message
   const sendMessage = async (text: string) => {
     if (!sessionId || isChatLoading) return;
@@ -813,6 +835,12 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       // D21-12：每次 chat 响应后轻量刷新罗盘坐标（复用本 fetch 时序，无轮询）
       if (fileId) await refreshCompass(fileId);
 
+      // D21 T9: 收尾信号 → 即时显示面板 + 拉取 closing-state 快照（preview 数据源）
+      if (response.closing) {
+        setClosingSignal({ triggered: response.closing.triggered, settled: response.closing.settled });
+        if (fileId) void refreshClosing(fileId);
+      }
+
       // D21 T10: 待对齐推测 → 消息流内卡片
       if (response.pending_alignments && response.pending_alignments.length > 0) {
         setPendingAlignments(response.pending_alignments);
@@ -859,6 +887,11 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       // D21 T10: skip 路径同样可能携带待对齐推测
       if (response.pending_alignments && response.pending_alignments.length > 0) {
         setPendingAlignments(response.pending_alignments);
+      }
+      // D21 T9: skip 路径同样可能触发收尾信号
+      if (response.closing) {
+        setClosingSignal({ triggered: response.closing.triggered, settled: response.closing.settled });
+        if (fileId) void refreshClosing(fileId);
       }
     } catch (err) {
       console.error('Failed to skip question:', err);
@@ -1383,6 +1416,16 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
 
           {/* Fixed footer: Finalize button always visible */}
           <div className="p-6 border-t border-white/5 bg-space-900/70 backdrop-blur-sm space-y-2">
+            {/* D21-08 收尾三连问面板：closing 触发 → 显式动作入口（与聊天输入并存，不互斥） */}
+            <ClosingPanel
+              triggered={
+                ((closingState?.triggered ?? false) && !(closingSignal?.settled ?? false)) ||
+                (closingSignal?.triggered ?? false)
+              }
+              consumers={closingState?.preview.consumers ?? []}
+              onFinalize={finalizeFile}
+              onContinue={() => setClosingSignal({ triggered: false, settled: false })}
+            />
             <button
               onClick={finalizeFile}
               disabled={!finalizable || isChatLoading}
