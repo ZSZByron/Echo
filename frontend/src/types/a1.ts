@@ -1,4 +1,154 @@
 /**
+ * D21 frontend-phase types (plan task T7).
+ *
+ * Field-for-field alignment with backend responses:
+ * - ClosingState / ClosingPreview → a1_routes.get_closing_state (L1163) +
+ *   closing_gate.build_output_preview (L209-240)
+ * - AlignmentItem → a1_routes._pending_alignments_payload (L1129-1147)
+ * - ResolveAlignmentResponse → a1_routes.alignment_resolve (L1186-1205)
+ * - ImpulseSignalResponse → a1_routes.post_impulse_signal (L1221-1244)
+ * - DraftVersion → a1_routes.get_draft_version (L1247-1267) +
+ *   draft_version.draft_label (baseline/round are ints)
+ * - ImpulseCoords → a1_routes.get_impulse_coords (L1058-1070) +
+ *   impulse_coords.dashboard_data (L322-331)
+ *
+ * NOTE: chat-response closing signal uses `step`/`settled` keys
+ * (_closing_signal, L1150-1160) — distinct from ClosingState's
+ * `closing_step`/`closing_settled`. Kept as separate shapes on purpose.
+ */
+
+/** D21⑩ user nudge signal — closed whitelist (a1_routes L1216-1218). */
+export type NudgeSignal =
+  | "user_nudge_story"
+  | "user_nudge_builder"
+  | "user_nudge_confirm";
+
+/** Downstream consumer artifact registered against a finalized graph. */
+export interface ConsumerArtifact {
+  id: string;
+  kind: string;
+}
+
+/** Dual-condition closing gate breakdown (closing_gate.closing_status L65-72). */
+export interface ClosingStatus {
+  questions_complete: boolean;
+  pending_count: number;
+  complete: boolean;
+}
+
+/** Per-module coverage row (closing_gate._coverage L150-158). */
+export interface ModuleCoverage {
+  module_id: string;
+  done_ratio: number;
+  done_fields: number;
+  total_fields: number;
+}
+
+/** A subfield gap in the recipe (closing_gate._gap_list L173-178). */
+export interface OutputGap {
+  module_id: string;
+  field: string;
+  key: string;
+  label: string;
+}
+
+/** Version chain projection (closing_gate L239-246); null when no graph yet. */
+export interface VersionChain {
+  graph_code: string | null;
+  ip_code: string | null;
+  instance_no: number | null;
+  version: number | null;
+  superseded_by: string | null;
+  status: string;
+}
+
+/** Output preview — the closing question's single data source (9 keys). */
+export interface ClosingPreview {
+  file_id: string;
+  exists: boolean;
+  closing: ClosingStatus;
+  module_coverage: ModuleCoverage[];
+  gaps: OutputGap[];
+  version_chain: VersionChain | null;
+  stale: boolean;
+  stale_warning: string | null;
+  consumers: ConsumerArtifact[];
+}
+
+/** GET /api/a1/file/{id}/closing-state response. */
+export interface ClosingState {
+  file_id: string;
+  closing_step: number;
+  closing_settled: boolean;
+  triggered: boolean;
+  preview: ClosingPreview;
+}
+
+/** A pending alignment proposal in the chat response (`pending_alignments`). */
+export interface AlignmentItem {
+  key: string;
+  action: "link" | "dedupe" | "contradict" | "update";
+  content: string;
+  quote: string;
+  stale_warning: string[];
+}
+
+/** POST /api/a1/file/{id}/alignment/{key}/resolve response. */
+export interface ResolveAlignmentResponse {
+  applied: boolean;
+  accept: boolean;
+  /** "not_found" when the key is stale/unknown (still HTTP 200). */
+  error?: string;
+}
+
+/** POST /api/a1/file/{id}/impulse-coords/signal response. */
+export interface ImpulseSignalResponse {
+  file_id: string;
+  session_id: string;
+  applied: boolean;
+  axis: number;
+  confidence: number;
+}
+
+/**
+ * GET /api/a1/file/{id}/draft-version response.
+ * `version` comes from draft_label(): "α0.{round}" or "α0.{round}{n}".
+ */
+export type DraftVersion =
+  | { available: false }
+  | { available: true; version: string; baseline: number; round: number };
+
+/** One audit-trail entry (impulse_coords audit append sites L168-239). */
+export interface ImpulseAuditEntry {
+  round: number;
+  signal: string;
+  key: string;
+  axis_before: number;
+  confidence_before: number;
+  applied: boolean;
+  axis_after: number;
+  confidence_after: number;
+  /** Present only on applied entries. */
+  axis_delta?: number;
+  /** Present only on safety-raise entries. */
+  reason?: string;
+}
+
+/** GET /api/a1/file/{id}/impulse-coords dashboard response. */
+export interface ImpulseCoords {
+  file_id: string;
+  session_id: string;
+  axis: number;
+  confidence: number;
+  safety_flag: boolean;
+  anchor: number;
+  anchor_source: string;
+  adjustments: number;
+  reorder_count: number;
+  audit: ImpulseAuditEntry[];
+}
+
+/**
  * A1 Guided Review — Concept Network types
  *
  * Backend model correspondence:

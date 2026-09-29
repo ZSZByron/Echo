@@ -9,7 +9,15 @@
  */
 
 import { fetchWithTimeout, fetchJson } from "./client";
-import type { ConceptTerm } from "../types/a1";
+import type {
+  ConceptTerm,
+  ClosingState,
+  ResolveAlignmentResponse,
+  ImpulseSignalResponse,
+  DraftVersion,
+  ImpulseCoords,
+  NudgeSignal,
+} from "../types/a1";
 
 const A1_BASE = "/api/a1";
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -174,4 +182,97 @@ export async function extractConceptRelations(
       timeoutMs: 180_000,
     }
   );
+}
+
+// ---------------------------------------------------------------------------
+// D21 endpoints (plan task T7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Closing-question state snapshot (zero LLM, pure projection).
+ * GET /api/a1/file/{fileId}/closing-state
+ *
+ * Uses fetchWithTimeout: a 404 (unknown file) surfaces as the degraded
+ * Error("HTTP 404") — call sites only need pass/fail here.
+ */
+export async function getClosingState(fileId: string): Promise<ClosingState> {
+  const res = await fetchWithTimeout(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/closing-state`,
+    { method: "GET" }
+  );
+  return (await res.json()) as ClosingState;
+}
+
+/**
+ * Resolve (accept/discard) a pending alignment proposal.
+ * POST /api/a1/file/{fileId}/alignment/{key}/resolve  body {accept}
+ *
+ * Uses fetchJson so HTTP failures throw ApiError with .status — resolve
+ * panels distinguish 404 (stale file) from network errors. A stale/unknown
+ * key is NOT an HTTP error: backend returns 200 + {applied:false, error:"not_found"}.
+ */
+export async function resolveAlignment(
+  fileId: string,
+  key: string,
+  accept: boolean
+): Promise<ResolveAlignmentResponse> {
+  return fetchJson<ResolveAlignmentResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/alignment/${encodeURIComponent(key)}/resolve`,
+    {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ accept }),
+    }
+  );
+}
+
+/**
+ * User nudge signal for the impulse coords (three-value discrete buttons).
+ * POST /api/a1/file/{fileId}/impulse-coords/signal  body {signal}
+ *
+ * Illegal signal → 400 ApiError (compile-time union prevents it; runtime
+ * guard kept server-side). Guardrail damping (per-session cap / cooldown)
+ * is a 200 + applied=false — honest passthrough, no error.
+ */
+export async function nudgeCoords(
+  fileId: string,
+  signal: NudgeSignal
+): Promise<ImpulseSignalResponse> {
+  return fetchJson<ImpulseSignalResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/impulse-coords/signal`,
+    {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ signal }),
+    }
+  );
+}
+
+/**
+ * In-session draft version label ("α0.1" / "α0.11" style).
+ * GET /api/a1/file/{fileId}/draft-version
+ *
+ * Outside draft phase → {available:false}; unknown file → degraded 404 Error.
+ */
+export async function getDraftVersion(fileId: string): Promise<DraftVersion> {
+  const res = await fetchWithTimeout(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/draft-version`,
+    { method: "GET" }
+  );
+  return (await res.json()) as DraftVersion;
+}
+
+/**
+ * Impulse coords dashboard (three-piece + audit trail, read-only).
+ * GET /api/a1/file/{fileId}/impulse-coords
+ *
+ * First frontend reference to this pre-existing endpoint. Legacy sessions
+ * are lazily initialized server-side (deterministic lookup, no LLM).
+ */
+export async function getImpulseCoords(fileId: string): Promise<ImpulseCoords> {
+  const res = await fetchWithTimeout(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/impulse-coords`,
+    { method: "GET" }
+  );
+  return (await res.json()) as ImpulseCoords;
 }
