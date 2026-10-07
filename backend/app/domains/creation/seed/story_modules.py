@@ -149,6 +149,8 @@ M11_CHARACTER: StoryModule = {
             "question": "TA 与谁的关系最要命？",
             "hint": "2-3 段塑造性的关系：家人/对手/亏欠的人。",
             "example": "如：与叛出师门的师姐互为唯一软肋",
+            # D23：多值字段声明——complement relation 在此字段追加子条目。
+            "multi": True,
         },
         {
             "id": "arc_direction",

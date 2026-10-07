@@ -17,12 +17,12 @@ module has been answered or skipped.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domains.creation.a1 import draft_version
-from app.domains.creation.a1 import graph_digest
+from app.domains.creation.a1 import draft_version, graph_digest
 from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.interviewer import (
     Interviewer,
@@ -30,14 +30,6 @@ from app.domains.creation.a1.interviewer import (
     Proposal,
 )
 from app.domains.creation.a1.open_questions import OpenQuestion
-from app.domains.creation.shared.module_registry import (
-    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
-    MODULE_POOL,
-    RECIPES,
-    TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
-    TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
-    resolve_recipe_id,
-)
 from app.domains.creation.seed.a1_question_tree import (
     ANSWER_MAX_CHARS,
     all_subfield_keys,
@@ -51,6 +43,14 @@ from app.domains.creation.seed.a1_question_tree import (
     is_truthy_answer,
     module_ids,
     subs_for_module,
+)
+from app.domains.creation.shared.module_registry import (
+    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    MODULE_POOL,
+    RECIPES,
+    TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
+    TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
+    resolve_recipe_id,
 )
 from app.domains.creation.shared.semantic_compiler import (
     ClassificationProposal,
@@ -81,7 +81,7 @@ FIELD_SOURCES: frozenset[str] = frozenset({
 })
 
 
-def mark_field_source(session: "A1Session", key: str, source: str) -> None:
+def mark_field_source(session: A1Session, key: str, source: str) -> None:
     """Tag one answer key with its write source (auto-mark, 都标自动标).
 
     Raises ValueError on a source outside the closed enum — a typo must
@@ -93,7 +93,7 @@ def mark_field_source(session: "A1Session", key: str, source: str) -> None:
 
 
 def apply_dice_recommendation(
-    session: "A1Session", key: str, value: str
+    session: A1Session, key: str, value: str
 ) -> bool:
     """Outlet 4：骰子推荐按钮写入（确定性 apply 函数即单点接线）。
 
@@ -186,6 +186,119 @@ def _initial_subfield() -> str:
     return sf["id"]
 
 
+class AnswerNode(BaseModel):
+    """D23 层级答案条目：多值字段的树形承载（G3 零迁移——存量 str 答案
+    读取时按需晋升，落库形态仍以 answer_view 渲染为单串）。"""
+
+    text: str = ""
+    children: list[AnswerNode] = Field(default_factory=list)
+    source: str = ""
+
+
+def answer_view(value: str | AnswerNode) -> str:
+    """C11 渲染确定性：str 直通；node = 非空片段按深度优先序「；」连接。
+
+    渲染纯函数（同输入同输出，无状态）；空 text/空 children 片段跳过。
+    """
+    if isinstance(value, str):
+        return value
+    parts: list[str] = []
+    if value.text.strip():
+        parts.append(value.text)
+    for child in value.children:
+        rendered = answer_view(child)
+        if rendered.strip():
+            parts.append(rendered)
+    return "；".join(parts)
+
+
+def is_multi_value(module_id: str, subfield_id: str) -> bool:
+    """D23：多值字段判定（数据驱动——SubField.multi，story_modules 声明）。"""
+    sf = get_subfield(module_id, subfield_id)
+    return bool(sf.get("multi")) if sf else False
+
+
+def _find_child_by_prefix(node: AnswerNode, target: str) -> AnswerNode | None:
+    """D23 equivalent merge_target 定位：开头文字前缀匹配（取 12 字）。"""
+    t = (target or "").strip()
+    if not t:
+        return None
+    prefix = t[:12]
+    for child in node.children:
+        if child.text.strip().startswith(prefix):
+            return child
+    return None
+
+
+def _node_contains_exact(node: AnswerNode, value: str) -> bool:
+    """Branch 2 节点版同值短路：node 任一层（含递归 children）精确等于 value。"""
+    if node.text == value:
+        return True
+    return any(_node_contains_exact(c, value) for c in node.children)
+
+
+def proposal_question_text(
+    label: str, old: str, new: str, conflict_note: str = ""
+) -> str:
+    """三选一提案模板问句（单源——两处调用点共用，输出逐字节一致）。"""
+    conflict_part = f"（{conflict_note}）" if conflict_note else ""
+    return (
+        f"你之前定过【{label}】是『{old}』{conflict_part}。"
+        f"这次的『{new}』——是要**替换**它，"
+        f"还是两者**合并**（同一条里都保留），"
+        f"还是先**放弃**这条修改？"
+    )
+
+
+_AUTO_MERGE_LOG_CAP = 20  # 滚动上限：轻量披露不无限膨胀
+
+
+def _record_auto_merge(
+    session: A1Session,
+    key: str,
+    sf: dict[str, Any] | None,
+    prev: Any,
+    new: str,
+    merged: str,
+    direct_key: str,
+) -> str:
+    """D23 记录一次自动合并（轻量披露 + 可撤销），返回 undo token。
+
+    prev 必须是调用方传入的深拷贝快照（model_copy(deep=True) 或 str 原值
+    ——str 不可变天然快照）；此处不做拷贝。
+    """
+    token = uuid.uuid4().hex[:12]
+    label = sf["label"] if sf else key.split(".")[-1]
+    session.auto_merge_log.append({
+        "token": token,
+        "field_key": key,
+        "label": label,
+        "old": answer_view(prev),
+        "new": new,
+        "merged": merged,
+    })
+    if len(session.auto_merge_log) > _AUTO_MERGE_LOG_CAP:
+        session.auto_merge_log = session.auto_merge_log[-_AUTO_MERGE_LOG_CAP:]
+    session.merge_undo[token] = {"key": key, "prev": prev}
+    mark_field_source(
+        session, key,
+        FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
+    )
+    return token
+
+
+def undo_auto_merge(session: A1Session, token: str) -> dict[str, Any]:
+    """D23 撤销一次自动合并（幂等：未知/已撤销 token → restored=False）。"""
+    snap = session.merge_undo.pop(token, None)
+    if snap is None:
+        return {"restored": False, "error": "not_found"}
+    session.answers[snap["key"]] = snap["prev"]
+    session.auto_merge_log = [
+        r for r in session.auto_merge_log if r["token"] != token
+    ]
+    return {"restored": True, "field_key": snap["key"]}
+
+
 class A1Session(BaseModel):
     """A1 guided-session state (10 modules x subfields, sequential)."""
 
@@ -194,7 +307,9 @@ class A1Session(BaseModel):
     ip_code: str = ""
     current_module: str = Field(default_factory=lambda: first_module()["id"])
     current_subfield: str = Field(default_factory=_initial_subfield)
-    answers: dict[str, str] = Field(default_factory=dict)
+    # D23：答案值支持 str | AnswerNode（层级条目；存量 str 零迁移 G3——
+    # 读取面统一经 answer_view 渲染，落库/门禁行为不变）。
+    answers: dict[str, str | AnswerNode] = Field(default_factory=dict)
     phase: str = PHASE_ASKING
     # Seed context (chosen preset or custom idea) — injected into the
     # interviewer prompt so the LLM guides consistently with the seed.
@@ -281,6 +396,11 @@ class A1Session(BaseModel):
     draft_alpha: dict[str, int] = Field(
         default_factory=lambda: draft_version.new_draft_state()
     )
+    # D23 自动合并轻量披露账本（等价合并不确认、可撤销——须披露可观测）。
+    # default [] 零迁移（G3 先例）。
+    auto_merge_log: list[dict[str, Any]] = Field(default_factory=list)
+    # D23 自动合并撤销快照：token → {"key","prev"(深拷贝)}。default {} 零迁移。
+    merge_undo: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def first_question() -> dict[str, Any]:
@@ -469,7 +589,17 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
         applied = True
     elif choice == "merge":
         old_val = session.answers.get(field_key, proposal.old)
-        session.answers[field_key] = f"{old_val}；{proposal.new}"
+        if is_multi_value(proposal.module, proposal.subfield):
+            # D23：多值字段 merge = 晋升层级条目并追加子条目（不拼串）。
+            node = (
+                old_val
+                if isinstance(old_val, AnswerNode)
+                else AnswerNode(text=old_val)
+            )
+            node.children.append(AnswerNode(text=proposal.new))
+            session.answers[field_key] = node
+        else:
+            session.answers[field_key] = f"{old_val}；{proposal.new}"
         session.merge_counts[field_key] = session.merge_counts.get(field_key, 0) + 1
         applied = True
     elif choice == "drop":
@@ -549,6 +679,11 @@ def _proposal_key(module: str, subfield: str, new: str) -> str:
     return f"{module}.{subfield}:{h}"
 
 
+def _fill_diff(label: str, module: str, old_v: str, new_v: str) -> dict[str, Any]:
+    """D23：自动合并 file_diff 条目（与拦截/直写条目同构）。"""
+    return {"field": label, "module": module, "section": label, "old": old_v, "new": new_v}
+
+
 def _apply_fills(
     session: A1Session, fills: list[InterviewFill]
 ) -> tuple[list[dict[str, Any]], list[Proposal]]:
@@ -606,6 +741,9 @@ def _apply_fills(
         # Branch 2: skip — same value
         if old and old == fill_value:
             continue
+        # D23 Branch 2 节点版：层级条目任一层已精确含该值 → 同值短路
+        if isinstance(old, AnswerNode) and _node_contains_exact(old, fill_value):
+            continue
 
         # Branch 3: intercept — non-empty and different
         if old and old != fill_value:
@@ -628,12 +766,74 @@ def _apply_fills(
                     FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
                 )
                 continue
+            # ---- D23 语义分流（LLM 判定 relation，引擎确定性消费）----
+            # relation 缺失/None/未知 → 落到现行拦截行为（逐字节不变）。
+            relation = (getattr(fill, "relation", "") or "").strip().lower()
+            label = sf["label"] if sf else fill.subfield
+
+            if relation == "equivalent":
+                if isinstance(old, AnswerNode) and (fill.merge_target or "").strip():
+                    child = _find_child_by_prefix(old, fill.merge_target)
+                    if child is not None:
+                        prev_snapshot = old.model_copy(deep=True)
+                        merged = (fill.merged_value or "").strip() or fill_value
+                        _record_auto_merge(
+                            session, key, sf, prev_snapshot, fill_value,
+                            merged, direct_key,
+                        )
+                        child.text = merged
+                        file_diff.append(
+                            _fill_diff(
+                                label, fill.module, answer_view(prev_snapshot), merged
+                            )
+                        )
+                        continue
+                    # merge_target miss → fall through to whole-field merge
+                prev_snapshot = (
+                    old.model_copy(deep=True) if isinstance(old, AnswerNode) else old
+                )
+                merged = (
+                    (fill.merged_value or "").strip()
+                    or f"{answer_view(prev_snapshot)}；{fill_value}"
+                )
+                _record_auto_merge(
+                    session, key, sf, prev_snapshot, fill_value, merged, direct_key
+                )
+                session.answers[key] = merged
+                file_diff.append(
+                    _fill_diff(label, fill.module, answer_view(prev_snapshot), merged)
+                )
+                continue
+            if relation == "complement" and is_multi_value(fill.module, fill.subfield):
+                node = old if isinstance(old, AnswerNode) else AnswerNode(text=old)
+                if len(node.children) < 6:
+                    prev_snapshot = (
+                        old.model_copy(deep=True)
+                        if isinstance(old, AnswerNode)
+                        else old
+                    )
+                    node.children.append(AnswerNode(text=fill_value))
+                    _record_auto_merge(
+                        session, key, sf, prev_snapshot, fill_value,
+                        answer_view(node), direct_key,
+                    )
+                    session.answers[key] = node
+                    file_diff.append(
+                        _fill_diff(
+                            label, fill.module,
+                            answer_view(prev_snapshot), answer_view(node),
+                        )
+                    )
+                    continue
+                # children >= 6 → falls through to proposal (cap, 拍板 4)
+            # conflict / complement-scalar / missing / unknown → 现行三选一拦截
             proposal = Proposal(
                 module=fill.module,
                 subfield=fill.subfield,
-                old=old,
+                old=answer_view(old),
                 new=fill_value,
                 conflict_note=fill.conflict_note,
+                question_text=(getattr(fill, "conflict_question", "") or ""),
             )
             intercepted.append(proposal)
             pk = _proposal_key(fill.module, fill.subfield, fill_value)
@@ -756,12 +956,8 @@ def _apply_stall_guard(
                 prop = intercepted[0]
                 sf = get_subfield(prop.module, prop.subfield)
                 label = sf["label"] if sf else prop.subfield
-                conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
-                result["reply"] = (
-                    f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
-                    f"这次的『{prop.new}』——是要**替换**它，"
-                    f"还是两者**合并**（同一条里都保留），"
-                    f"还是先**放弃**这条修改？"
+                result["reply"] = proposal_question_text(
+                    label, prop.old, prop.new, prop.conflict_note or ""
                 )
                 result["next_question"] = None
                 result["file_diff"] = []
@@ -1109,6 +1305,8 @@ def _handle_message_impl(
 
     # ---- fills (possibly many) -> persist + jump to first unanswered ----
     if result.fills:
+        # D23：自动合并披露基准（_apply_fills 前取样，取增量）。
+        pre = len(session.auto_merge_log)
         file_diff, intercepted = _apply_fills(session, result.fills)
 
         # Advance position FIRST (when not intercepted) so next_question
@@ -1138,12 +1336,10 @@ def _handle_message_impl(
             prop = intercepted[0]
             sf = get_subfield(prop.module, prop.subfield)
             label = sf["label"] if sf else prop.subfield
-            conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
-            out_fills["reply"] = (
-                f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
-                f"这次的『{prop.new}』——是要**替换**它，"
-                f"还是两者**合并**（同一条里都保留），"
-                f"还是先**放弃**这条修改？"
+            # D23：单源模板（与 stall 路径逐字节一致）；LLM 人话问句经
+            # proposals dump 的 question_text 键披露（D23 契约）。
+            out_fills["reply"] = proposal_question_text(
+                label, prop.old, prop.new, prop.conflict_note or ""
             )
             out_fills["next_question"] = None  # iron law
             out_fills["file_diff"] = []
@@ -1163,6 +1359,18 @@ def _handle_message_impl(
         out_fills = _round_end_signals(
             session, text, out_fills, provider, pre_module=pre_module
         )
+        # D23 自动合并轻量披露（最后附加——前面任何 wholesale 替换都不覆盖）。
+        new_merges = session.auto_merge_log[pre:]
+        if new_merges and not intercepted:
+            out_fills["auto_merges"] = [dict(m) for m in new_merges]
+            out_fills["reply"] = (
+                out_fills["reply"]
+                + " "
+                + " ".join(
+                    f"（已把『{m['new'][:20]}』并入【{m['label']}】——不对就说一声撤销。）"
+                    for m in new_merges
+                )
+            ).strip()
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----

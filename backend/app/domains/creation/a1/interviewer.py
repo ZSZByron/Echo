@@ -46,6 +46,11 @@ class InterviewFill(BaseModel):
     subfield: str
     value: str
     conflict_note: str | None = None
+    # D23 语义分流（LLM 判定，引擎确定性消费）：
+    relation: str | None = None   # 枚举逐字锁定："equivalent"|"complement"|"conflict"，不允许添加或修改
+    merged_value: str | None = None   # equivalent 必填：融合双方要点后的完整表述
+    merge_target: str | None = None   # 多值字段只与其中一条等价时：那条的开头文字
+    conflict_question: str | None = None  # conflict 必填：面向用户的人话提问（三选一）
 
 
 class Proposal(BaseModel):
@@ -57,6 +62,9 @@ class Proposal(BaseModel):
     new: str
     conflict_note: str | None = None
     merge_preview: str = ""
+    # D23：conflict 时 LLM 生成的人话提问（三选一提案卡片问句）；缺省 "" =
+    # 现行模板问句逐字节不变（存量保护）。
+    question_text: str = ""
 
     def __init__(self, **data: Any) -> None:
         if "merge_preview" not in data:
@@ -138,6 +146,13 @@ class FakeInterviewer:
         self.calls = 0
         self.suggest_calls = 0
         self.forced_calls = 0
+        # D23：提案回复一句话分类的固定判定（测试注入）。
+        self.confirm_intent: str = "other"
+
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str  # noqa: ARG002
+    ) -> str:
+        return self.confirm_intent
 
     def set_pending_open_question(self, question: dict) -> None:
         """C7: 系统注入的待问开放问题（一次一条）。"""
@@ -457,10 +472,19 @@ class RealLLMInterviewer:
                 # M0→M2 素材槽迁移桥（仅角色模块且有归档素材时注入）
                 *sketch_bridge,
                 "",
-                "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
-                "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
-                "重叠（用实例冒充类型）的情况。若存在冲突，该 fill 必须标记 "
-                "conflict_note 字段（用世界观语言描述冲突原因），value 仍按用户原意提取。",
+                # D23 语义分流规则（3.5 冲突预检升级为 3.5R；保留「冲突预检」
+                # 关键词以兼容存量 prompt 契约测试，其余为规范逐字锁定文案）
+                "3.5R 语义分流（冲突预检升级版）：fills 落点字段已在"
+                "【用户已确定的内容】中有值时，必须判定 relation 并填写："
+                "①equivalent（等价/细化：同一意思换述或加深）→ merged_value 必填="
+                "融合双方要点后的完整表述（保留用户原话质感，不得丢信息）；"
+                "多值字段若只与其中一条等价，同时填 merge_target=那条的开头文字，"
+                "merged_value 只融合那一条。②complement（补充：新信息，"
+                "不修改旧内容；多值字段的新一段）→ 不需要 merged_value。"
+                "③conflict（真矛盾）→ conflict_question 必填=面向用户的人话提问"
+                "（呈现新旧语境化对照，给出 替换/都要/先放着 三条路，禁用系统术语）。"
+                "④落点为空字段的 fill 不填 relation。判定拿不准时填 conflict"
+                "（宁可问不可猜）。",
                 "",
                 "【不可动清单】（「设定边界」模块中不可变集的锚点，绝对不可覆盖）",
                 _immutable_block(answers),
@@ -703,6 +727,38 @@ class RealLLMInterviewer:
 
     # ---------- parse & validate ----------
 
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str
+    ) -> str:
+        """D23⑧ 提案回复一句话分类（confirm 免卡片通道，消费侧接线归后续）。
+
+        返回闭集逐字锁定："replace"|"merge"|"drop"|"other"，不允许添加或
+        修改。异常向上传播（DegradingInterviewer 侧统一降级 "other"）。
+        """
+        system = "\n".join(
+            [
+                "你是世界观访谈助手。用户此前对一个设定修改提案收到三条选项：",
+                "替换（replace）/ 合并（merge，同一条里都保留）/ 放弃（drop）。",
+                "现在判断用户的回复属于哪一种意图。只输出一个词。",
+                "",
+                f"【旧设定】{old_value}",
+                f"【新设定】{new_value}",
+                f"【用户回复】{user_reply}",
+                "",
+                "返回严格JSON（不要输出其他内容）：",
+                '{"intent": "replace|merge|drop|other"}',
+            ]
+        )
+        raw = asyncio.run(
+            self._provider.chat_json([{"role": "system", "content": system}])
+        )
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if not isinstance(raw, dict):
+            return "other"
+        intent = raw.get("intent")
+        return intent if intent in ("replace", "merge", "drop", "other") else "other"
+
     def _parse(
         self,
         raw: Any,
@@ -735,12 +791,25 @@ class RealLLMInterviewer:
             if f"{module}.{sub}" not in keys:
                 continue  # 铁律：不允许清单外字段
             conflict = item.get("conflict_note")
+            # D23 语义分流可选键（3.5R）：缺省 None = 现行拦截行为逐字节不变。
+            relation = item.get("relation")
+            merged_value = item.get("merged_value")
+            merge_target = item.get("merge_target")
+            conflict_question = item.get("conflict_question")
+
+            def _opt_str(x: Any) -> str | None:
+                return x.strip() if isinstance(x, str) and x.strip() else None
+
             fills.append(
                 InterviewFill(
                     module=module,
                     subfield=sub,
                     value=value.strip(),
                     conflict_note=conflict.strip() if isinstance(conflict, str) and conflict.strip() else None,
+                    relation=_opt_str(relation),
+                    merged_value=_opt_str(merged_value),
+                    merge_target=_opt_str(merge_target),
+                    conflict_question=_opt_str(conflict_question),
                 )
             )
 
@@ -841,6 +910,16 @@ class DegradingInterviewer:
             return self._inner.suggest_examples(session, module_id, subfield_id)
         except Exception:  # noqa: BLE001
             return []
+
+    # ---- D23: 提案回复一句话分类（降级模式同 suggest_examples） ----
+
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str
+    ) -> str:
+        try:
+            return self._inner.classify_confirm_intent(old_value, new_value, user_reply)
+        except Exception:  # noqa: BLE001 — degrade, never crash
+            return "other"
 
     # ---- C7: 待问开放问题（委托 inner；inner 不支持时静默降级） ----
 

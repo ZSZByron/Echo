@@ -25,6 +25,12 @@ class SubField(TypedDict):
     example: str  # 简单示例，提示用户要回答什么（前端展示+LLM prompt注入）
 
 
+class _SubFieldExtras(SubField, total=False):
+    # D23：多值字段可选标记（仅故事模块个别字段携带；total=False 保持
+    # 既有字面量与 mypy 兼容）。
+    multi: bool
+
+
 class Module(TypedDict):
     id: str
     label: str
@@ -383,7 +389,7 @@ def get_module(mid: str, recipe: Sequence[str] | None = None) -> Module | None:
     return _resolve_module(mid)
 
 
-def get_subfield(mid: str, sid: str) -> SubField | None:
+def get_subfield(mid: str, sid: str) -> _SubFieldExtras | None:
     """Return the subfield dict for (mid, sid), or None."""
     m = _resolve_module(mid)
     if m is None:
