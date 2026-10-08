@@ -256,3 +256,8 @@ px tsc --noEmit PASSES (exit 0, no output)
 - prompts.yaml object keys use `temple_ruins_` prefix (matches `f"{scene_id}_{obj_id}"` asset_id convention). Critical for correct lookup.
 - The 30 existing tests still pass unchanged — they use synthetic scene YAML in tmp_path and don't rely on prompts.yaml content. The prompts.yaml integration is purely additive (only affects assets that had empty prompts before).
 - Asset.negative_prompt field already existed (default `""`) — no model change needed.
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

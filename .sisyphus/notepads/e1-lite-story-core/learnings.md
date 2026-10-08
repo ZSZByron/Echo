@@ -46,3 +46,8 @@
 - handle_message 只有 A1Session 没有 file rec——open_questions 归档先落 session.open_question_archive（OpenQuestion.dump 结构化格式防裸 list 退化，C6 铁律），file 层接线留给 M1/M2。
 - 假 provider 必须 async chat_json（interview 链走 asyncio.run），同步假件报"a coroutine was expected"——与 suggest_examples 测试钩子学习互补（那条只捕获 prompt 不经 asyncio.run 的路径）。
 - 全量基线更新：850 passed / 4 failed（837 基线 + 新增 13；4 失败仍 preexisting test_c7_loop_e2e）。
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

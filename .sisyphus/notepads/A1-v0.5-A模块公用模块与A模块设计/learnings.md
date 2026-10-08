@@ -1090,3 +1090,8 @@ def tmp_db(tmp_path: Path) -> str:
 - 教训: 验收断言要先想清注册时间序（DESC=最后注册的在前）；vitest 4已无basic reporter
 - Wave1+T4全部完成并提交: 89f61fc(identity) cf9c7a1(shared) 484a582(ui) b653b8b(stale)
 - 后端475 passed基线 / 前端组件19+api 5 passed / npm build通过
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

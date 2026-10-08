@@ -66,3 +66,8 @@ T-B断点修复学习记录
 - **Edge type mapping**: A structured field can map to multiple RULE_* labels across layers (e.g. LAW.world_structure -> RULE_SHAPES_GEO world, RULE_SHAPES_GEO location, RULE_SHAPES_MOBILITY subject, RULE_SHAPES_PHYSICS material). For A1 skeleton we pick the first occurrence (world layer).
 - **PowerShell workdir**: Set-Location in the same command string as the test invocation is needed. The workdir parameter appears unreliable for Set-Location persistence across calls.
 - **CST node level**: Set to 0 (above background level 1) to distinguish constraint nodes from scene hierarchy nodes.
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.
