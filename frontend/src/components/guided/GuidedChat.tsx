@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import '../theme.css';
-import type { A1Proposal, AlignmentItem } from '../../types/a1';
+import type { A1Proposal, AlignmentItem, AutoMergeDisclosure } from '../../types/a1';
 import { ProposalCard } from './ProposalCard';
 import { ProposalTray } from './ProposalTray';
 import { AlignmentCard } from './AlignmentCard';
+import { AutoMergeBar } from './AutoMergeBar';
 import { resolveAlignment } from '../../api/a1';
 import { translateRelationInProse } from '../../labels/relationLabel';
 
@@ -52,6 +53,10 @@ export interface GuidedChatProps {
   alignments?: AlignmentItem[];
   /** D21 T10: file id for alignment resolve API calls */
   fileId?: string;
+  /** D23: semantic auto-merge disclosures from the chat response (`auto_merges`) */
+  autoMerges?: AutoMergeDisclosure[];
+  /** D23: optional parent callback after an undo (may refetch file panel) */
+  onAutoMergeUndone?: (token: string) => void;
 }
 
 function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
@@ -95,7 +100,9 @@ export function GuidedChat({
   pendingQuestionsCount = 0,
   onSkipQuestion,
   alignments = [],
-  fileId = ''
+  fileId = '',
+  autoMerges = [],
+  onAutoMergeUndone
 }: GuidedChatProps) {
   const [input, setInput] = useState('');
   const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
@@ -207,6 +214,11 @@ export function GuidedChat({
           </div>
         ))}
         
+        {/* D23: auto-merge disclosure bars (inline, right after the reply) */}
+        {autoMerges.length > 0 && (
+          <AutoMergeBar merges={autoMerges} sessionId={sessionId} onUndone={onAutoMergeUndone} />
+        )}
+
         {/* Display proposal cards (inline with messages) */}
         {displayProposals.map(proposal => (
           <div key={proposal.key} className="flex justify-start">

@@ -53,9 +53,16 @@ export function ProposalCard({
           <span className="text-cosmos-warning text-xl">⚠</span>
         )}
         <div className="flex-1">
-          <div className="text-stardust-300 text-sm font-medium mb-1">
-            字段：{fieldLabel || '你刚才说的内容'}
-          </div>
+          {/* D23: LLM 起草的人话问句（非空时替代通用字段行；按钮行为不变） */}
+          {proposal.question_text ? (
+            <div className="text-slate-100 text-sm leading-relaxed">
+              {proposal.question_text}
+            </div>
+          ) : (
+            <div className="text-stardust-300 text-sm font-medium mb-1">
+              字段：{fieldLabel || '你刚才说的内容'}
+            </div>
+          )}
           {proposal.conflict_note && (
             <div className="text-cosmos-warning text-xs">
               与已有设定重叠

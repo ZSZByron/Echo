@@ -179,6 +179,11 @@ export interface A1Proposal {
   merge_preview: string;
   /** Available choices for this proposal (e.g., ["replace", "merge", "drop"]) */
   options?: string[];
+  /**
+   * D23: LLM-drafted human-language question shown instead of the generic
+   * copy when non-empty; the three action buttons stay unchanged.
+   */
+  question_text?: string;
 }
 
 /**
@@ -243,6 +248,39 @@ export interface ProposedRelation {
   to_term: string;
   /** Rationale for why this relation was proposed */
   rationale: string;
+}
+
+/** POST /api/a1/merge/undo response (idempotent 200). */
+export interface MergeUndoResponse {
+  restored: boolean;
+  /** Field whose value was restored (present on success). */
+  field_key?: string;
+}
+
+/**
+ * One recursive answer entry in the file-state `answers_tree` projection
+ * (GET /api/a1/file/{id}): a human answer plus its nested child entries.
+ */
+export interface AnswerNode {
+  text: string;
+  children: AnswerNode[];
+  /** Origin marker (e.g. chat / upload); optional additive field. */
+  source?: string;
+}
+
+/**
+ * D23: semantic auto-merge disclosure from the chat response (`auto_merges`).
+ * Backend merges a user utterance into an existing field and discloses it
+ * inline; the user can undo via POST /api/a1/merge/undo {session_id, token}.
+ */
+export interface AutoMergeDisclosure {
+  token: string;
+  field_key: string;
+  label: string;
+  old: string;
+  new: string;
+  merged: string;
+  kind: string;
 }
 
 /**

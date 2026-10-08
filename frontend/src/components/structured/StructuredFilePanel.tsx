@@ -7,6 +7,7 @@
 
 import "../theme.css";
 import { DiffHighlight } from "./DiffHighlight";
+import type { AnswerNode } from "../../types/a1";
 
 export interface DiffChange {
   field: string;
@@ -49,12 +50,34 @@ export interface StructuredFilePanelProps {
   file: StructuredFile;
   diff?: DiffChange[];
   className?: string;
+  /**
+   * D23: answers_tree projection from GET /api/a1/file/{id}. Entries with
+   * non-empty children render as a nested list of child entries; when
+   * absent, rendering is exactly as before (plain strings).
+   */
+  answersTree?: Record<string, AnswerNode>;
+}
+
+/** Recursive child-entry list (children of children indented one level). */
+function AnswerChildren({ children }: { children: AnswerNode[] }) {
+  if (children.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-1 ml-4 border-l border-white/10 pl-3">
+      {children.map((child, idx) => (
+        <li key={idx} data-testid="answer-child-entry" className="text-gray-300 text-sm leading-relaxed">
+          {child.text}
+          {child.children.length > 0 && <AnswerChildren children={child.children} />}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function StructuredFilePanel({
   file,
   diff,
   className = "",
+  answersTree,
 }: StructuredFilePanelProps) {
   return (
     <div className={`glass-panel ${className}`}>
@@ -186,6 +209,23 @@ export function StructuredFilePanel({
           })}
         </div>
       )}
+      {/* D23: answers tree — entries with nested children render as child-entry lists */}
+      {answersTree &&
+        Object.entries(answersTree).some(([, node]) => node.children?.length > 0) && (
+          <div className="p-6 pt-0 space-y-3" data-testid="answers-tree">
+            <div className="text-stardust-400 text-sm font-medium uppercase tracking-wider">
+              已确定内容
+            </div>
+            {Object.entries(answersTree)
+              .filter(([, node]) => node.children?.length > 0)
+              .map(([key, node]) => (
+                <div key={key} className="glass-card p-4 border-white/5">
+                  <div className="text-void-400 text-xs mb-2 font-medium">{key}</div>
+                  <AnswerChildren children={node.children} />
+                </div>
+              ))}
+          </div>
+        )}
     </div>
   );
 }

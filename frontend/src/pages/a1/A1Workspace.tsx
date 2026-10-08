@@ -25,7 +25,7 @@ import { NostalgiaConfirmPage } from './impulse/NostalgiaConfirmPage';
 import { groupSeedsByType } from './impulse/seedGrouping';
 import { logImpulseEvent, attachSessionId } from './impulse/telemetry';
 import { IMPULSE_CARDS, type ImpulseTypeId } from './impulse/impulseCards.config';
-import type { A1Proposal, AlignmentItem } from '../../types/a1';
+import type { A1Proposal, AlignmentItem, AutoMergeDisclosure, AnswerNode } from '../../types/a1';
 import { plainQuestion } from '../../labels/plainQuestion';
 import '../../components/theme.css';
 
@@ -111,6 +111,8 @@ interface ChatResponse {
   pending_alignments?: AlignmentItem[];
   /** D21 T10/T9: 收尾信号 {step, settled, triggered}（_closing_signal 形状） */
   closing?: { step: number; settled: boolean; triggered: boolean };
+  /** D23: 本轮发生的语义自动合并披露（无合并时缺省） */
+  auto_merges?: AutoMergeDisclosure[];
 }
 
 /** T17+P0: open_questions 结构化记录契约（后端 C6：禁裸 list[str]） */
@@ -366,6 +368,10 @@ export function A1Workspace() {
   const [pendingQuestionsCount, setPendingQuestionsCount] = useState(0);
 // D21 T10: 待对齐推测列表（chat 响应 pending_alignments → GuidedChat 卡片）
 const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
+  // D23: 本轮 auto_merges 披露（消息流内条）
+  const [pendingAutoMerges, setPendingAutoMerges] = useState<AutoMergeDisclosure[]>([]);
+  // D23: answers_tree（已确定内容树——有 children 的字段展开为子条目列表）
+  const [answersTree, setAnswersTree] = useState<Record<string, AnswerNode> | undefined>(undefined);
   // 去回答闭环：从服务端 file data 提升的归一化 open_questions（chat 实时值优先）
   const [openQuestions, setOpenQuestions] = useState<OpenQuestionRecord[]>([]);
   // stale fileId 恢复：一次性提示条（后端重启导致旧会话 404）
@@ -562,6 +568,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
               subs?: Array<{ id: string; label: string; content?: string; done: boolean }>;
             }>;
             open_questions?: Array<OpenQuestionRecord | string>;
+            answers_tree?: Record<string, AnswerNode>;
           }>(`/api/a1/file/${fileId}`);
 
           if (response.open_questions) {
@@ -573,6 +580,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
             status: response.status === 'finalized' ? 'finalized' : 'draft',
             sections: response.sections,
           });
+          // D23: 已确定内容树（有 children 的字段渲染为子条目列表）
+          setAnswersTree(response.answers_tree);
           
           // Set progress sections
           setProgressSections(response.sections);
@@ -646,7 +655,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         type: 'assistant',
         text: seedPrefix + questionText,
       }]);
-      
+      setPendingAutoMerges([]);
+      setAnswersTree(undefined);
       setWorkspaceState('guided_chat');
     } catch (err) {
       console.error('Failed to start session:', err);
@@ -707,6 +717,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         };
         confirmed_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
         rejected_edges: Record<string, { from_node_id: string; to_node_id: string; relation: string; confidence: string; confirmed: boolean }>;
+        answers_tree?: Record<string, AnswerNode>;
       }>(`/api/a1/file/${id}`);
       
       // Update file state for panel
@@ -714,6 +725,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         status: response.status === 'finalized' ? 'finalized' : 'draft',
         sections: response.sections,
       });
+      // D23: 已确定内容树（有 children 的字段渲染为子条目列表）
+      setAnswersTree(response.answers_tree);
       
       // Update file data for graph section
       setFileData({
@@ -846,6 +859,11 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         setPendingAlignments(response.pending_alignments);
       }
 
+      // D23: 语义自动合并披露 → 消息流内条
+      if (response.auto_merges && response.auto_merges.length > 0) {
+        setPendingAutoMerges(response.auto_merges);
+      }
+
       // Handle classification proposal
       if (response.classification_proposal) {
         setClassificationProposal(response.classification_proposal);
@@ -887,6 +905,10 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       // D21 T10: skip 路径同样可能携带待对齐推测
       if (response.pending_alignments && response.pending_alignments.length > 0) {
         setPendingAlignments(response.pending_alignments);
+      }
+      // D23: skip 路径同样可能携带自动合并披露
+      if (response.auto_merges && response.auto_merges.length > 0) {
+        setPendingAutoMerges(response.auto_merges);
       }
       // D21 T9: skip 路径同样可能触发收尾信号
       if (response.closing) {
@@ -1346,6 +1368,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
             onSkipQuestion={skipPendingQuestion}
             alignments={pendingAlignments}
             fileId={fileId || ''}
+            autoMerges={pendingAutoMerges}
+            onAutoMergeUndone={() => { if (fileId) void refreshFile(fileId); }}
           />
         </div>
         
@@ -1353,7 +1377,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         <div className="w-[400px] flex flex-col border-l border-white/5">
           <div className="flex-1 overflow-y-auto starry-scroll p-6 space-y-6">
           {file && (
-            <StructuredFilePanel file={file} />
+            <StructuredFilePanel file={file} answersTree={answersTree} />
           )}
           
           {progressSections.length > 0 && (

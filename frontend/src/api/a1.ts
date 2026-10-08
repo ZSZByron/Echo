@@ -17,6 +17,7 @@ import type {
   DraftVersion,
   ImpulseCoords,
   NudgeSignal,
+  MergeUndoResponse,
 } from "../types/a1";
 
 const A1_BASE = "/api/a1";
@@ -275,4 +276,22 @@ export async function getImpulseCoords(fileId: string): Promise<ImpulseCoords> {
     { method: "GET" }
   );
   return (await res.json()) as ImpulseCoords;
+}
+
+/**
+ * D23: undo a semantic auto-merge disclosed in the chat flow.
+ * POST /api/a1/merge/undo  body {session_id, token}
+ *
+ * Idempotent: an unknown/already-undone token is still HTTP 200 with
+ * {restored:false}; HTTP failures surface as ApiError via fetchJson.
+ */
+export async function mergeUndo(
+  sessionId: string,
+  token: string
+): Promise<MergeUndoResponse> {
+  return fetchJson<MergeUndoResponse>(`${A1_BASE}/merge/undo`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ session_id: sessionId, token }),
+  });
 }
