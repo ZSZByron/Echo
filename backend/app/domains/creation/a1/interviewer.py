@@ -267,9 +267,12 @@ def _field_catalog(recipe: list[str] | None = None) -> str:
 _MAX_ANSWER_DIGEST = 12
 
 
-def _answers_digest(answers: dict[str, str]) -> str:
+def _answers_digest(answers: dict[str, Any]) -> str:
+    from app.domains.creation.a1.guide_engine import answer_view  # 延迟导入防环（a1_routes 先例）
     items = [
-        f"{k} = {v[:40]}" for k, v in list(answers.items())[:_MAX_ANSWER_DIGEST] if v
+        f"{k} = {answer_view(v)[:40]}"
+        for k, v in list(answers.items())[:_MAX_ANSWER_DIGEST]
+        if v
     ]
     return "\n".join(items) if items else "（暂无）"
 

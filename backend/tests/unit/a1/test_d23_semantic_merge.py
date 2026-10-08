@@ -333,3 +333,40 @@ class TestHandleMessageDisclosure:
 
         assert proposals == []
         assert s.auto_merge_log and s.merge_counts == {}
+
+
+class TestF2Fixes:
+    def test_answers_digest_renders_node_values(self):
+        from app.domains.creation.a1.interviewer import _answers_digest
+        node = AnswerNode(text="甲", children=[AnswerNode(text="乙")])
+        out = _answers_digest({"角色.key_relations": node, "角色.desire": "躺平"})
+        assert "甲；乙" in out and "躺平" in out
+
+    def test_auto_merge_log_carries_kind(self):
+        s = make_session(); s.answers[KEY_REL] = "旧"
+        _apply_fills(s, [InterviewFill(module="角色", subfield="key_relations", value="新", relation="complement")])
+        assert s.auto_merge_log[-1]["kind"] == "complement"
+        s2 = make_session(); s2.answers[DESIRE] = "旧"
+        _apply_fills(s2, [InterviewFill(module="角色", subfield="desire", value="新", relation="equivalent", merged_value="融")])
+        assert s2.auto_merge_log[-1]["kind"] == "equivalent"
+
+    def test_node_guard_does_not_swallow_equivalent_merge_target(self):
+        s = make_session()
+        s.answers[KEY_REL] = AnswerNode(text="", children=[
+            AnswerNode(text="与老父亲：务农"), AnswerNode(text="与大道系统：对抗")])
+        fills = [InterviewFill(module="角色", subfield="key_relations",
+                               value="与大道系统：对抗", relation="equivalent",
+                               merge_target="与老父亲", merged_value="与老父亲：务农，父亲年纪大了")]
+        _apply_fills(s, fills)
+        assert s.answers[KEY_REL].children[0].text == "与老父亲：务农，父亲年纪大了"
+        assert s.answers[KEY_REL].children[1].text == "与大道系统：对抗"
+
+    def test_undo_purges_newer_same_key_entries(self):
+        s = make_session(); s.answers[DESIRE] = "初"
+        _apply_fills(s, [InterviewFill(module="角色", subfield="desire", value="一", relation="equivalent", merged_value="初一")])
+        _apply_fills(s, [InterviewFill(module="角色", subfield="desire", value="二", relation="equivalent", merged_value="初一二")])
+        first_token = s.auto_merge_log[0]["token"]
+        result = undo_auto_merge(s, first_token)
+        assert result["restored"] is True
+        assert answer_view(s.answers[DESIRE]) == "初"
+        assert all(r["field_key"] != DESIRE for r in s.auto_merge_log)

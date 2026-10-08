@@ -223,7 +223,7 @@ def _find_child_by_prefix(node: AnswerNode, target: str) -> AnswerNode | None:
     t = (target or "").strip()
     if not t:
         return None
-    prefix = t[:12]
+    prefix = t[:MERGE_TARGET_PREFIX_CHARS]
     for child in node.children:
         if child.text.strip().startswith(prefix):
             return child
@@ -251,6 +251,8 @@ def proposal_question_text(
 
 
 _AUTO_MERGE_LOG_CAP = 20  # 滚动上限：轻量披露不无限膨胀
+ANSWER_CHILDREN_CAP = 6  # D23 拍板 4——多值字段子条目上限
+MERGE_TARGET_PREFIX_CHARS = 12  # merge_target 前缀定位长度
 
 
 def _record_auto_merge(
@@ -261,6 +263,7 @@ def _record_auto_merge(
     new: str,
     merged: str,
     direct_key: str,
+    kind: str = "equivalent",
 ) -> str:
     """D23 记录一次自动合并（轻量披露 + 可撤销），返回 undo token。
 
@@ -276,6 +279,7 @@ def _record_auto_merge(
         "old": answer_view(prev),
         "new": new,
         "merged": merged,
+        "kind": kind,
     })
     if len(session.auto_merge_log) > _AUTO_MERGE_LOG_CAP:
         session.auto_merge_log = session.auto_merge_log[-_AUTO_MERGE_LOG_CAP:]
@@ -293,6 +297,16 @@ def undo_auto_merge(session: A1Session, token: str) -> dict[str, Any]:
     if snap is None:
         return {"restored": False, "error": "not_found"}
     session.answers[snap["key"]] = snap["prev"]
+    # 乱序撤销——旧快照恢复后，同键后续合并的快照与披露全部作废
+    stale_tokens = {
+        r["token"] for r in session.auto_merge_log
+        if r.get("field_key") == snap["key"] and r["token"] != token
+    }
+    session.auto_merge_log = [
+        r for r in session.auto_merge_log if r["token"] not in stale_tokens
+    ]
+    for t in stale_tokens:
+        session.merge_undo.pop(t, None)
     session.auto_merge_log = [
         r for r in session.auto_merge_log if r["token"] != token
     ]
@@ -741,9 +755,6 @@ def _apply_fills(
         # Branch 2: skip — same value
         if old and old == fill_value:
             continue
-        # D23 Branch 2 节点版：层级条目任一层已精确含该值 → 同值短路
-        if isinstance(old, AnswerNode) and _node_contains_exact(old, fill_value):
-            continue
 
         # Branch 3: intercept — non-empty and different
         if old and old != fill_value:
@@ -769,6 +780,10 @@ def _apply_fills(
             # ---- D23 语义分流（LLM 判定 relation，引擎确定性消费）----
             # relation 缺失/None/未知 → 落到现行拦截行为（逐字节不变）。
             relation = (getattr(fill, "relation", "") or "").strip().lower()
+            # D23 Branch 2 节点版：层级条目任一层已精确含该值 → 同值短路
+            # （等价合并不短路——merge_target 可能指向同级条目，需走下方分流）
+            if relation != "equivalent" and isinstance(old, AnswerNode) and _node_contains_exact(old, fill_value):
+                continue
             label = sf["label"] if sf else fill.subfield
 
             if relation == "equivalent":
@@ -806,7 +821,7 @@ def _apply_fills(
                 continue
             if relation == "complement" and is_multi_value(fill.module, fill.subfield):
                 node = old if isinstance(old, AnswerNode) else AnswerNode(text=old)
-                if len(node.children) < 6:
+                if len(node.children) < ANSWER_CHILDREN_CAP:
                     prev_snapshot = (
                         old.model_copy(deep=True)
                         if isinstance(old, AnswerNode)
@@ -815,7 +830,7 @@ def _apply_fills(
                     node.children.append(AnswerNode(text=fill_value))
                     _record_auto_merge(
                         session, key, sf, prev_snapshot, fill_value,
-                        answer_view(node), direct_key,
+                        answer_view(node), direct_key, kind="complement",
                     )
                     session.answers[key] = node
                     file_diff.append(
@@ -825,7 +840,7 @@ def _apply_fills(
                         )
                     )
                     continue
-                # children >= 6 → falls through to proposal (cap, 拍板 4)
+                # children >= cap → falls through to proposal (cap, 拍板 4)
             # conflict / complement-scalar / missing / unknown → 现行三选一拦截
             proposal = Proposal(
                 module=fill.module,
@@ -1074,7 +1089,7 @@ def _handle_deflection(
             "module": module_id,
             "section": (sf or {}).get("label", cur_key),
             "old": "",
-            "new": session.answers[cur_key],
+            "new": answer_view(session.answers[cur_key]),
             "deflected": True,
         }],
         "progress": progress(session),
