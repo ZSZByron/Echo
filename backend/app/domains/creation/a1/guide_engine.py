@@ -1331,7 +1331,16 @@ def _handle_message_impl(
         session.reroll_streak += 1
         if isinstance(examples, list) and examples:
             session.current_options = list(examples)
-            # telemetry: option_reroll（T5 接线 emission 锚点；结构零改动）
+            # telemetry: option_reroll（T4 已接 emission 调用；T5 落 JSON-lines 落盘）
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "option_reroll",
+                session,
+                module=session.current_module,
+                subfield=session.current_subfield,
+                streak=session.reroll_streak,
+            )
             return {
                 "reply": _render_option_invite(session.current_options),
                 "next_question": _question_payload(session),

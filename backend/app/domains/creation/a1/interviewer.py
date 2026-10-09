@@ -188,6 +188,11 @@ class FakeInterviewer:
         self, session: Any, module_id: str, subfield_id: str
     ) -> list[str]:
         self.suggest_calls += 1
+        # 方向A一期 reroll 通道（D-2）：ExamplesFake 子类经 self._inject
+        # 注入示例——engine 的独立 suggest_examples 调用必须拿到同一注入。
+        inject = getattr(self, "_inject", None)
+        if isinstance(inject, list) and inject:
+            return list(inject)
         if self._examples is None:
             return ["示例一", "示例二", "示例三"]
         return list(self._examples)
