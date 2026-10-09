@@ -95,6 +95,10 @@ class InterviewResult(BaseModel):
     # **仅提议，不写状态**：确定性校验（闭集/去重/上限/插入点）在
     # guide_engine 单消费侧（D-A2-4 铁律）。可选键向前兼容（G6b 先例）。
     worldview_invites: list[str] = Field(default_factory=list)
+    # 方向A一期（2026-10-08 施工单拍板 2）：默认选项生成通道——与 fills
+    # 同 prompt 同返回（合并单次调用）。空 list = 降级（reply 行为与改造前
+    # 逐字节一致，降级模式照抄 suggest_examples L636-651 先例）。
+    examples: list[str] = Field(default_factory=list)
 
 
 class Interviewer(Protocol):
@@ -551,6 +555,20 @@ class RealLLMInterviewer:
                 "divergent_question 为 null。",
                 "",
                 *self._pending_question_block(),
+                # 方向A一期（T2）：默认示例生成规则块 8.6——编号衔接 8.5
+                # 之后；8.5 本体与编号零改动（红线 2）。生成任务段纪律逐字
+                # 搬运 suggest_examples prompt（L601-633 先例），不新造文案。
+                "8.6 默认示例生成：除理解用户输入外，同时为【当前问题】所指字段"
+                "生成 3 个具体的中文示例方向——必须贴合【种子起点】基调、"
+                "与【用户已确定的内容】兼容、彼此风格差异化、每个不超过 40 字。"
+                "故事向会话：示例必须从用户已答的剧情、角色、情感线索延伸"
+                "（引用用户已答内容里的具体关键词），严禁输出势力、政治、阵营类"
+                "世界建构模板示例。",
+                "　　用户回复若引用示例序号（如「选2吧」「把1和3揉一起」"
+                "「第1点对」），结合示例内容理解并生成对应 fills，不要当作纯数字。",
+                "　　示例必须是陈述句；guidance_reply 与示例中严禁出现任何新的"
+                "疑问句——全回复唯一疑问句仍是 8.5 规定的当前问题本身。",
+                "",
                 "【可填字段清单】",
                 catalog,
                 "",
@@ -559,7 +577,7 @@ class RealLLMInterviewer:
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
                 ' "user_confused": false, "search_query": null, "divergent_question": null,',
                 ' "deflect": false, "story_material": null, "open_question_answered": null,',
-                ' "worldview_invites": []}',
+                ' "worldview_invites": [], "examples": ["...", "...", "..."]}',
             ]
         )
 
@@ -855,6 +873,16 @@ class RealLLMInterviewer:
             else []
         )
 
+        # 方向A一期（T2）：examples 解析——非 list / 元素非 str / 空 →
+        # []（静默降级，不重试不报错；模式照抄 worldview_invites/
+        # suggest_examples 先例）。空 = 引擎侧零追加（旧行为逐字节）。
+        examples_raw = raw.get("examples")
+        examples = (
+            [s.strip() for s in examples_raw if isinstance(s, str) and s.strip()]
+            if isinstance(examples_raw, list)
+            else []
+        )
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -869,6 +897,7 @@ class RealLLMInterviewer:
             deflect=deflect,
             story_material=story_material,
             worldview_invites=worldview_invites,
+            examples=examples,
         )
 
 
