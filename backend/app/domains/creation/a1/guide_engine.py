@@ -978,6 +978,15 @@ def _apply_stall_guard(
         session.stall_count = 1
 
     module_id, sub_id = cur_key.split(".", 1)
+    from app.domains.creation.a1 import inspiration_log
+
+    inspiration_log.emit_event(
+        "stall",
+        session,
+        module=module_id,
+        subfield=sub_id,
+        stall_count=session.stall_count,
+    )
     sf = get_subfield(module_id, sub_id)
     label = sf["label"] if sf else sub_id
 
@@ -1262,6 +1271,14 @@ def _handle_message_impl(
         # D-2：跳过 = 非 reroll 输入 → 连续 reroll 计数清零。
         session.reroll_streak = 0
         # telemetry: skip（T5 接线 emission 锚点；结构零改动）
+        from app.domains.creation.a1 import inspiration_log
+
+        inspiration_log.emit_event(
+            "skip",
+            session,
+            module=skipped_module,
+            subfield=answer_key.split(".", 1)[1],
+        )
         return {
             "reply": "已跳过，进入下一项。",
             "next_question": _question_payload(session),
@@ -1290,6 +1307,9 @@ def _handle_message_impl(
         idx = int(stripped) - 1
         if 0 <= idx < len(session.current_options):
             value = session.current_options[idx]
+            options_digest = "|".join(
+                str(o) for o in session.current_options[:3]
+            )
             session.answers[cur_key] = value
             session.stall_subfield = ""
             session.stall_count = 0
@@ -1297,6 +1317,16 @@ def _handle_message_impl(
             sync_position(session)
             module_id, sub_id = cur_key.split(".", 1)
             picked_sf = get_subfield(module_id, sub_id)
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "option_pick",
+                session,
+                module=module_id,
+                subfield=sub_id,
+                option_index=idx,
+                options_digest=options_digest,
+            )
             return {
                 "reply": f"已按示例记录：{value}",
                 "next_question": _question_payload(session),
