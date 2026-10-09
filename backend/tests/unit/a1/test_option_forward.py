@@ -262,7 +262,7 @@ class TestPickAndReroll:
         _spy_events(monkeypatch)
         s = make_session()
         setattr(s, "current_options", ["x", "y", "z"])
-        fake = ExamplesFake(inject=[f"n{i}", f"m{i}", f"o{i}"])
+        fake = ExamplesFake(inject=["n1", "m1", "o1"])
         handle_message(s, "换一批", fake)
         handle_message(s, "换一批", fake)
         assert fake.suggest_calls == 2
