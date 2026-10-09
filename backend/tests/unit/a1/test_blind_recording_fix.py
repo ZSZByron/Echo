@@ -88,8 +88,8 @@ class TestStallGuardNoBlindFill:
         assert s.current_subfield == "concept"  # position unchanged
         # Should NOT contain raw-fill message
         assert "已按原文直接记录" not in out2["reply"]
-        # Should mention rephrase/跳过 options
-        assert "跳过" in out2["reply"] or "重新" in out2["reply"] or "换" in out2["reply"]
+        # Deleted canned-example branch: no apology line
+        assert "我没能准确理解" not in out2["reply"]
 
     def test_stall_3_forced_allocate_returns_fills(self):
         """At stall 3, forced_allocate is called; if it returns fills,
