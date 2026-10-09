@@ -569,6 +569,16 @@ class RealLLMInterviewer:
                 "故事向会话：示例必须从用户已答的剧情、角色、情感线索延伸"
                 "（引用用户已答内容里的具体关键词），严禁输出势力、政治、阵营类"
                 "世界建构模板示例。",
+                # 方向A一期（T6）：示例风格锚点（条件注入——creator_primary
+                # 命中 ANCHOR_BY_TYPE 才追加；锚点原文逐字引用，不改写）。
+                *(
+                    [
+                        f"示例风格贴合该冲动类型的语气锚点："
+                        f"{ANCHOR_BY_TYPE[session.creator_primary]}"
+                    ]
+                    if getattr(session, "creator_primary", "") in ANCHOR_BY_TYPE
+                    else []
+                ),
                 "　　用户回复若引用示例序号（如「选2吧」「把1和3揉一起」"
                 "「第1点对」），结合示例内容理解并生成对应 fills，不要当作纯数字。",
                 "　　示例必须是陈述句；guidance_reply 与示例中严禁出现任何新的"
@@ -649,6 +659,15 @@ class RealLLMInterviewer:
                         "严禁输出势力、政治、阵营类世界建构模板示例。"
                     ]
                     if getattr(session, "creator_primary", "") in STORY_PRIMARY_TYPES
+                    else []
+                ),
+                # 方向A一期（T6）：示例风格锚点（条件注入，同 _build_prompt 8.6 处）。
+                *(
+                    [
+                        f"示例风格贴合该冲动类型的语气锚点："
+                        f"{ANCHOR_BY_TYPE[session.creator_primary]}"
+                    ]
+                    if getattr(session, "creator_primary", "") in ANCHOR_BY_TYPE
                     else []
                 ),
                 "",
