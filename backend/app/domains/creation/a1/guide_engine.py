@@ -415,6 +415,11 @@ class A1Session(BaseModel):
     auto_merge_log: list[dict[str, Any]] = Field(default_factory=list)
     # D23 自动合并撤销快照：token → {"key","prev"(深拷贝)}。default {} 零迁移。
     merge_undo: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 方向A一期：当前问的默认选项（D-3 新字段——pending_suggestions 随
+    # stall==2 分支退役为死字段：不删不写，零迁移）。空 = 本轮无选项。
+    current_options: list[str] = Field(default_factory=list)
+    # D-2：连续 reroll 计数（上限 2；任一非 reroll 输入清零）。
+    reroll_streak: int = 0
 
 
 def first_question() -> dict[str, Any]:
@@ -430,6 +435,13 @@ def first_question() -> dict[str, Any]:
         "hint": sf["hint"],
         "example": sf.get("example", ""),
     }
+
+
+# 方向A一期：默认选项邀请话术（单点复制控制——前端/测试均引用此文本）。
+OPTION_INVITE_TEMPLATE = (
+    "这里有几个方向，也可以直接说你的：\n{lines}\n"
+    "（回复序号可直选，想换个方向就说「换一批」）"
+)
 
 
 def _question_payload(session: A1Session) -> dict[str, Any] | None:
@@ -448,7 +460,41 @@ def _question_payload(session: A1Session) -> dict[str, Any] | None:
         "question": sf["question"],
         "hint": sf["hint"],
         "example": sf.get("example", ""),
+        # 方向A一期：additive 键——当前问的默认选项（空列表 = 无选项）。
+        "options": list(session.current_options),
     }
+
+
+def _render_option_invite(options: list[str]) -> str:
+    """渲染默认选项邀请块（OPTION_INVITE_TEMPLATE 单点格式化）。"""
+    return OPTION_INVITE_TEMPLATE.format(
+        lines="\n".join(f"{i}. {opt}" for i, opt in enumerate(options, start=1))
+    )
+
+
+def _attach_default_options(
+    session: A1Session,
+    result: Any,
+    out: dict[str, Any],
+    *,
+    blocked: bool,
+) -> None:
+    """方向A一期：主路径（fills/chat）轮末默认选项接线（原地改 out）。
+
+    白名单（blocked=True 或 completed 阶段）→ 只清 current_options，
+    零渲染。白名单外：examples 非空列表 → 写 current_options 并把邀请
+    块追加到 reply 末尾；examples 缺失/空/畸形 → 清空 + reply 逐字节
+    不动（降级零痕迹）。
+    """
+    if blocked or session.phase == PHASE_COMPLETED:
+        session.current_options = []
+        return
+    examples = getattr(result, "examples", None)
+    if isinstance(examples, list) and examples:
+        session.current_options = list(examples)
+        out["reply"] += "\n" + _render_option_invite(session.current_options)
+    else:
+        session.current_options = []
 
 
 def sync_position(session: A1Session) -> None:
@@ -889,12 +935,12 @@ def _apply_stall_guard(
 ) -> dict[str, Any] | None:
     """Anti-stall guard with LLM-understanding-first fallbacks.
 
-    Stall 2 -> ask the interviewer for seed-referenced example answers
-    (user may reply a bare number to accept one). When suggestions are
-    unavailable, ask the user to rephrase or 跳过 — no fill.
-    Stall >= 3 -> forced_allocate: the LLM judges whether the input
-    belongs to ANY legal field; fills are applied, otherwise the user
-    gets options (suggestion numbers / rephrase / 跳过).
+    Stall 2 no longer intercepts (方向A一期：默认选项由主路径
+    current_options 承担，道歉+示例分支已退役——stall 计数照常累计，
+    2 阶原样回落主路径)。Stall >= 3 -> forced_allocate: the LLM judges
+    whether the input belongs to ANY legal field; fills are applied,
+    otherwise the user gets options (suggestion numbers / rephrase /
+    跳过).
 
     Nothing is ever recorded without LLM judgment (blind-recording fix,
     2026-08-26): the old deterministic raw-text fill is gone.
@@ -917,6 +963,7 @@ def _apply_stall_guard(
         return None
 
     # 3. track stall count (capped at 3)
+    # telemetry: stall（T5 接线 emission；计数站点锚点）
     if session.stall_subfield == cur_key:
         session.stall_count = min(session.stall_count + 1, 3)
     else:
@@ -927,38 +974,7 @@ def _apply_stall_guard(
     sf = get_subfield(module_id, sub_id)
     label = sf["label"] if sf else sub_id
 
-    # 4. stall 2 -> suggestion mode (rely on LLM understanding first)
-    if session.stall_count == 2:
-        try:
-            examples = interviewer.suggest_examples(session, module_id, sub_id)
-        except Exception:  # noqa: BLE001 — degrade, never crash
-            examples = []
-        if examples:
-            session.pending_suggestions = examples
-            seed_label = session.seed_name or session.seed_description[:12] or "种子"
-            lines = "\n".join(
-                f"{i}. {ex}" for i, ex in enumerate(examples, start=1)
-            )
-            result["reply"] = (
-                f"我没能准确理解你的回答。参考种子「{seed_label}」，"
-                f"这里有几个示例方向：\n{lines}\n"
-                "你可以直接回复序号选一个、改写一个再回复、换种说法再答，或回复「跳过」。"
-            )
-            result["next_question"] = _question_payload(session)
-            result["file_diff"] = []
-            return result
-        # suggestions unavailable -> no fill; ask the user to rephrase / skip
-        result["reply"] = (
-            f"我还没能理解这条输入与「{label}」的关系。"
-            "你可以换种说法再答一次，或回复「跳过」先进入下一项。"
-        )
-        result["next_question"] = _question_payload(session)
-        result["file_diff"] = []
-        result["progress"] = progress(session)
-        result["phase"] = session.phase
-        return result
-
-    # 5. stall >= 3 -> LLM forced allocation (judgment; never raw fill)
+    # 4. stall >= 3 -> LLM forced allocation (judgment; never raw fill)
     if session.stall_count >= 3:
         try:
             alloc = interviewer.forced_allocate(session, text)
@@ -1232,6 +1248,9 @@ def _handle_message_impl(
             apply_signal,
         )
         apply_signal(session, SIGNAL_SKIPPED, key=answer_key)
+        # D-2：跳过 = 非 reroll 输入 → 连续 reroll 计数清零。
+        session.reroll_streak = 0
+        # telemetry: skip（T5 接线 emission 锚点；结构零改动）
         return {
             "reply": "已跳过，进入下一项。",
             "next_question": _question_payload(session),
@@ -1248,20 +1267,22 @@ def _handle_message_impl(
 
     cur_key = f"{session.current_module}.{session.current_subfield}"
 
-    # ---- pending-suggestion number pick ("1"/"2"/"3") ----
+    # ---- default-option number pick ("1"/"2"/"3")（方向A一期 D-4）----
+    # 直选绕过占位真值闸（与旧 pick 同一先例：用户显式确认）。
+    # telemetry: option_pick（T5 接线 emission 锚点）
     stripped = text.strip()
     if (
-        session.pending_suggestions
+        session.current_options
         and stripped in {"1", "2", "3"}
         and session.phase != PHASE_COMPLETED
     ):
         idx = int(stripped) - 1
-        if 0 <= idx < len(session.pending_suggestions):
-            value = session.pending_suggestions[idx]
+        if 0 <= idx < len(session.current_options):
+            value = session.current_options[idx]
             session.answers[cur_key] = value
             session.stall_subfield = ""
             session.stall_count = 0
-            session.pending_suggestions = []
+            session.current_options = []
             sync_position(session)
             module_id, sub_id = cur_key.split(".", 1)
             picked_sf = get_subfield(module_id, sub_id)
@@ -1287,6 +1308,8 @@ def _handle_message_impl(
         out_deflect = _handle_deflection(session, result, cur_key)
         if _invited:
             out_deflect["reply"] += _invite_notice(_invited)
+        # 方向A一期白名单：deflect 轮不渲染选项。
+        session.current_options = []
         return out_deflect
 
     # ---- M0 止血：叙事素材 → character_sketch 归档（不触发提案三连） ----
@@ -1296,6 +1319,8 @@ def _handle_message_impl(
         out_material = _archive_story_material(session, result)
         if _invited:
             out_material["reply"] += _invite_notice(_invited)
+        # 方向A一期白名单：story_material 轮不渲染选项。
+        session.current_options = []
         return out_material
 
     # ---- genuine innovation -> confirmation flow ----
@@ -1382,10 +1407,16 @@ def _handle_message_impl(
                 out_fills["reply"]
                 + " "
                 + " ".join(
-                    f"（已把『{m['new'][:20]}』并入【{m['label']}】——不对就说一声撤销。）"
-                    for m in new_merges
-                )
-            ).strip()
+                f"（已把『{m['new'][:20]}』并入【{m['label']}】——不对就说一声撤销。）"
+                for m in new_merges
+            )
+        ).strip()
+        # 方向A一期：白名单外轮末接线——write-guard 挂起 / forced_allocate
+        # 轮不渲染（blocked），正常轮 examples 非空才追加（D-3/D-4）。
+        _attach_default_options(
+            session, result, out_fills,
+            blocked=bool(intercepted) or guard is not None,
+        )
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
@@ -1405,6 +1436,10 @@ def _handle_message_impl(
     # D21 收尾三连问（T10）+ T17 对齐触发：同上（同帧定序）。
     out = _round_end_signals(
         session, text, out, provider, pre_module=pre_module
+    )
+    # 方向A一期：白名单外轮末接线（forced_allocate 轮 blocked）。
+    _attach_default_options(
+        session, result, out, blocked=guard is not None
     )
     return out
 
