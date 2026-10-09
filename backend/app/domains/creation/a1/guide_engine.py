@@ -443,6 +443,13 @@ OPTION_INVITE_TEMPLATE = (
     "（回复序号可直选，想换个方向就说「换一批」）"
 )
 
+# 方向A一期 D-2：reroll 关键词闭集（不做模糊匹配——防止误触发生成调用）。
+REROLL_KEYWORDS = {"换一批", "再来一批", "换组"}
+# D-2：连续 reroll 上限（第 3 次起不再触发生成，引导直选/自由输入）。
+REROLL_CAP = 2
+# D-2：超上限话术（契约10 断言「直接选」「自己的话」子串）。
+REROLL_CAP_REPLY = "示例换了几轮了，先试试直接选一个，或用自己的话说说。"
+
 
 def _question_payload(session: A1Session) -> dict[str, Any] | None:
     """Build the question payload for the current subfield."""
@@ -1235,6 +1242,10 @@ def _handle_message_impl(
         # Falls through to the interviewer below — same routing rules.
         pass
 
+    # D-2：非 reroll 输入 → 连续 reroll 计数清零（跳过/直选/主路径统一生效）。
+    if text.strip() not in REROLL_KEYWORDS:
+        session.reroll_streak = 0
+
     # ---- skip ----
     if text.strip() == "跳过":
         answer_key = f"{session.current_module}.{session.current_subfield}"
@@ -1299,6 +1310,44 @@ def _handle_message_impl(
                 "progress": progress(session),
                 "phase": session.phase,
             }
+
+    # ---- reroll（换一批）方向A一期 D-2：关键词触发重生成 ----
+    # D-2 例外说明：reroll 是「合并调用承诺」的唯一例外——每次 reroll 额外
+    # +1 次 suggest_examples 调用（连续上限 REROLL_CAP=2）；且 stall 计数
+    # 一律不动（stall-neutral）。
+    if stripped in REROLL_KEYWORDS and session.current_options:
+        if session.reroll_streak >= REROLL_CAP:
+            # 超上限：不再调用生成，options 保持原样可直选。
+            return {
+                "reply": REROLL_CAP_REPLY,
+                "next_question": _question_payload(session),
+                "file_diff": [],
+                "progress": progress(session),
+                "phase": session.phase,
+            }
+        examples = interviewer.suggest_examples(
+            session, session.current_module, session.current_subfield
+        )
+        session.reroll_streak += 1
+        if isinstance(examples, list) and examples:
+            session.current_options = list(examples)
+            # telemetry: option_reroll（T5 接线 emission 锚点；结构零改动）
+            return {
+                "reply": _render_option_invite(session.current_options),
+                "next_question": _question_payload(session),
+                "file_diff": [],
+                "progress": progress(session),
+                "phase": session.phase,
+            }
+        # 空列表/畸形 = suggest 不可用 → 降级：清空选项，引导自由输入。
+        session.current_options = []
+        return {
+            "reply": "这次没想出更多示例，直接说说你的想法也行。",
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
 
     result = interviewer.interview(session, text)
 
