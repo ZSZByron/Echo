@@ -1,6 +1,5 @@
 """D24 T1: web_search 契约测试——降级契约 + 新端点形状（锁定 2026-10-09 修复）。"""
 import httpx
-import pytest
 
 from app.ai import web_search
 
@@ -42,7 +41,7 @@ def _run(monkeypatch, key="k" * 49, resp=None, exc=None):
         _StubClient.resp = exc
     else:
         _StubClient.resp = resp
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _StubClient())
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kw: _StubClient())
     return web_search.search_sync("精神病院 腕带 作用")
 
 

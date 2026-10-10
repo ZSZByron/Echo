@@ -392,8 +392,11 @@ class RealLLMInterviewer:
                         query=query[:100],
                         chars=len(reference),
                     )
-                    system = system + "\n\n【联网检索参考资料】（用于回答用户的知识提问）\n" + reference + (
-                        "\n\n基于上述资料重写 guidance_reply：先用一两句有据的话直接回答用户的知识问题，"
+                    system = system + (
+                        "\n\n【联网检索参考资料】（用于回答用户的知识提问）\n"
+                    ) + reference + (
+                        "\n\n基于上述资料重写 guidance_reply："
+                        "先用一两句有据的话直接回答用户的知识问题，"
                         "再给2-3个贴合种子基调的创作选项，最后自然引回当前问题。保持其余字段语义不变。"
                     )
                     try:
@@ -409,7 +412,10 @@ class RealLLMInterviewer:
                             raw = second
                             knowledge_hit = True  # 搜索成功 + 二次生效（D24 §1.5）
                             log_event(
-                                session.session_id, "llm_raw", stage="post_search", response=truncate(raw)
+                                session.session_id,
+                                "llm_raw",
+                                stage="post_search",
+                                response=truncate(raw),
                             )
                     except Exception as e:  # noqa: BLE001 — keep first-pass result
                         log_event(
