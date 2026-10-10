@@ -423,6 +423,12 @@ class A1Session(BaseModel):
     # 方向A一期：当前问的默认选项（D-3 新字段——pending_suggestions 随
     # stall==2 分支退役为死字段：不删不写，零迁移）。空 = 本轮无选项。
     current_options: list[str] = Field(default_factory=list)
+    # P3 止血（wave1 T3）：current_options 的归属题键绑定戳（
+    # f"{module}.{subfield}"，= options 生成语境所在题）。空串 = 未绑定
+    # （直设/旧版存量数据——直选通道放行以保 D-4 兼容）。绑定后直选仅在
+    # options_key == 当前题键时消费，杜绝跨题错配（default "" 零迁移，
+    # G3 先例）。
+    options_key: str = ""
     # D-2：连续 reroll 计数（上限 2；任一非 reroll 输入清零）。
     reroll_streak: int = 0
 
@@ -490,6 +496,7 @@ def _attach_default_options(
     out: dict[str, Any],
     *,
     blocked: bool,
+    bound_key: str = "",
 ) -> None:
     """方向A一期：主路径（fills/chat）轮末默认选项接线（原地改 out）。
 
@@ -497,16 +504,24 @@ def _attach_default_options(
     零渲染。白名单外：examples 非空列表 → 写 current_options 并把邀请
     块追加到 reply 末尾；examples 缺失/空/畸形 → 清空 + reply 逐字节
     不动（降级零痕迹）。
+
+    P3 止血（wave1 T3）：examples 是 LLM 在本轮 turn-start 题（bound_key，
+    即调用方 cur_key——sync_position 推进**前**的题）语境下生成的，写入
+    时同步打归属题键绑定戳 options_key=bound_key；清空路径一律复位为
+    空串。直选通道（D-4）凭该戳拒绝跨题消费。
     """
     if blocked or session.phase == PHASE_COMPLETED:
         session.current_options = []
+        session.options_key = ""
         return
     examples = getattr(result, "examples", None)
     if isinstance(examples, list) and examples:
         session.current_options = list(examples)
+        session.options_key = bound_key
         out["reply"] += "\n" + _render_option_invite(session.current_options)
     else:
         session.current_options = []
+        session.options_key = ""
 
 
 def sync_position(session: A1Session) -> None:
@@ -1340,12 +1355,17 @@ def _handle_message_impl(
 
     # ---- default-option number pick ("1"/"2"/"3")（方向A一期 D-4）----
     # 直选绕过占位真值闸（与旧 pick 同一先例：用户显式确认）。
-    # telemetry: option_pick（T5 接线 emission 锚点）
+    # P3 止血（wave1 T3）：options 与当前题严格绑定——绑定戳非空且不等于
+    # cur_key（生成题 ≠ 当前题，如 fills 推进后的跨题残留）时序号不消费，
+    # 落入 interview 文本路径；空戳 = 直设/旧版存量（放行，D-4 兼容）。
+    # telemetry: option_pick（T5 接线 emission 锚点；绑定修复后 digest
+    # 记录的必然是当前题 options——语义自此修正）。
     stripped = text.strip()
     if (
         session.current_options
         and stripped in {"1", "2", "3"}
         and session.phase != PHASE_COMPLETED
+        and session.options_key in ("", cur_key)
     ):
         idx = int(stripped) - 1
         if 0 <= idx < len(session.current_options):
@@ -1360,6 +1380,7 @@ def _handle_message_impl(
             session.stall_subfield = ""
             session.stall_count = 0
             session.current_options = []
+            session.options_key = ""
             sync_position(session)
             module_id, sub_id = cur_key.split(".", 1)
             picked_sf = get_subfield(module_id, sub_id)
@@ -1407,6 +1428,10 @@ def _handle_message_impl(
         session.reroll_streak += 1
         if isinstance(examples, list) and examples:
             session.current_options = list(examples)
+            # P3 止血（wave1 T3）：reroll 产物 = 当前题新选项 → 同步重打
+            # 归属题键绑定戳（否则跨题残留下 reroll 后的新选项会被直选
+            # 误拒）。reroll 通道其余语义（streak/cap/stall-neutral）零改动。
+            session.options_key = cur_key
             # telemetry: option_reroll（T4 已接 emission 调用；T5 落 JSON-lines 落盘）
             from app.domains.creation.a1 import inspiration_log
 
@@ -1460,6 +1485,7 @@ def _handle_message_impl(
             out_deflect["reply"] += _invite_notice(_invited)
         # 方向A一期白名单：deflect 轮不渲染选项。
         session.current_options = []
+        session.options_key = ""
         return out_deflect
 
     # ---- M0 止血：叙事素材 → character_sketch 归档（不触发提案三连） ----
@@ -1471,6 +1497,7 @@ def _handle_message_impl(
             out_material["reply"] += _invite_notice(_invited)
         # 方向A一期白名单：story_material 轮不渲染选项。
         session.current_options = []
+        session.options_key = ""
         return out_material
 
     # ---- genuine innovation -> confirmation flow ----
@@ -1566,6 +1593,7 @@ def _handle_message_impl(
         _attach_default_options(
             session, result, out_fills,
             blocked=bool(intercepted) or guard is not None,
+            bound_key=cur_key,
         )
         return out_fills
 
@@ -1593,7 +1621,7 @@ def _handle_message_impl(
         out["reply"] += "\n（已联网查证）"
     # 方向A一期：白名单外轮末接线（forced_allocate 轮 blocked）。
     _attach_default_options(
-        session, result, out, blocked=guard is not None
+        session, result, out, blocked=guard is not None, bound_key=cur_key
     )
     return out
 
