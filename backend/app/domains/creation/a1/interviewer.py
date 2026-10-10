@@ -104,6 +104,12 @@ class InterviewResult(BaseModel):
     # 时置 True。guide_engine 状态机据此置位知识对话态 + 追加披露尾注。
     # additive 布尔默认 False = 存量行为零扰动（G6b 先例）。
     knowledge_used: bool = False
+    # T10（波次一 1.3）投递意图键（additive，D24 knowledge_request 先例）：
+    # 规则 6「接住-归位-回题」命中——用户离题想法归位到【可填字段清单】中
+    # 既有槽位（fills 可落非当前题的树上已有字段）。仅作意图信号，引擎侧
+    # fills 写入路径零变化；A1Session/store/持久化结构零变更（一期边界：
+    # 投递式机制设计 §5 施工序一期，落位仍写现有槽）。
+    delivery: bool = False
 
 
 class Interviewer(Protocol):
@@ -571,7 +577,25 @@ class RealLLMInterviewer:
                 "5. 创新判定（从严）：仅当输入是世界观设定、且不属于清单中任何字段能容纳的内容"
                 "（全新维度/全新概念）时，is_innovative=true 并给出 innovative_category"
                 "（中文短语，作为建议新增的小类名）。普通的名称、概念、描述绝不是创新。",
-                "6. 如果输入是提问、闲聊或与世界观无关：fills 留空、is_innovative=false，"
+                # T10（波次一 1.3）规则 6 改写：「引回主题」→「接住-归位-回题」
+                # （拍1-4 / ⑨稿 §3 投递话术族·3 式激活；投递式机制设计 §2.1/
+                # §5 一期边界——零 schema，落位仍写现有槽）。规则 6.5/7 红线
+                # 只读，一字节不动。
+                "6. 投递判定（接住-归位-回题）：先看输入是否是【当前问题】的直接"
+                "答案——是则正常提取 fills，不做投递。若输入是一个离题的好想法——"
+                "不属于当前问题的直接答案，但内容属于【可填字段清单】中某个已有"
+                "字段（例：正在问某个模块时，用户突然说出另一个模块的设定或画面）："
+                "这是好想法，绝不指责用户离题、严禁说「先聚焦」「等以后再聊」。"
+                "三步处理：①接住——一句话确认收到，引用用户原话中的具体关键词；"
+                "②归位——从【可填字段清单】中找到该想法所属的字段，生成一条 fill"
+                "（module/subfield 逐字用清单 id），并置 delivery=true（投递轮信号，"
+                "新增可选键，旧解析器忽略，向前兼容）；③回题——guidance_reply 用"
+                "落位确认句式「好想法——我记进【槽位名】了（一句话复述）。回到刚才："
+                "【当前问题】」；若该想法与当前模块确有关联，可改用回题桥接句式"
+                "「这正好和【当前模块】是一对——」再引回当前问题；找不到关联就直接"
+                "温和回题。投递轮的 guidance_reply 结尾附一句撤销护栏：「刚才那笔记"
+                "错了地方？说一声，我挪走。」若输入是提问、闲聊或与世界观无关"
+                "（不满足本条投递，也不满足 6.5/7）：fills 留空、is_innovative=false，"
                 "guidance_reply 回应用户并把话题引回当前问题。",
                 "6.5 知识求助判定（优先于规则 6 的提问分支）：如果用户向你提出"
                 "领域事实性/知识性问题——期待你提供资料来帮他写故事，而不是在"
@@ -635,7 +659,10 @@ class RealLLMInterviewer:
                 "与【用户已确定的内容】兼容、彼此风格差异化、每个不超过 40 字。"
                 "故事向会话：示例必须从用户已答的剧情、角色、情感线索延伸"
                 "（引用用户已答内容里的具体关键词），严禁输出势力、政治、阵营类"
-                "世界建构模板示例。",
+                "世界建构模板示例。"
+                "示例只服务于【当前问题】——示例序号仅对当前题的示例有效，"
+                "不得为其它题生成示例、也不得把示例序号与别的题目关联"
+                "（T10 疑因(b) 核正：跨题示例一律无效）。",
                 # 方向A一期（T6）：示例风格锚点（条件注入——creator_primary
                 # 命中 ANCHOR_BY_TYPE 才追加；锚点原文逐字引用，不改写）。
                 *(
@@ -659,7 +686,7 @@ class RealLLMInterviewer:
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
                 ' "user_confused": false, "knowledge_request": false, "search_query": null, "divergent_question": null,',
                 ' "deflect": false, "story_material": null, "open_question_answered": null,',
-                ' "worldview_invites": [], "examples": ["...", "...", "..."]}',
+                ' "worldview_invites": [], "delivery": false, "examples": ["...", "...", "..."]}',
             ]
         )
 
@@ -974,6 +1001,12 @@ class RealLLMInterviewer:
             else []
         )
 
+        # T10（波次一 1.3）：投递意图键解析（additive 布尔，缺省 False =
+        # 存量行为零扰动）。投递轮不做确定性兜底改写——fills 已在规则 6
+        # 约束下落清单内既有槽；无槽可落时 LLM 置 delivery=true 且 fills
+        # 留空（温和回题），解析侧保持原样透传。
+        delivery = bool(raw.get("delivery"))
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -989,6 +1022,7 @@ class RealLLMInterviewer:
             story_material=story_material,
             worldview_invites=worldview_invites,
             examples=examples,
+            delivery=delivery,
         )
 
 
