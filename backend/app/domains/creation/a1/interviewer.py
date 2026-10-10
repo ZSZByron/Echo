@@ -371,6 +371,47 @@ class RealLLMInterviewer:
                             error=str(e)[:300],
                         )
 
+        # ---- knowledge request -> web search -> second pass (D24) ----
+        if isinstance(raw, dict) and raw.get("knowledge_request"):
+            query = raw.get("search_query")
+            if isinstance(query, str) and query.strip():
+                from app.ai.web_search import search_sync
+
+                reference = search_sync(query)
+                if reference:
+                    log_event(
+                        session.session_id,
+                        "web_search",
+                        stage="knowledge",
+                        query=query[:100],
+                        chars=len(reference),
+                    )
+                    system = system + "\n\n【联网检索参考资料】（用于回答用户的知识提问）\n" + reference + (
+                        "\n\n基于上述资料重写 guidance_reply：先用一两句有据的话直接回答用户的知识问题，"
+                        "再给2-3个贴合种子基调的创作选项，最后自然引回当前问题。保持其余字段语义不变。"
+                    )
+                    try:
+                        second = asyncio.run(
+                            self._provider.chat_json(
+                                [
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": text},
+                                ]
+                            )
+                        )
+                        if isinstance(second, dict):
+                            raw = second
+                            log_event(
+                                session.session_id, "llm_raw", stage="post_search", response=truncate(raw)
+                            )
+                    except Exception as e:  # noqa: BLE001 — keep first-pass result
+                        log_event(
+                            session.session_id,
+                            "error",
+                            stage="llm_call_post_search",
+                            error=str(e)[:300],
+                        )
+
         result = self._parse(
             raw,
             text,
@@ -513,6 +554,13 @@ class RealLLMInterviewer:
                 "（中文短语，作为建议新增的小类名）。普通的名称、概念、描述绝不是创新。",
                 "6. 如果输入是提问、闲聊或与世界观无关：fills 留空、is_innovative=false，"
                 "guidance_reply 回应用户并把话题引回当前问题。",
+                "6.5 知识求助判定（优先于规则 6 的提问分支）：如果用户向你提出"
+                "领域事实性/知识性问题——期待你提供资料来帮他写故事，而不是在"
+                "回答当前问题（如「精神病院里腕带代表什么」「当前最受欢迎的"
+                "现代小说女性主角职业是什么」）：置 knowledge_request=true，"
+                "并给出一个用于联网检索的中文 search_query（概括用户想知道的"
+                "知识点）。此时 fills 必须留空、user_confused=false——严禁把"
+                "用户的提问内容当作任何字段的答案记录。",
                 "7. 用户困惑判定：如果用户表示不理解当前问题/概念/术语，或明确说"
                 "「不知道」「没想法」「不懂」，置 user_confused=true 并给出一个用于联网"
                 "检索的中文 search_query（针对用户不理解的概念）。此时 fills 留空，"
@@ -590,7 +638,7 @@ class RealLLMInterviewer:
                 "返回严格JSON（不要输出其他内容）：",
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
-                ' "user_confused": false, "search_query": null, "divergent_question": null,',
+                ' "user_confused": false, "knowledge_request": false, "search_query": null, "divergent_question": null,',
                 ' "deflect": false, "story_material": null, "open_question_answered": null,',
                 ' "worldview_invites": [], "examples": ["...", "...", "..."]}',
             ]
