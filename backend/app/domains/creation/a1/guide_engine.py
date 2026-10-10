@@ -346,6 +346,11 @@ class A1Session(BaseModel):
     # Seed-referenced examples offered by the anti-stall guard; the user
     # may reply with a bare number 1/2/3 to accept one directly.
     pending_suggestions: list[str] = Field(default_factory=list)
+    # D24 ①知识对话态（2026-10-10 施工单 §1.3）：active=用户在聊领域知识
+    # 话题（fills 冻结防误填）；turns=知识态内轮数（>3 强制复位防卡死）。
+    # 判定集中单点 _update_knowledge_thread；additive 默认值=存量会话零迁移。
+    knowledge_thread_active: bool = False
+    knowledge_thread_turns: int = 0
     # Write-guard proposals (Task 4): key=proposal_key, value=dict with
     # 'proposal' (Proposal model), 'options' (list[str]).
     # Semantically independent from pending_suggestions (Metis Q5).
@@ -1200,6 +1205,41 @@ def _archive_story_material(
     }
 
 
+def _update_knowledge_thread(
+    session: A1Session, result: Any, *, frozen: bool = False
+) -> None:
+    """D24 ①知识对话态状态机（施工单 §1.3——判定集中单点，禁止散落）。
+
+    置位：本轮 knowledge_used=True（搜索成功+二次生效）→ active=True，
+    turns=1（已在态内则 +1）。
+    保持/退出（active 时逐轮判定）：
+    - knowledge_used=True → 保持（turns 已在置位分支推进）；
+    - 冻结轮（``frozen`` 或 fills 非空）→ 保持且 turns += 1（anti-stuck：
+      施工单原文 turns 只在知识轮推进，但冻结轮若不推进则退出③永不触发；
+      逐轮推进保留 §1.3 防卡死本意——解释性偏离，已报告）；
+    - fills 空且 knowledge_used=False → 话题自然离开，退出④；
+    - turns > 3 → 强制复位，退出③（防卡死）。
+
+    ``frozen`` 标志：冻结发生在状态机更新之前（§1.3 定序），fills 已被
+    丢弃，故由冻结点显式传入，状态机才能区分「冻结保持轮」与「自然离开」。
+    """
+    was_active = session.knowledge_thread_active
+    if getattr(result, "knowledge_used", False):
+        session.knowledge_thread_active = True
+        session.knowledge_thread_turns = (
+            session.knowledge_thread_turns + 1 if was_active else 1
+        )
+    elif was_active:
+        if frozen or result.fills:
+            session.knowledge_thread_turns += 1  # 冻结保持轮（anti-stuck）
+        else:
+            session.knowledge_thread_active = False  # 退出④
+            session.knowledge_thread_turns = 0
+    if session.knowledge_thread_active and session.knowledge_thread_turns > 3:
+        session.knowledge_thread_active = False  # 退出③（防卡死）
+        session.knowledge_thread_turns = 0
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -1257,6 +1297,9 @@ def _handle_message_impl(
 
     # ---- skip ----
     if text.strip() == "跳过":
+        # D24 ①退出②：用户显式回到创作流程 → 知识对话态确定性复位。
+        session.knowledge_thread_active = False
+        session.knowledge_thread_turns = 0
         answer_key = f"{session.current_module}.{session.current_subfield}"
         skipped_module = session.current_module
         skipped_sf = get_subfield(session.current_module, session.current_subfield)
@@ -1306,6 +1349,9 @@ def _handle_message_impl(
     ):
         idx = int(stripped) - 1
         if 0 <= idx < len(session.current_options):
+            # D24 ①退出①：直选命中 = 回到创作输入 → 先复位知识态再处理。
+            session.knowledge_thread_active = False
+            session.knowledge_thread_turns = 0
             value = session.current_options[idx]
             options_digest = "|".join(
                 str(o) for o in session.current_options[:3]
@@ -1389,6 +1435,22 @@ def _handle_message_impl(
         }
 
     result = interviewer.interview(session, text)
+
+    # ---- D24 ①：知识对话态 fills 冻结（先于一切 fills 消费）----
+    # active 时本轮 fills 一律丢弃（引擎执行权，不依赖 LLM 自律）；
+    # 状态机更新在其后（冻结判定用 pre-update active 态——施工单 §1.3 序）。
+    frozen = False
+    if session.knowledge_thread_active and result.fills:
+        frozen = True
+        _dropped = len(result.fills)
+        result = result.model_copy(update={"fills": []})
+        log_event(
+            session.session_id,
+            "knowledge_freeze",
+            dropped=_dropped,
+            turns=session.knowledge_thread_turns,
+        )
+    _update_knowledge_thread(session, result, frozen=frozen)
 
     # ---- M0 止血：偏转 → 占位跳过推进指针 ----
     if getattr(result, "deflect", False) and not result.fills:
@@ -1525,6 +1587,10 @@ def _handle_message_impl(
     out = _round_end_signals(
         session, text, out, provider, pre_module=pre_module
     )
+    # D24 ①披露尾注（§1.5）：知识二段成功轮 → 回复尾追加。仅 knowledge
+    # 通道；user_confused 路径（knowledge_used=False）不经过此分支。
+    if getattr(result, "knowledge_used", False):
+        out["reply"] += "\n（已联网查证）"
     # 方向A一期：白名单外轮末接线（forced_allocate 轮 blocked）。
     _attach_default_options(
         session, result, out, blocked=guard is not None

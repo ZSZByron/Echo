@@ -99,6 +99,11 @@ class InterviewResult(BaseModel):
     # 同 prompt 同返回（合并单次调用）。空 list = 降级（reply 行为与改造前
     # 逐字节一致，降级模式照抄 suggest_examples L636-651 先例）。
     examples: list[str] = Field(default_factory=list)
+    # D24 ①（2026-10-10 施工单 §1.3/§1.5）：知识二段成功桥接旗标——
+    # knowledge_request 命中且 search reference 非空、二次生成覆盖 raw
+    # 时置 True。guide_engine 状态机据此置位知识对话态 + 追加披露尾注。
+    # additive 布尔默认 False = 存量行为零扰动（G6b 先例）。
+    knowledge_used: bool = False
 
 
 class Interviewer(Protocol):
@@ -372,6 +377,7 @@ class RealLLMInterviewer:
                         )
 
         # ---- knowledge request -> web search -> second pass (D24) ----
+        knowledge_hit = False
         if isinstance(raw, dict) and raw.get("knowledge_request"):
             query = raw.get("search_query")
             if isinstance(query, str) and query.strip():
@@ -401,6 +407,7 @@ class RealLLMInterviewer:
                         )
                         if isinstance(second, dict):
                             raw = second
+                            knowledge_hit = True  # 搜索成功 + 二次生效（D24 §1.5）
                             log_event(
                                 session.session_id, "llm_raw", stage="post_search", response=truncate(raw)
                             )
@@ -417,6 +424,8 @@ class RealLLMInterviewer:
             text,
             recipe=list(getattr(session, "recipe_modules", []) or []) or None,
         )
+        if knowledge_hit:
+            result.knowledge_used = True  # D24 ①桥接旗标（引擎消费）
         self._open_question_answered = result.open_question_answered
         log_event(
             session.session_id,
