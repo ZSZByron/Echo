@@ -454,7 +454,11 @@ class RealLLMInterviewer:
                 f"（{session.seed_genre}）— {session.seed_description}"
             )
         if getattr(session, "seed_description", "") and not seed_lines:
-            seed_lines.append(f"用户的初始创意：{session.seed_description}")
+            seed_lines.append(
+                f"记下你的创意了：{session.seed_description}\n"
+                "接下来我会一次问你一个问题，帮你把它变成一个完整的世界。"
+                "每题都可以自己写、从我给的选项里挑，或者跳过。"
+            )
         # E1-Lite T3: 语气锚点模板变量注入（creator_primary 非空且在表中才追加；
         # 空 profile 输出与改动前逐字节相同）。M2：锚点查 Recipe.anchor
         # （数据同源 ANCHOR_BY_TYPE，故事配方锚点随 Recipe 生效）。
