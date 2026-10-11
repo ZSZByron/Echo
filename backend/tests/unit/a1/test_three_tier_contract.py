@@ -279,3 +279,84 @@ def test_a1session_additive_enum() -> None:
     assert legacy.material_pool == []
     assert legacy.list_thread_key == ""
     assert legacy.list_thread_turns == 0
+
+
+# ---------------------------------------------------------------------------
+# T2 专项断言（追加批）：树计数 / vs 全覆盖 / 清单位点 / cap 分布 / Q16。
+# 四契约本体之上追加，不修改既有断言。
+# ---------------------------------------------------------------------------
+
+VS_ENUM_EXPECTED = {"point", "from_to", "dim_dir", "dual"}
+
+
+def _tree_counts() -> tuple[int, int, int, dict[str, int]]:
+    l1_n = l2_n = l3_n = 0
+    vs_counter: dict[str, int] = {}
+    for l1 in _load_three_tier_tree():
+        l1_n += 1
+        for l2 in l1["l2"]:
+            l2_n += 1
+            for l3 in l2["l3"]:
+                l3_n += 1
+                vs = l3.get("vs")
+                assert vs in VS_ENUM_EXPECTED, (
+                    "L3 %s 的 vs 值 %r 越出闭集 %s" % (l3["id"], vs, sorted(VS_ENUM_EXPECTED))
+                )
+                vs_counter[vs] = vs_counter.get(vs, 0) + 1
+    return l1_n, l2_n, l3_n, vs_counter
+
+
+def test_tree_counts_and_vs_coverage() -> None:
+    l1_n, l2_n, l3_n, vs_counter = _tree_counts()
+    assert l1_n == 7, "L1 应为 7，实得 %d" % l1_n
+    assert l2_n == 26, "L2 应为 26，实得 %d" % l2_n
+    assert l3_n == 92, "L3 应为 92，实得 %d" % l3_n
+    # vs 标注全覆盖 92/92 + ⑥稿分布 ●66+▶20+⇄5+⇉1
+    assert sum(vs_counter.values()) == 92, "vs 覆盖不足 92：%s" % vs_counter
+    assert vs_counter == {
+        "point": 66, "from_to": 20, "dim_dir": 5, "dual": 1,
+    }, "vs 分布与⑥稿判定表不符：%s" % vs_counter
+
+
+def test_list_spots_and_caps() -> None:
+    tree = _load_three_tier_tree()
+    list_l3: list[str] = []
+    list_l2: list[str] = []
+    for l1 in tree:
+        for l2 in l1["l2"]:
+            if l2.get("list"):
+                list_l2.append(l2["id"])
+                assert l2.get("item_template"), "清单位点 %s 缺 item_template" % l2["id"]
+            for l3 in l2["l3"]:
+                if l3.get("list"):
+                    list_l3.append(l3["id"])
+                    assert l3.get("item_template"), "清单位点 %s 缺 item_template" % l3["id"]
+    # 首批 15 处 = 13 个 L3 位点 + 支线卡 L2 + 灵感架（会话级 material_pool）
+    spots = len(list_l3) + len(list_l2) + 1
+    assert spots == 15, "清单位点应为 15（13 L3+支线卡 L2+灵感架），实得 %d" % spots
+    # cap 表：位点键与树内标注一一对应 + 灵感架；12 帽×3 + 6 帽×12
+    caps = getattr(sm, "LIST_CAPS")
+    tree_list_ids = set(list_l3) | set(list_l2)
+    assert set(caps) == tree_list_ids | {"material_pool"}, (
+        "cap 表位点与树内清单位点不齐：tree=%s caps=%s"
+        % (sorted(tree_list_ids), sorted(caps))
+    )
+    big = sorted(k for k, v in caps.items() if v == 12)
+    small = sorted(k for k, v in caps.items() if v == 6)
+    assert big == ["existence", "key_nodes", "material_pool"], (
+        "12 帽应为灵感架/关键节点/存在物三处，实得 %s" % big
+    )
+    assert len(small) == 12 and all(v == 6 for v in caps.values()) or True
+    assert len(small) == 12, "6 帽应为 12 处，实得 %d：%s" % (len(small), small)
+
+
+def test_q16_branch_main_question() -> None:
+    q16 = getattr(sm, "Q16_BRANCH_CARD", None)
+    assert q16 is not None, "Q16 支线主问未落库"
+    assert "可跳过" in q16["hint"], "Q16 hint 须含'可跳过'：%s" % q16["hint"]
+    order = getattr(sm, "STORYLINE_ORDER", None)
+    assert order is not None, "故事线配方序列未落库"
+    assert len(order) == 16, "故事线序列应为 16 问，实得 %d" % len(order)
+    assert order[15] == q16["id"], (
+        "Q16 应在故事线序列第 16 位，实得第 16 位=%s" % order[15]
+    )

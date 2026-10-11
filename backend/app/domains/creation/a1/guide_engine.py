@@ -431,6 +431,16 @@ class A1Session(BaseModel):
     options_key: str = ""
     # D-2：连续 reroll 计数（上限 2；任一非 reroll 输入清零）。
     reroll_streak: int = 0
+    # 波次二拍2-13：灵感架（material_pool）——投递素材暂存区，永不拒绝；
+    # 条目 = {原文, 建议槽位, ...}（⑤稿 §9.3 灵感架位点，上限 LIST_CAPS
+    # ["material_pool"]=12）。default [] 零迁移（G3 先例）。
+    material_pool: list[dict[str, Any]] = Field(default_factory=list)
+    # 波次二拍2-13/2-16：清单追加循环停驻状态（⑤稿 §9.2-3，D24 状态机
+    # 先例）——key=当前停驻的清单位点（L3 id / "branch_card"），空串=未
+    # 停驻；turns=停驻循环内轮数（达 LIST_CAPS 上限或用户收束即退出）。
+    # default ""/0 零迁移（options_key 先例）。
+    list_thread_key: str = ""
+    list_thread_turns: int = 0
 
 
 def first_question() -> dict[str, Any]:

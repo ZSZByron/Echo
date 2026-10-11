@@ -154,7 +154,11 @@ def test_knowledge_request_outranks_delivery():
 
 
 # ---------------------------------------------------------------------------
-# 零 schema 变更锁：A1Session 字段集与 T9 后完全一致
+# A1Session 字段集锁（T9 后基线 + 波次二 additive 增量）。
+# 波次二（拍2-13/2-18/2-19，2026-10-12）：material_pool / list_thread_key /
+# list_thread_turns 三枚 additive 字段落库（契约锁见
+# test_three_tier_contract.py::test_a1session_additive_enum）——本锁随之
+# 扩容基线，此后零删改锁语义不变。
 # ---------------------------------------------------------------------------
 
 _T9_SESSION_FIELDS = frozenset(
@@ -172,6 +176,8 @@ _T9_SESSION_FIELDS = frozenset(
         "recipe_modules", "reroll_streak", "resume_later", "seed_description",
         "seed_genre", "seed_name", "session_id", "stall_count",
         "stall_subfield", "user_id",
+        # 波次二 additive 三枚（拍2-13/2-16/2-18，G3 零迁移先例）
+        "material_pool", "list_thread_key", "list_thread_turns",
     }
 )
 
@@ -181,8 +187,10 @@ def test_a1session_schema_unchanged_since_t9():
 
 
 def test_no_dormant_state_structures():
-    # 一期红线：不预留 material_pool/半填任何数据结构（连影子都不留）。
-    assert "material_pool" not in A1Session.model_fields
+    # 一期红线随波次二拍2-13 解除：material_pool 正式落库（additive 默认
+    # 空——存量会话零迁移）；锁其存在与默认空形态，防休眠结构回潮。
+    assert "material_pool" in A1Session.model_fields
+    assert A1Session.model_fields["material_pool"].default is not None
 
 
 # ---------------------------------------------------------------------------
