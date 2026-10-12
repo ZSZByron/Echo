@@ -1,0 +1,68 @@
+{
+  "active_plan": "H:\\UGC\\.sisyphus\\plans\\a1-wave2-structure-overhaul.md",
+  "started_at": "2026-10-11T07:27:03.579Z",
+  "session_ids": [
+    "ses_ed6245db3ffeq37oJEqF1NgOJN"
+  ],
+  "session_origins": {
+    "ses_ed6245db3ffeq37oJEqF1NgOJN": "direct"
+  },
+  "plan_name": "a1-wave2-structure-overhaul",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "批 A 前置验证与契约锁红测",
+      "session_id": "ses_ed6232a7fffeMP2HjCLptC6FuV",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-10-11T07:41:28.064Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "批 A 数据层绿：三级树 + 标注 + 支线卡 + Q16 + material_pool",
+      "session_id": "ses_ed615badeffeBhw6WH3m8UvJ6H",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-10-11T07:54:51.197Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "批 A 门禁 + 治理登记",
+      "session_id": "ses_ed2312f21ffePaBfROT5GTD5N6",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-10-12T01:59:25.827Z"
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "批 B 红测：AnswerNode 全树化 + fills 值 schema + 半填 + 追加循环",
+      "session_id": "ses_ed1fc94edffeFshYpxXNZZCqjv",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-12T03:08:49.613Z"
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "批 B 绿：引擎实现 + 批门禁",
+      "session_id": "ses_ed1aa58c5ffetp0ut2Cu99dO2o",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-10-12T04:26:28.032Z"
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "批 C 红测：六通道全序 + 讨论镜像 + 重锚四选一 + 话术包",
+      "session_id": "ses_ed1a27f23ffeE9i4bESoTBOzdH",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-12T04:46:55.012Z"
+    }
+  }
+}

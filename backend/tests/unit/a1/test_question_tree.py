@@ -1,23 +1,20 @@
 """Tests for the A1 two-layer question tree."""
+from app.domains.creation.seed import a1_question_tree
 from app.domains.creation.seed.a1_question_tree import (
     MODULES,
-    SubField,
-    Module,
-    module_ids,
-    get_module,
-    get_subfield,
+    all_subfield_keys,
+    clip_answer,
     first_module,
     first_subfield,
-    next_subfield,
-    total_subfield_count,
-    all_subfield_keys,
-    subs_for_module,
+    get_subfield,
+    is_finalizable,
     is_module_done,
     is_module_over_half,
-    is_finalizable,
     is_truthy_answer,
     module_done_ratio,
-    clip_answer,
+    module_ids,
+    next_subfield,
+    total_subfield_count,
 )
 
 
@@ -141,23 +138,20 @@ class TestModuleOverHalf:
         assert is_finalizable({}) is False
 
 
-class TestSeverity:
-    def test_severity_values_locked(self):
-        # Severity values are now mentioned only in comments, not as a constant
-        # The valid values are: COSMIC, MAJOR, REGIONAL, MINOR
-        expected_values = ["COSMIC", "MAJOR", "REGIONAL", "MINOR"]
-        # Check that these are mentioned in the MODULES structure
-        found_values = []
+class TestSeverityRemoved:
+    """④稿去 severity：枚举与 hint 注记已整体移除（key_nodes 存自然语言，
+    严重度归 graphify 推断）。用户侧文案不得再出现 severity 标注要求。"""
+
+    def test_severity_values_enum_removed(self):
+        assert not hasattr(a1_question_tree, "SEVERITY_VALUES")
+
+    def test_no_severity_markers_in_copy(self):
         for module in MODULES:
             for field in module["fields"]:
-                if "severity" in field.get("hint", "").lower():
-                    # Extract severity values from hints
-                    import re
-                    matches = re.findall(r'(COSMIC|MAJOR|REGIONAL|MINOR)', field["hint"])
-                    found_values.extend(matches)
-        # Verify that the expected values appear somewhere in the hints
-        for val in expected_values:
-            assert any(val in field.get("hint", "") for module in MODULES for field in module["fields"])
+                hint = field.get("hint", "")
+                assert "severity" not in hint.lower()
+                for val in ("COSMIC", "MAJOR", "REGIONAL", "MINOR"):
+                    assert val not in hint, f"{module['id']}.{field['id']} 仍含 {val}"
 
 
 class TestTruthyAnswer:

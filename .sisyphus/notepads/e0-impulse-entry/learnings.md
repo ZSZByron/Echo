@@ -36,3 +36,8 @@
 - FINAL 波实效：F3 抓到 S10 真实缺陷（impulse_cards 分支无 error banner）——T8 E2E 未覆盖的失败路径由手动 QA 兜住，修复 0fb6178 行级落地后复验翻转。多通道验证不是冗余。
 - 基础设施教训：>10 分钟的浏览器重放类同步任务必撞轮询上限（T8 首跑 30min 超时、F3 两次中断）——拆分为 ≤10min 子任务 + 独立 node 脚本（Promise.race 超时保护 + 证据增量落盘）是稳定形态（f3a/f3b-replay.mjs 可复用）。
 - E1 交接备忘：①首答埋点移至响应成功后 ②Seed 类型收敛共享导出 ③file 水合 404 会踢回种子页（E2E mock 必须覆盖 /api/a1/file/**）④graph.spec 存量失败基线 23F/3P（chromium，与本计划无关）⑤8+1 文案待产品方终审（task-2-copy-review-checklist.md）。
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

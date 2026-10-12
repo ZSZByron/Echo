@@ -46,6 +46,11 @@ class InterviewFill(BaseModel):
     subfield: str
     value: str
     conflict_note: str | None = None
+    # D23 语义分流（LLM 判定，引擎确定性消费）：
+    relation: str | None = None   # 枚举逐字锁定："equivalent"|"complement"|"conflict"，不允许添加或修改
+    merged_value: str | None = None   # equivalent 必填：融合双方要点后的完整表述
+    merge_target: str | None = None   # 多值字段只与其中一条等价时：那条的开头文字
+    conflict_question: str | None = None  # conflict 必填：面向用户的人话提问（三选一）
 
 
 class Proposal(BaseModel):
@@ -57,6 +62,9 @@ class Proposal(BaseModel):
     new: str
     conflict_note: str | None = None
     merge_preview: str = ""
+    # D23：conflict 时 LLM 生成的人话提问（三选一提案卡片问句）；缺省 "" =
+    # 现行模板问句逐字节不变（存量保护）。
+    question_text: str = ""
 
     def __init__(self, **data: Any) -> None:
         if "merge_preview" not in data:
@@ -87,6 +95,29 @@ class InterviewResult(BaseModel):
     # **仅提议，不写状态**：确定性校验（闭集/去重/上限/插入点）在
     # guide_engine 单消费侧（D-A2-4 铁律）。可选键向前兼容（G6b 先例）。
     worldview_invites: list[str] = Field(default_factory=list)
+    # 方向A一期（2026-10-08 施工单拍板 2）：默认选项生成通道——与 fills
+    # 同 prompt 同返回（合并单次调用）。空 list = 降级（reply 行为与改造前
+    # 逐字节一致，降级模式照抄 suggest_examples L636-651 先例）。
+    examples: list[str] = Field(default_factory=list)
+    # D24 ①（2026-10-10 施工单 §1.3/§1.5）：知识二段成功桥接旗标——
+    # knowledge_request 命中且 search reference 非空、二次生成覆盖 raw
+    # 时置 True。guide_engine 状态机据此置位知识对话态 + 追加披露尾注。
+    # additive 布尔默认 False = 存量行为零扰动（G6b 先例）。
+    knowledge_used: bool = False
+    # T10（波次一 1.3）投递意图键（additive，D24 knowledge_request 先例）：
+    # 规则 6「接住-归位-回题」命中——用户离题想法归位到【可填字段清单】中
+    # 既有槽位（fills 可落非当前题的树上已有字段）。仅作意图信号，引擎侧
+    # fills 写入路径零变化；A1Session/store/持久化结构零变更（一期边界：
+    # 投递式机制设计 §5 施工序一期，落位仍写现有槽）。
+    delivery: bool = False
+    # 批C（波次二拍2-18/2-19）：讨论镜像 + 话头重锚意图键（additive 布尔，
+    # delivery 键先例——与既有 interview 单次 LLM 调用同返回，零新增调用）。
+    # mirror=true：用户在虚构内追问/推演【用户已确定的内容】里已确立的
+    # 设定（讨论轮，引擎镜子式回应、不吸收 fills）；reanchor=true：用户
+    # 说「梳理一下」等显式元命令，要求摊开已确定线头（引擎拼清单）。
+    # 仅意图信号；判定/执行权在 guide_engine 单消费侧（D-A2-4 铁律）。
+    mirror: bool = False
+    reanchor: bool = False
 
 
 class Interviewer(Protocol):
@@ -138,6 +169,13 @@ class FakeInterviewer:
         self.calls = 0
         self.suggest_calls = 0
         self.forced_calls = 0
+        # D23：提案回复一句话分类的固定判定（测试注入）。
+        self.confirm_intent: str = "other"
+
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str  # noqa: ARG002
+    ) -> str:
+        return self.confirm_intent
 
     def set_pending_open_question(self, question: dict) -> None:
         """C7: 系统注入的待问开放问题（一次一条）。"""
@@ -169,6 +207,11 @@ class FakeInterviewer:
         self, session: Any, module_id: str, subfield_id: str
     ) -> list[str]:
         self.suggest_calls += 1
+        # 方向A一期 reroll 通道（D-2）：ExamplesFake 子类经 self._inject
+        # 注入示例——engine 的独立 suggest_examples 调用必须拿到同一注入。
+        inject = getattr(self, "_inject", None)
+        if isinstance(inject, list) and inject:
+            return list(inject)
         if self._examples is None:
             return ["示例一", "示例二", "示例三"]
         return list(self._examples)
@@ -252,9 +295,12 @@ def _field_catalog(recipe: list[str] | None = None) -> str:
 _MAX_ANSWER_DIGEST = 12
 
 
-def _answers_digest(answers: dict[str, str]) -> str:
+def _answers_digest(answers: dict[str, Any]) -> str:
+    from app.domains.creation.a1.guide_engine import answer_view  # 延迟导入防环（a1_routes 先例）
     items = [
-        f"{k} = {v[:40]}" for k, v in list(answers.items())[:_MAX_ANSWER_DIGEST] if v
+        f"{k} = {answer_view(v)[:40]}"
+        for k, v in list(answers.items())[:_MAX_ANSWER_DIGEST]
+        if v
     ]
     return "\n".join(items) if items else "（暂无）"
 
@@ -344,11 +390,67 @@ class RealLLMInterviewer:
                             error=str(e)[:300],
                         )
 
+        # ---- knowledge request -> web search -> second pass (D24) ----
+        knowledge_hit = False
+        if isinstance(raw, dict) and raw.get("knowledge_request"):
+            query = raw.get("search_query")
+            if isinstance(query, str) and query.strip():
+                from app.ai.web_search import search_sync
+
+                reference = search_sync(query)
+                if reference:
+                    log_event(
+                        session.session_id,
+                        "web_search",
+                        stage="knowledge",
+                        query=query[:100],
+                        chars=len(reference),
+                    )
+                    system = system + (
+                        "\n\n【联网检索参考资料】（用于回答用户的知识提问）\n"
+                    ) + reference + (
+                        "\n\n基于上述资料重写 guidance_reply："
+                        "先用一两句有据的话直接回答用户的知识问题，"
+                        "再给2-3个贴合种子基调的创作选项，最后自然引回当前问题。保持其余字段语义不变。"
+                    )
+                    try:
+                        second = asyncio.run(
+                            self._provider.chat_json(
+                                [
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": text},
+                                ]
+                            )
+                        )
+                        if isinstance(second, dict):
+                            raw = second
+                            knowledge_hit = True  # 搜索成功 + 二次生效（D24 §1.5）
+                            log_event(
+                                session.session_id,
+                                "llm_raw",
+                                stage="post_search",
+                                response=truncate(raw),
+                            )
+                    except Exception as e:  # noqa: BLE001 — keep first-pass result
+                        log_event(
+                            session.session_id,
+                            "error",
+                            stage="llm_call_post_search",
+                            error=str(e)[:300],
+                        )
+
         result = self._parse(
             raw,
             text,
             recipe=list(getattr(session, "recipe_modules", []) or []) or None,
         )
+        if knowledge_hit:
+            result.knowledge_used = True  # D24 ①桥接旗标（引擎消费）
+        # 批C：knowledge_request 信号透传（矩阵契约面）——非模型字段
+        # （InterviewResult 字段宇宙锁死，见 test_channel_matrix_v2），
+        # 经 model_copy 附着实例属性，field 宇宙零扰动。
+        if isinstance(raw, dict) and raw.get("knowledge_request"):
+            result = result.model_copy(update={"knowledge_request": True})
         self._open_question_answered = result.open_question_answered
         log_event(
             session.session_id,
@@ -371,7 +473,11 @@ class RealLLMInterviewer:
                 f"（{session.seed_genre}）— {session.seed_description}"
             )
         if getattr(session, "seed_description", "") and not seed_lines:
-            seed_lines.append(f"用户的初始创意：{session.seed_description}")
+            seed_lines.append(
+                f"记下你的创意了：{session.seed_description}\n"
+                "接下来我会一次问你一个问题，帮你把它变成一个完整的世界。"
+                "每题都可以自己写、从我给的选项里挑，或者跳过。"
+            )
         # E1-Lite T3: 语气锚点模板变量注入（creator_primary 非空且在表中才追加；
         # 空 profile 输出与改动前逐字节相同）。M2：锚点查 Recipe.anchor
         # （数据同源 ANCHOR_BY_TYPE，故事配方锚点随 Recipe 生效）。
@@ -457,10 +563,19 @@ class RealLLMInterviewer:
                 # M0→M2 素材槽迁移桥（仅角色模块且有归档素材时注入）
                 *sketch_bridge,
                 "",
-                "3.5 冲突预检：生成 fills 前逐条对照【用户已确定的内容】，检查是否存在"
-                "矛盾（新内容与已确定内容直接冲突）、窄化（用个例替代通例）或"
-                "重叠（用实例冒充类型）的情况。若存在冲突，该 fill 必须标记 "
-                "conflict_note 字段（用世界观语言描述冲突原因），value 仍按用户原意提取。",
+                # D23 语义分流规则（3.5 冲突预检升级为 3.5R；保留「冲突预检」
+                # 关键词以兼容存量 prompt 契约测试，其余为规范逐字锁定文案）
+                "3.5R 语义分流（冲突预检升级版）：fills 落点字段已在"
+                "【用户已确定的内容】中有值时，必须判定 relation 并填写："
+                "①equivalent（等价/细化：同一意思换述或加深）→ merged_value 必填="
+                "融合双方要点后的完整表述（保留用户原话质感，不得丢信息）；"
+                "多值字段若只与其中一条等价，同时填 merge_target=那条的开头文字，"
+                "merged_value 只融合那一条。②complement（补充：新信息，"
+                "不修改旧内容；多值字段的新一段）→ 不需要 merged_value。"
+                "③conflict（真矛盾）→ conflict_question 必填=面向用户的人话提问"
+                "（呈现新旧语境化对照，给出 替换/都要/先放着 三条路，禁用系统术语）。"
+                "④落点为空字段的 fill 不填 relation。判定拿不准时填 conflict"
+                "（宁可问不可猜）。",
                 "",
                 "【不可动清单】（「设定边界」模块中不可变集的锚点，绝对不可覆盖）",
                 _immutable_block(answers),
@@ -475,8 +590,33 @@ class RealLLMInterviewer:
                 "5. 创新判定（从严）：仅当输入是世界观设定、且不属于清单中任何字段能容纳的内容"
                 "（全新维度/全新概念）时，is_innovative=true 并给出 innovative_category"
                 "（中文短语，作为建议新增的小类名）。普通的名称、概念、描述绝不是创新。",
-                "6. 如果输入是提问、闲聊或与世界观无关：fills 留空、is_innovative=false，"
+                # T10（波次一 1.3）规则 6 改写：「引回主题」→「接住-归位-回题」
+                # （拍1-4 / ⑨稿 §3 投递话术族·3 式激活；投递式机制设计 §2.1/
+                # §5 一期边界——零 schema，落位仍写现有槽）。规则 6.5/7 红线
+                # 只读，一字节不动。
+                "6. 投递判定（接住-归位-回题）：先看输入是否是【当前问题】的直接"
+                "答案——是则正常提取 fills，不做投递。若输入是一个离题的好想法——"
+                "不属于当前问题的直接答案，但内容属于【可填字段清单】中某个已有"
+                "字段（例：正在问某个模块时，用户突然说出另一个模块的设定或画面）："
+                "这是好想法，绝不指责用户离题、严禁说「先聚焦」「等以后再聊」。"
+                "三步处理：①接住——一句话确认收到，引用用户原话中的具体关键词；"
+                "②归位——从【可填字段清单】中找到该想法所属的字段，生成一条 fill"
+                "（module/subfield 逐字用清单 id），并置 delivery=true（投递轮信号，"
+                "新增可选键，旧解析器忽略，向前兼容）；③回题——guidance_reply 用"
+                "落位确认句式「好想法——我记进【槽位名】了（一句话复述）。回到刚才："
+                "【当前问题】」；若该想法与当前模块确有关联，可改用回题桥接句式"
+                "「这正好和【当前模块】是一对——」再引回当前问题；找不到关联就直接"
+                "温和回题。投递轮的 guidance_reply 结尾附一句撤销护栏：「刚才那笔记"
+                "错了地方？说一声，我挪走。」若输入是提问、闲聊或与世界观无关"
+                "（不满足本条投递，也不满足 6.5/7）：fills 留空、is_innovative=false，"
                 "guidance_reply 回应用户并把话题引回当前问题。",
+                "6.5 知识求助判定（优先于规则 6 的提问分支）：如果用户向你提出"
+                "领域事实性/知识性问题——期待你提供资料来帮他写故事，而不是在"
+                "回答当前问题（如「精神病院里腕带代表什么」「当前最受欢迎的"
+                "现代小说女性主角职业是什么」）：置 knowledge_request=true，"
+                "并给出一个用于联网检索的中文 search_query（概括用户想知道的"
+                "知识点）。此时 fills 必须留空、user_confused=false——严禁把"
+                "用户的提问内容当作任何字段的答案记录。",
                 "7. 用户困惑判定：如果用户表示不理解当前问题/概念/术语，或明确说"
                 "「不知道」「没想法」「不懂」，置 user_confused=true 并给出一个用于联网"
                 "检索的中文 search_query（针对用户不理解的概念）。此时 fills 留空，"
@@ -502,6 +642,24 @@ class RealLLMInterviewer:
                 "guidance_reply 中承诺加入任何模块，也不得因此改变 fills 行为。",
                 "　　契约说明：worldview_invites 为新增可选键，旧解析器忽略未知"
                 "键，向前兼容（G6b/M0 偏转先例，D20）。",
+                # 批C（拍2-18/2-19）：讨论镜像 + 重锚判定规则（additive，
+                # 与 delivery/knowledge_request 同返回单次调用——零新增调用）。
+                "7.7 讨论判定（虚构内发问/自言推演，优先于规则 6 的闲聊分支）："
+                "如果用户在追问或推演【用户已确定的内容】里已确立的设定"
+                "（例：已写下「师姐的剑挂在城门口」，用户问「她为什么一定"
+                "要挂在城门口？」——问题对象是这个世界里已有的设定），或"
+                "在自言自语地推演已确立设定——这是创作讨论，不是知识求助："
+                "置 mirror=true，fills 必须留空、is_innovative=false；"
+                "guidance_reply 用镜子式回应——把用户的推演接过去轻轻复述"
+                "一句（只顺着用户的意思，不添加新设定、不下结论、不复述"
+                "填空），再用一句话把话题桥接回【当前问题】。如果用户问的"
+                "是现实世界的知识（不是这个世界里的事），走 6.5，mirror=false。",
+                "7.8 重锚判定（显式元命令）：如果用户说「梳理一下」，或明确"
+                "要求摊开已确定的线头/进度（如「整理一下我们聊到哪了」"
+                "「看看现在都确定了什么」「帮我把思路捋一捋」）：置 "
+                "reanchor=true，fills 必须留空；guidance_reply 一句简短回应"
+                "（如「好，我们把线头摊开看一看。」）即可——线头清单由系统"
+                "拼装，你不代列。",
                 "8. guidance_reply（中文，总共不超过三句话）：先用一句话确认已记录的"
                 "设定——引用用户输入中的具体关键词，给出有内容的确认而非套话；"
                 "再用一句话衔接收尾即可。**问句单源铁律：guidance_reply 中严禁出现任何"
@@ -524,15 +682,42 @@ class RealLLMInterviewer:
                 "divergent_question 为 null。",
                 "",
                 *self._pending_question_block(),
+                # 方向A一期（T2）：默认示例生成规则块 8.6——编号衔接 8.5
+                # 之后；8.5 本体与编号零改动（红线 2）。生成任务段纪律逐字
+                # 搬运 suggest_examples prompt（L601-633 先例），不新造文案。
+                "8.6 默认示例生成：除理解用户输入外，同时为【当前问题】所指字段"
+                "生成 3 个具体的中文示例方向——必须贴合【种子起点】基调、"
+                "与【用户已确定的内容】兼容、彼此风格差异化、每个不超过 40 字。"
+                "故事向会话：示例必须从用户已答的剧情、角色、情感线索延伸"
+                "（引用用户已答内容里的具体关键词），严禁输出势力、政治、阵营类"
+                "世界建构模板示例。"
+                "示例只服务于【当前问题】——示例序号仅对当前题的示例有效，"
+                "不得为其它题生成示例、也不得把示例序号与别的题目关联"
+                "（T10 疑因(b) 核正：跨题示例一律无效）。",
+                # 方向A一期（T6）：示例风格锚点（条件注入——creator_primary
+                # 命中 ANCHOR_BY_TYPE 才追加；锚点原文逐字引用，不改写）。
+                *(
+                    [
+                        f"示例风格贴合该冲动类型的语气锚点："
+                        f"{ANCHOR_BY_TYPE[session.creator_primary]}"
+                    ]
+                    if getattr(session, "creator_primary", "") in ANCHOR_BY_TYPE
+                    else []
+                ),
+                "　　用户回复若引用示例序号（如「选2吧」「把1和3揉一起」"
+                "「第1点对」），结合示例内容理解并生成对应 fills，不要当作纯数字。",
+                "　　示例必须是陈述句；guidance_reply 与示例中严禁出现任何新的"
+                "疑问句——全回复唯一疑问句仍是 8.5 规定的当前问题本身。",
+                "",
                 "【可填字段清单】",
                 catalog,
                 "",
                 "返回严格JSON（不要输出其他内容）：",
                 '{"fills": [{"module": "...", "subfield": "...", "value": "..."}],',
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
-                ' "user_confused": false, "search_query": null, "divergent_question": null,',
+                ' "user_confused": false, "knowledge_request": false, "search_query": null, "divergent_question": null,',
                 ' "deflect": false, "story_material": null, "open_question_answered": null,',
-                ' "worldview_invites": []}',
+                ' "worldview_invites": [], "delivery": false, "mirror": false, "reanchor": false, "examples": ["...", "...", "..."]}',
             ]
         )
 
@@ -599,6 +784,15 @@ class RealLLMInterviewer:
                         "严禁输出势力、政治、阵营类世界建构模板示例。"
                     ]
                     if getattr(session, "creator_primary", "") in STORY_PRIMARY_TYPES
+                    else []
+                ),
+                # 方向A一期（T6）：示例风格锚点（条件注入，同 _build_prompt 8.6 处）。
+                *(
+                    [
+                        f"示例风格贴合该冲动类型的语气锚点："
+                        f"{ANCHOR_BY_TYPE[session.creator_primary]}"
+                    ]
+                    if getattr(session, "creator_primary", "") in ANCHOR_BY_TYPE
                     else []
                 ),
                 "",
@@ -703,6 +897,38 @@ class RealLLMInterviewer:
 
     # ---------- parse & validate ----------
 
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str
+    ) -> str:
+        """D23⑧ 提案回复一句话分类（confirm 免卡片通道，消费侧接线归后续）。
+
+        返回闭集逐字锁定："replace"|"merge"|"drop"|"other"，不允许添加或
+        修改。异常向上传播（DegradingInterviewer 侧统一降级 "other"）。
+        """
+        system = "\n".join(
+            [
+                "你是世界观访谈助手。用户此前对一个设定修改提案收到三条选项：",
+                "替换（replace）/ 合并（merge，同一条里都保留）/ 放弃（drop）。",
+                "现在判断用户的回复属于哪一种意图。只输出一个词。",
+                "",
+                f"【旧设定】{old_value}",
+                f"【新设定】{new_value}",
+                f"【用户回复】{user_reply}",
+                "",
+                "返回严格JSON（不要输出其他内容）：",
+                '{"intent": "replace|merge|drop|other"}',
+            ]
+        )
+        raw = asyncio.run(
+            self._provider.chat_json([{"role": "system", "content": system}])
+        )
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if not isinstance(raw, dict):
+            return "other"
+        intent = raw.get("intent")
+        return intent if intent in ("replace", "merge", "drop", "other") else "other"
+
     def _parse(
         self,
         raw: Any,
@@ -735,12 +961,25 @@ class RealLLMInterviewer:
             if f"{module}.{sub}" not in keys:
                 continue  # 铁律：不允许清单外字段
             conflict = item.get("conflict_note")
+            # D23 语义分流可选键（3.5R）：缺省 None = 现行拦截行为逐字节不变。
+            relation = item.get("relation")
+            merged_value = item.get("merged_value")
+            merge_target = item.get("merge_target")
+            conflict_question = item.get("conflict_question")
+
+            def _opt_str(x: Any) -> str | None:
+                return x.strip() if isinstance(x, str) and x.strip() else None
+
             fills.append(
                 InterviewFill(
                     module=module,
                     subfield=sub,
                     value=value.strip(),
                     conflict_note=conflict.strip() if isinstance(conflict, str) and conflict.strip() else None,
+                    relation=_opt_str(relation),
+                    merged_value=_opt_str(merged_value),
+                    merge_target=_opt_str(merge_target),
+                    conflict_question=_opt_str(conflict_question),
                 )
             )
 
@@ -783,6 +1022,26 @@ class RealLLMInterviewer:
             else []
         )
 
+        # 方向A一期（T2）：examples 解析——非 list / 元素非 str / 空 →
+        # []（静默降级，不重试不报错；模式照抄 worldview_invites/
+        # suggest_examples 先例）。空 = 引擎侧零追加（旧行为逐字节）。
+        examples_raw = raw.get("examples")
+        examples = (
+            [s.strip() for s in examples_raw if isinstance(s, str) and s.strip()]
+            if isinstance(examples_raw, list)
+            else []
+        )
+
+        # T10（波次一 1.3）：投递意图键解析（additive 布尔，缺省 False =
+        # 存量行为零扰动）。投递轮不做确定性兜底改写——fills 已在规则 6
+        # 约束下落清单内既有槽；无槽可落时 LLM 置 delivery=true 且 fills
+        # 留空（温和回题），解析侧保持原样透传。
+        delivery = bool(raw.get("delivery"))
+        # 批C：mirror/reanchor additive 键解析（bool 直透，delivery 先例；
+        # 缺省 False = 存量行为零扰动）。零确定性兜底改写——信号直透引擎。
+        mirror = bool(raw.get("mirror"))
+        reanchor = bool(raw.get("reanchor"))
+
         return InterviewResult(
             fills=fills,
             guidance_reply=reply if isinstance(reply, str) and reply else "已记录。",
@@ -797,6 +1056,10 @@ class RealLLMInterviewer:
             deflect=deflect,
             story_material=story_material,
             worldview_invites=worldview_invites,
+            examples=examples,
+            delivery=delivery,
+            mirror=mirror,
+            reanchor=reanchor,
         )
 
 
@@ -841,6 +1104,16 @@ class DegradingInterviewer:
             return self._inner.suggest_examples(session, module_id, subfield_id)
         except Exception:  # noqa: BLE001
             return []
+
+    # ---- D23: 提案回复一句话分类（降级模式同 suggest_examples） ----
+
+    def classify_confirm_intent(
+        self, old_value: str, new_value: str, user_reply: str
+    ) -> str:
+        try:
+            return self._inner.classify_confirm_intent(old_value, new_value, user_reply)
+        except Exception:  # noqa: BLE001 — degrade, never crash
+            return "other"
 
     # ---- C7: 待问开放问题（委托 inner；inner 不支持时静默降级） ----
 

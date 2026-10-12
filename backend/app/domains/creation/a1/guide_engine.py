@@ -17,12 +17,12 @@ module has been answered or skipped.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domains.creation.a1 import draft_version
-from app.domains.creation.a1 import graph_digest
+from app.domains.creation.a1 import draft_version, graph_digest
 from app.domains.creation.a1.interaction_log import log_event
 from app.domains.creation.a1.interviewer import (
     Interviewer,
@@ -30,14 +30,6 @@ from app.domains.creation.a1.interviewer import (
     Proposal,
 )
 from app.domains.creation.a1.open_questions import OpenQuestion
-from app.domains.creation.shared.module_registry import (
-    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
-    MODULE_POOL,
-    RECIPES,
-    TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
-    TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
-    resolve_recipe_id,
-)
 from app.domains.creation.seed.a1_question_tree import (
     ANSWER_MAX_CHARS,
     all_subfield_keys,
@@ -51,6 +43,22 @@ from app.domains.creation.seed.a1_question_tree import (
     is_truthy_answer,
     module_ids,
     subs_for_module,
+)
+from app.domains.creation.seed.story_modules import (
+    LIST_CAPS,
+    THREE_TIER_TREE,
+    VS_DIM_DIR,
+    VS_DUAL,
+    VS_FROM_TO,
+    VS_POINT,
+)
+from app.domains.creation.shared.module_registry import (
+    ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
+    MODULE_POOL,
+    RECIPES,
+    TYPE_ENTRY_SUBFIELD,  # noqa: F401 — 同上（消费侧改为查 Recipe.entry_subfield）
+    TYPE_MODULE_PRIORITY,  # noqa: F401 — 同上
+    resolve_recipe_id,
 )
 from app.domains.creation.shared.semantic_compiler import (
     ClassificationProposal,
@@ -81,7 +89,7 @@ FIELD_SOURCES: frozenset[str] = frozenset({
 })
 
 
-def mark_field_source(session: "A1Session", key: str, source: str) -> None:
+def mark_field_source(session: A1Session, key: str, source: str) -> None:
     """Tag one answer key with its write source (auto-mark, 都标自动标).
 
     Raises ValueError on a source outside the closed enum — a typo must
@@ -93,7 +101,7 @@ def mark_field_source(session: "A1Session", key: str, source: str) -> None:
 
 
 def apply_dice_recommendation(
-    session: "A1Session", key: str, value: str
+    session: A1Session, key: str, value: str
 ) -> bool:
     """Outlet 4：骰子推荐按钮写入（确定性 apply 函数即单点接线）。
 
@@ -186,6 +194,450 @@ def _initial_subfield() -> str:
     return sf["id"]
 
 
+class AnswerNode(BaseModel):
+    """D23 层级答案条目：多值字段的树形承载（G3 零迁移——存量 str 答案
+    读取时按需晋升，落库形态仍以 answer_view 渲染为单串）。"""
+
+    text: str = ""
+    children: list[AnswerNode] = Field(default_factory=list)
+    source: str = ""
+
+
+def answer_view(value: str | AnswerNode | dict[str, Any]) -> str:
+    """C11 渲染确定性：str 直通；node = 非空片段按深度优先序「；」连接；
+    dict（批B 结构化值）= 叶值深度优先「；」连接（additive——str/node
+    行为逐字节不变）。渲染纯函数（同输入同输出，无状态）；空片段跳过。
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return _l3_render(value)
+    parts: list[str] = []
+    if value.text.strip():
+        parts.append(value.text)
+    for child in value.children:
+        rendered = answer_view(child)
+        if rendered.strip():
+            parts.append(rendered)
+    return "；".join(parts)
+
+
+def is_multi_value(module_id: str, subfield_id: str) -> bool:
+    """D23：多值字段判定（数据驱动——SubField.multi，story_modules 声明）。"""
+    sf = get_subfield(module_id, subfield_id)
+    return bool(sf.get("multi")) if sf else False
+
+
+def _find_child_by_prefix(node: AnswerNode, target: str) -> AnswerNode | None:
+    """D23 equivalent merge_target 定位：开头文字前缀匹配（取 12 字）。"""
+    t = (target or "").strip()
+    if not t:
+        return None
+    prefix = t[:MERGE_TARGET_PREFIX_CHARS]
+    for child in node.children:
+        if child.text.strip().startswith(prefix):
+            return child
+    return None
+
+
+def _node_contains_exact(node: AnswerNode, value: str) -> bool:
+    """Branch 2 节点版同值短路：node 任一层（含递归 children）精确等于 value。"""
+    if node.text == value:
+        return True
+    return any(_node_contains_exact(c, value) for c in node.children)
+
+
+def proposal_question_text(
+    label: str, old: str, new: str, conflict_note: str = ""
+) -> str:
+    """三选一提案模板问句（单源——两处调用点共用，输出逐字节一致）。"""
+    conflict_part = f"（{conflict_note}）" if conflict_note else ""
+    return (
+        f"你之前定过【{label}】是『{old}』{conflict_part}。"
+        f"这次的『{new}』——是要**替换**它，"
+        f"还是两者**合并**（同一条里都保留），"
+        f"还是先**放弃**这条修改？"
+    )
+
+
+_AUTO_MERGE_LOG_CAP = 20  # 滚动上限：轻量披露不无限膨胀
+ANSWER_CHILDREN_CAP = 6  # D23 拍板 4——多值字段子条目上限（非清单位点默认）
+MERGE_TARGET_PREFIX_CHARS = 12  # merge_target 前缀定位长度
+
+
+def _children_cap(subfield_id: str) -> int:
+    """清单帽位点表驱动（批B）：LIST_CAPS 命中按表取值（6/12 两档），
+    未命中回退 D23 默认 ANSWER_CHILDREN_CAP——12 帽位点
+    （existence/key_nodes/material_pool）不再被硬编码 6 提前截断。"""
+    return LIST_CAPS.get(subfield_id, ANSWER_CHILDREN_CAP)
+
+
+# ---------------------------------------------------------------------------
+# 批B：三-tier 树消费面（L3 值 schema + 树写/读入口）
+#
+# 存储布局（answers 平面键集合零新增）：
+# - 锚节点键 = L2 id（无点号，永不与 module.field 平面宇宙相交）；
+#   值 = AnswerNode(text=L2 label, children=[L3 节点...])。
+# - L3 节点 source = l3_id（树定位可回放）；结构化部件存为
+#   source=部件键 的子节点（⇉ change 部件嵌套子节点）；
+#   清单追加存 source="" 的子节点（D23 complement 同构）。
+# ---------------------------------------------------------------------------
+
+
+def _build_l3_index() -> dict[str, dict[str, Any]]:
+    """THREE_TIER_TREE → l3_id 定位表（惰性一次性构建，纯数据投影）。"""
+    idx: dict[str, dict[str, Any]] = {}
+    for l1 in THREE_TIER_TREE:
+        for l2 in l1["l2"]:
+            for l3 in l2["l3"]:
+                idx[str(l3["id"])] = {
+                    "l1_id": l1["id"],
+                    "l1_label": str(l1.get("label", "")),
+                    "l2_id": str(l2["id"]),
+                    "l2_label": str(l2.get("label", "")),
+                    "vs": str(l3["vs"]),
+                }
+    return idx
+
+
+_L3_INDEX = _build_l3_index()
+
+#: vs → 合法部件键闭集（⑥稿 §0 判定表；半填 = 键可缺，不允许越集）。
+_L3_PART_KEYS: dict[str, frozenset[str]] = {
+    VS_FROM_TO: frozenset({"from", "to", "trigger"}),
+    VS_DIM_DIR: frozenset({"dimension", "direction", "magnitude"}),
+    VS_DUAL: frozenset({"point", "change"}),
+}
+
+#: 数值部件键（落库为文本、读回转数值；magnitude=0 是真实内容不是空）。
+_L3_NUMERIC_PART_KEYS = frozenset({"magnitude"})
+
+
+def validate_l3_value(l3_id: str, value: Any) -> bool:
+    """值 schema 校验入口（批B）。合法 → True；形状越界 → ValueError。
+
+    - ● 位点只认纯文本：结构化 dict → 拒绝（拒绝或降级二选一，本实现
+      选拒绝——调用方可用 _l3_render 自行降级）。
+    - ▶/⇄/⇉ 位点：dict 半填缺字段宽容；str 降级为点形态文本。
+    - 幅度 0 合法（⑥§2-16 拒绝线特例：数值部件不查真值）。
+    - 树外位点（旧 35 字段宇宙）→ 惯例按 ● 处理，恒合法。
+    """
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        return True
+    vs = meta["vs"]
+    if vs == VS_POINT:
+        if isinstance(value, dict):
+            raise ValueError(f"● 位点不接受结构化值：{l3_id}")
+        return True
+    if isinstance(value, str):
+        return True
+    if not isinstance(value, dict):
+        raise ValueError(f"不支持的值形态：{l3_id}（vs={vs}）")
+    allowed = _L3_PART_KEYS.get(vs, frozenset())
+    for k in value:
+        if allowed and k not in allowed:
+            raise ValueError(f"未知值字段 {k!r}（位点 {l3_id}，vs={vs}）")
+    return True
+
+
+def _l3_render(value: Any) -> str:
+    """结构化值 → 渲染串（叶值深度优先「；」连接；answer_view dict 支路复用）。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        leaves: list[str] = []
+
+        def _walk(v: Any) -> None:
+            if isinstance(v, dict):
+                for x in v.values():
+                    _walk(x)
+            else:
+                leaves.append(str(v))
+
+        _walk(value)
+        return "；".join(leaves)
+    return str(value)
+
+
+def _l3_part_node(part_key: str, part_value: Any) -> AnswerNode:
+    """部件键/值 → 部件节点（⇉ change 等嵌套 dict → 嵌套部件子节点）。"""
+    if isinstance(part_value, dict):
+        return AnswerNode(
+            source=part_key,
+            children=[_l3_part_node(k, v) for k, v in part_value.items()],
+        )
+    return AnswerNode(source=part_key, text=str(part_value))
+
+
+def _l3_part_scalar(node: AnswerNode) -> Any:
+    """部件节点 → 标量值（数值部件键转数值——magnitude=0 落库可查）。"""
+    if node.source in _L3_NUMERIC_PART_KEYS:
+        try:
+            return int(node.text)
+        except ValueError:
+            try:
+                return float(node.text)
+            except ValueError:
+                pass
+    return node.text
+
+
+def _l3_parse_node(node: AnswerNode) -> dict[str, Any]:
+    """L3 节点 → 结构化部件 dict；无部件（●/降级点形态）→ {"point": 渲染串}。"""
+    parts: dict[str, Any] = {}
+    for c in node.children:
+        if c.source:
+            if c.children:
+                parts[c.source] = {
+                    gc.source: _l3_part_scalar(gc) for gc in c.children if gc.source
+                }
+            else:
+                parts[c.source] = _l3_part_scalar(c)
+    if parts:
+        return parts
+    return {"point": answer_view(node)}
+
+
+def _l3_lookup(session_or_answers: Any, l3_id: str) -> Any:
+    """L3 定位读：平面遗留键（l2.l3 旧宇宙成员）优先，其次 L2 锚树内扫描。"""
+    answers = getattr(session_or_answers, "answers", session_or_answers)
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        return answers.get(l3_id, "")
+    flat_key = f"{meta['l2_id']}.{l3_id}"
+    if flat_key in answers:
+        return answers[flat_key]
+    anchor = answers.get(meta["l2_id"])
+    if isinstance(anchor, AnswerNode):
+        for c in anchor.children:
+            if c.source == l3_id:
+                return c
+    return ""
+
+
+def l3_value_parts(session_or_answers: Any, l3_id: str) -> dict[str, Any]:
+    """结构化值读入口（批B）：l3_id → 部件 dict。
+
+    - ●/降级点形态 → {"point": 文本}；▶/⇄/⇉ → 部件键 dict（⇉ change 嵌套）。
+    - 无 vs 标注的存量平面串答案 → 全按 ● 处理（{"point": 原串}）。
+    - 未写入 → {}。
+    """
+    found = _l3_lookup(session_or_answers, l3_id)
+    if isinstance(found, AnswerNode):
+        return _l3_parse_node(found)
+    if isinstance(found, str) and found:
+        return {"point": found}
+    return {}
+
+
+def _l3_truthy_leaf(value: Any) -> bool:
+    """真值闸树扩展（复用 J1 is_truthy_answer 语义，不发明第二套判定）：
+    字符串走 is_truthy_answer；数值即真实内容（magnitude=0 不是空）；
+    dict/AnswerNode 递归——任一部件真实即真值（半填宽容）。"""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, str):
+        return is_truthy_answer(value)
+    if isinstance(value, AnswerNode):
+        return _l3_truthy_leaf(_l3_parse_node(value))
+    if isinstance(value, dict):
+        return any(_l3_truthy_leaf(v) for v in value.values())
+    return False
+
+
+def l3_answer_truthy(value_or_answers: Any, key: str | None = None) -> bool:
+    """树真值谓词（批B）：有真实内容即真值——半填与全填同判。
+
+    两种调用形：l3_answer_truthy(值)（直接判值）/
+    l3_answer_truthy(answers|session, l3_id)（按位点定位后判值）。
+    """
+    if key is None:
+        return _l3_truthy_leaf(value_or_answers)
+    found = _l3_lookup(value_or_answers, key)
+    if isinstance(found, str) and not found:
+        return False
+    return _l3_truthy_leaf(found)
+
+
+def read_l3_answer(session: Any, l3_id: str) -> AnswerNode:
+    """L3 树读入口（批B）：l3_id → AnswerNode（未写入 → 空 node）。"""
+    found = _l3_lookup(session, l3_id)
+    return found if isinstance(found, AnswerNode) else AnswerNode()
+
+
+def _l3_node_contains(node: AnswerNode, rendered: str) -> bool:
+    """L3 同值短路：节点 text 或任一追加条目精确等于 rendered。"""
+    if node.text == rendered:
+        return True
+    return any(c.text == rendered for c in node.children if not c.source)
+
+
+def _l3_assign(session: Any, l3_id: str, value: Any, rendered: str) -> None:
+    """首次写入/覆写：结构化 dict → 部件子节点 + 渲染串入 text；str → text。"""
+    node = read_l3_answer(session, l3_id)
+    if isinstance(value, dict):
+        kept = [c for c in node.children if not c.source]
+        node.children = kept + [
+            _l3_part_node(k, v) for k, v in value.items()
+        ]
+    node.text = rendered
+
+
+def _l3_merge_parts(node: AnswerNode, value: dict[str, Any], rendered: str) -> None:
+    """结构化补充/归并：按部件键并入（已有部件覆写、缺字段宽容保留）。"""
+    remaining = [c for c in node.children if not c.source]
+    new_parts = [_l3_part_node(k, v) for k, v in value.items()]
+    node.children = remaining + new_parts
+    if not node.text.strip():
+        node.text = rendered
+
+
+def apply_l3_fill(
+    session: Any,
+    l3_id: str,
+    value: Any,
+    relation: str | None = None,
+    merge_target: str | None = None,
+    merged_value: str | None = None,
+    conflict_note: str = "",
+) -> dict[str, Any]:
+    """L3 树写入口（批B）：57 新 L3 答案以 AnswerNode children 挂 L2 锚下。
+
+    - 57 新 L3 不进 A1Session 平面字段（锚键 = L2 id，无点号）；
+      D23 语义归并（等价/补充/矛盾）在 L3 层沿用。
+    - relation 缺省 = 直写（同值短路）；complement = 追加条目/并入部件；
+      equivalent = 同值短路 + 归并（点形态拼串同构）；conflict = 三选一
+      提议流（pending_proposals，resolve_proposal 拍板）。
+    - 半填宽容：结构化 dict 缺字段不拒绝，落库部分形状。
+    """
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        raise ValueError(f"树内无此 L3：{l3_id}")
+    validate_l3_value(l3_id, value)
+    answers = session.answers
+    l2_id = meta["l2_id"]
+    rel = (relation or "").strip().lower()
+    rendered = _l3_render(value)
+
+    anchor = answers.get(l2_id)
+    if not isinstance(anchor, AnswerNode):
+        legacy = anchor if isinstance(anchor, str) else meta["l2_label"]
+        anchor = AnswerNode(text=legacy)
+        answers[l2_id] = anchor
+    node = next((c for c in anchor.children if c.source == l3_id), None)
+    if node is None:
+        node = AnswerNode(source=l3_id)
+        anchor.children.append(node)
+
+    if rel == "complement":
+        if isinstance(value, dict):
+            _l3_merge_parts(node, value, rendered)
+        else:
+            node.children.append(AnswerNode(text=rendered))
+            if not node.text.strip():
+                node.text = rendered
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    if rel == "equivalent":
+        if _l3_node_contains(node, rendered):
+            return {"applied": False, "l3_id": l3_id, "reason": "duplicate"}
+        if isinstance(value, dict):
+            _l3_merge_parts(node, value, rendered)
+        elif merge_target and (fill_child := _find_child_by_prefix(node, merge_target)):
+            fill_child.text = (merged_value or "").strip() or rendered
+        elif node.text.strip():
+            node.text = f"{node.text}；{rendered}"
+        else:
+            node.text = rendered
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    if rel in ("", "none", "unknown", "point", "direct"):
+        if node.text == rendered:
+            return {"applied": False, "l3_id": l3_id, "reason": "duplicate"}
+        _l3_assign(session, l3_id, value, rendered)
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    # conflict / 其余语义 → D23 三选一提议流（等价归并达帽同路，见
+    # _apply_fills 清单停驻出口③）。
+    proposal = Proposal(
+        module=l2_id,
+        subfield=l3_id,
+        old=answer_view(node),
+        new=rendered,
+        conflict_note=conflict_note,
+        question_text="",
+    )
+    pk = _proposal_key(l2_id, l3_id, rendered)
+    session.pending_proposals[pk] = {
+        "proposal": proposal,
+        "options": ["replace", "merge", "drop"],
+    }
+    return {"applied": False, "l3_id": l3_id, "proposal_key": pk}
+
+
+def _record_auto_merge(
+    session: A1Session,
+    key: str,
+    sf: dict[str, Any] | None,
+    prev: Any,
+    new: str,
+    merged: str,
+    direct_key: str,
+    kind: str = "equivalent",
+) -> str:
+    """D23 记录一次自动合并（轻量披露 + 可撤销），返回 undo token。
+
+    prev 必须是调用方传入的深拷贝快照（model_copy(deep=True) 或 str 原值
+    ——str 不可变天然快照）；此处不做拷贝。
+    """
+    token = uuid.uuid4().hex[:12]
+    label = sf["label"] if sf else key.split(".")[-1]
+    session.auto_merge_log.append({
+        "token": token,
+        "field_key": key,
+        "label": label,
+        "old": answer_view(prev),
+        "new": new,
+        "merged": merged,
+        "kind": kind,
+    })
+    if len(session.auto_merge_log) > _AUTO_MERGE_LOG_CAP:
+        session.auto_merge_log = session.auto_merge_log[-_AUTO_MERGE_LOG_CAP:]
+    session.merge_undo[token] = {"key": key, "prev": prev}
+    mark_field_source(
+        session, key,
+        FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
+    )
+    return token
+
+
+def undo_auto_merge(session: A1Session, token: str) -> dict[str, Any]:
+    """D23 撤销一次自动合并（幂等：未知/已撤销 token → restored=False）。"""
+    snap = session.merge_undo.pop(token, None)
+    if snap is None:
+        return {"restored": False, "error": "not_found"}
+    session.answers[snap["key"]] = snap["prev"]
+    # 乱序撤销——旧快照恢复后，同键后续合并的快照与披露全部作废
+    stale_tokens = {
+        r["token"] for r in session.auto_merge_log
+        if r.get("field_key") == snap["key"] and r["token"] != token
+    }
+    session.auto_merge_log = [
+        r for r in session.auto_merge_log if r["token"] not in stale_tokens
+    ]
+    for t in stale_tokens:
+        session.merge_undo.pop(t, None)
+    session.auto_merge_log = [
+        r for r in session.auto_merge_log if r["token"] != token
+    ]
+    return {"restored": True, "field_key": snap["key"]}
+
+
 class A1Session(BaseModel):
     """A1 guided-session state (10 modules x subfields, sequential)."""
 
@@ -194,7 +646,9 @@ class A1Session(BaseModel):
     ip_code: str = ""
     current_module: str = Field(default_factory=lambda: first_module()["id"])
     current_subfield: str = Field(default_factory=_initial_subfield)
-    answers: dict[str, str] = Field(default_factory=dict)
+    # D23：答案值支持 str | AnswerNode（层级条目；存量 str 零迁移 G3——
+    # 读取面统一经 answer_view 渲染，落库/门禁行为不变）。
+    answers: dict[str, str | AnswerNode] = Field(default_factory=dict)
     phase: str = PHASE_ASKING
     # Seed context (chosen preset or custom idea) — injected into the
     # interviewer prompt so the LLM guides consistently with the seed.
@@ -217,6 +671,11 @@ class A1Session(BaseModel):
     # Seed-referenced examples offered by the anti-stall guard; the user
     # may reply with a bare number 1/2/3 to accept one directly.
     pending_suggestions: list[str] = Field(default_factory=list)
+    # D24 ①知识对话态（2026-10-10 施工单 §1.3）：active=用户在聊领域知识
+    # 话题（fills 冻结防误填）；turns=知识态内轮数（>3 强制复位防卡死）。
+    # 判定集中单点 _update_knowledge_thread；additive 默认值=存量会话零迁移。
+    knowledge_thread_active: bool = False
+    knowledge_thread_turns: int = 0
     # Write-guard proposals (Task 4): key=proposal_key, value=dict with
     # 'proposal' (Proposal model), 'options' (list[str]).
     # Semantically independent from pending_suggestions (Metis Q5).
@@ -281,6 +740,39 @@ class A1Session(BaseModel):
     draft_alpha: dict[str, int] = Field(
         default_factory=lambda: draft_version.new_draft_state()
     )
+    # D23 自动合并轻量披露账本（等价合并不确认、可撤销——须披露可观测）。
+    # default [] 零迁移（G3 先例）。
+    auto_merge_log: list[dict[str, Any]] = Field(default_factory=list)
+    # D23 自动合并撤销快照：token → {"key","prev"(深拷贝)}。default {} 零迁移。
+    merge_undo: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 方向A一期：当前问的默认选项（D-3 新字段——pending_suggestions 随
+    # stall==2 分支退役为死字段：不删不写，零迁移）。空 = 本轮无选项。
+    current_options: list[str] = Field(default_factory=list)
+    # P3 止血（wave1 T3）：current_options 的归属题键绑定戳（
+    # f"{module}.{subfield}"，= options 生成语境所在题）。空串 = 未绑定
+    # （直设/旧版存量数据——直选通道放行以保 D-4 兼容）。绑定后直选仅在
+    # options_key == 当前题键时消费，杜绝跨题错配（default "" 零迁移，
+    # G3 先例）。
+    options_key: str = ""
+    # D-2：连续 reroll 计数（上限 2；任一非 reroll 输入清零）。
+    reroll_streak: int = 0
+    # 波次二拍2-13：灵感架（material_pool）——投递素材暂存区，永不拒绝；
+    # 条目 = {原文, 建议槽位, ...}（⑤稿 §9.3 灵感架位点，上限 LIST_CAPS
+    # ["material_pool"]=12）。default [] 零迁移（G3 先例）。
+    material_pool: list[dict[str, Any]] = Field(default_factory=list)
+    # 波次二拍2-13/2-16：清单追加循环停驻状态（⑤稿 §9.2-3，D24 状态机
+    # 先例）——key=当前停驻的清单位点（L3 id / "branch_card"），空串=未
+    # 停驻；turns=停驻循环内轮数（达 LIST_CAPS 上限或用户收束即退出）。
+    # default ""/0 零迁移（options_key 先例）。
+    list_thread_key: str = ""
+    list_thread_turns: int = 0
+    # 波次二拍2-18（批C，裁定 D26）：讨论镜像通道停驻状态——与
+    # knowledge_thread_*（D24）/list_thread_*（批B）声明式样同构紧邻落位。
+    # active=用户在虚构内讨论态（镜子式回应轮）；turns=讨论态内轮数
+    # （2 轮帽：第 3 轮虚构内追问 → 确定性桥回当前题并复位）。
+    # bool=False/int=0 零迁移（G3 先例）。
+    mirror_thread_active: bool = False
+    mirror_thread_turns: int = 0
 
 
 def first_question() -> dict[str, Any]:
@@ -296,6 +788,27 @@ def first_question() -> dict[str, Any]:
         "hint": sf["hint"],
         "example": sf.get("example", ""),
     }
+
+
+# 方向A一期：默认选项邀请话术（单点复制控制——前端/测试均引用此文本）。
+OPTION_INVITE_TEMPLATE = (
+    "这里有几个方向，也可以直接说你的：\n{lines}\n"
+    "（回复序号可直选，想换个方向就说「换一批」）"
+)
+
+# 方向A一期 D-2：reroll 关键词闭集（不做模糊匹配——防止误触发生成调用）。
+REROLL_KEYWORDS = {"换一批", "再来一批", "换组"}
+# D-2：连续 reroll 上限（第 3 次起不再触发生成，引导直选/自由输入）。
+REROLL_CAP = 2
+# D-2：超上限话术（契约10 断言「直接选」「自己的话」子串）。
+REROLL_CAP_REPLY = "示例换了几轮了，先试试直接选一个，或用自己的话说说。"
+
+# 批C（拍2-18）：讨论镜像 2 轮帽——讨论态内至多 2 轮镜子式回应，第 3 轮
+# 虚构内追问触发确定性桥回当前题并复位（D24 knowledge turns>3 防卡死先例）。
+MIRROR_THREAD_CAP = 2
+# 批C：重锚显式元命令触发词（分类提示词 7.8 同源；此处供引擎侧确定性兜底
+# 识别——LLM 已分类时以 reanchor 键为准，此表仅作文档性闭集）。
+REANCHOR_TRIGGER_WORDS = {"梳理一下"}
 
 
 def _question_payload(session: A1Session) -> dict[str, Any] | None:
@@ -314,7 +827,50 @@ def _question_payload(session: A1Session) -> dict[str, Any] | None:
         "question": sf["question"],
         "hint": sf["hint"],
         "example": sf.get("example", ""),
+        # 方向A一期：additive 键——当前问的默认选项（空列表 = 无选项）。
+        "options": list(session.current_options),
     }
+
+
+def _render_option_invite(options: list[str]) -> str:
+    """渲染默认选项邀请块（OPTION_INVITE_TEMPLATE 单点格式化）。"""
+    return OPTION_INVITE_TEMPLATE.format(
+        lines="\n".join(f"{i}. {opt}" for i, opt in enumerate(options, start=1))
+    )
+
+
+def _attach_default_options(
+    session: A1Session,
+    result: Any,
+    out: dict[str, Any],
+    *,
+    blocked: bool,
+    bound_key: str = "",
+) -> None:
+    """方向A一期：主路径（fills/chat）轮末默认选项接线（原地改 out）。
+
+    白名单（blocked=True 或 completed 阶段）→ 只清 current_options，
+    零渲染。白名单外：examples 非空列表 → 写 current_options 并把邀请
+    块追加到 reply 末尾；examples 缺失/空/畸形 → 清空 + reply 逐字节
+    不动（降级零痕迹）。
+
+    P3 止血（wave1 T3）：examples 是 LLM 在本轮 turn-start 题（bound_key，
+    即调用方 cur_key——sync_position 推进**前**的题）语境下生成的，写入
+    时同步打归属题键绑定戳 options_key=bound_key；清空路径一律复位为
+    空串。直选通道（D-4）凭该戳拒绝跨题消费。
+    """
+    if blocked or session.phase == PHASE_COMPLETED:
+        session.current_options = []
+        session.options_key = ""
+        return
+    examples = getattr(result, "examples", None)
+    if isinstance(examples, list) and examples:
+        session.current_options = list(examples)
+        session.options_key = bound_key
+        out["reply"] += "\n" + _render_option_invite(session.current_options)
+    else:
+        session.current_options = []
+        session.options_key = ""
 
 
 def sync_position(session: A1Session) -> None:
@@ -469,7 +1025,17 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
         applied = True
     elif choice == "merge":
         old_val = session.answers.get(field_key, proposal.old)
-        session.answers[field_key] = f"{old_val}；{proposal.new}"
+        if is_multi_value(proposal.module, proposal.subfield):
+            # D23：多值字段 merge = 晋升层级条目并追加子条目（不拼串）。
+            node = (
+                old_val
+                if isinstance(old_val, AnswerNode)
+                else AnswerNode(text=old_val)
+            )
+            node.children.append(AnswerNode(text=proposal.new))
+            session.answers[field_key] = node
+        else:
+            session.answers[field_key] = f"{old_val}；{proposal.new}"
         session.merge_counts[field_key] = session.merge_counts.get(field_key, 0) + 1
         applied = True
     elif choice == "drop":
@@ -549,6 +1115,11 @@ def _proposal_key(module: str, subfield: str, new: str) -> str:
     return f"{module}.{subfield}:{h}"
 
 
+def _fill_diff(label: str, module: str, old_v: str, new_v: str) -> dict[str, Any]:
+    """D23：自动合并 file_diff 条目（与拦截/直写条目同构）。"""
+    return {"field": label, "module": module, "section": label, "old": old_v, "new": new_v}
+
+
 def _apply_fills(
     session: A1Session, fills: list[InterviewFill]
 ) -> tuple[list[dict[str, Any]], list[Proposal]]:
@@ -602,6 +1173,16 @@ def _apply_fills(
         seen_keys.add(key)
         sf = get_subfield(fill.module, fill.subfield)
         old = session.answers.get(key, "")
+        relation = (getattr(fill, "relation", "") or "").strip().lower()
+        # 批B 出口①：直答退出——停驻清单位点收到非 complement 输入
+        # （用户直接回答当前问）→ 确定性复位 ""/0（D24 出口①同构）。
+        if (
+            session.list_thread_key
+            and fill.subfield == session.list_thread_key
+            and relation != "complement"
+        ):
+            session.list_thread_key = ""
+            session.list_thread_turns = 0
 
         # Branch 2: skip — same value
         if old and old == fill_value:
@@ -628,12 +1209,111 @@ def _apply_fills(
                     FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
                 )
                 continue
+            # ---- D23 语义分流（LLM 判定 relation，引擎确定性消费）----
+            # relation 缺失/None/未知 → 落到现行拦截行为（逐字节不变）。
+            relation = (getattr(fill, "relation", "") or "").strip().lower()
+            # D23 Branch 2 节点版：层级条目任一层已精确含该值 → 同值短路
+            # （等价合并不短路——merge_target 可能指向同级条目，需走下方分流）
+            if relation != "equivalent" and isinstance(old, AnswerNode) and _node_contains_exact(old, fill_value):
+                continue
+            label = sf["label"] if sf else fill.subfield
+
+            # 批B 出口③（等价归并达帽）：清单位点帽子只剩一格时，等价归并
+            # 不再静默合并 → 改走 D23 提议流（resolve_proposal 拍板）。
+            _equivalent_at_cap = (
+                relation == "equivalent"
+                and fill.subfield in LIST_CAPS
+                and isinstance(old, AnswerNode)
+                and len(old.children) >= _children_cap(fill.subfield) - 1
+            )
+            if relation == "equivalent" and not _equivalent_at_cap:
+                if isinstance(old, AnswerNode) and (fill.merge_target or "").strip():
+                    child = _find_child_by_prefix(old, fill.merge_target)
+                    if child is not None:
+                        prev_snapshot = old.model_copy(deep=True)
+                        merged = (fill.merged_value or "").strip() or fill_value
+                        _record_auto_merge(
+                            session, key, sf, prev_snapshot, fill_value,
+                            merged, direct_key,
+                        )
+                        child.text = merged
+                        file_diff.append(
+                            _fill_diff(
+                                label, fill.module, answer_view(prev_snapshot), merged
+                            )
+                        )
+                        continue
+                    # merge_target miss → fall through to whole-field merge
+                prev_snapshot = (
+                    old.model_copy(deep=True) if isinstance(old, AnswerNode) else old
+                )
+                merged = (
+                    (fill.merged_value or "").strip()
+                    or f"{answer_view(prev_snapshot)}；{fill_value}"
+                )
+                _record_auto_merge(
+                    session, key, sf, prev_snapshot, fill_value, merged, direct_key
+                )
+                session.answers[key] = merged
+                file_diff.append(
+                    _fill_diff(label, fill.module, answer_view(prev_snapshot), merged)
+                )
+                continue
+            if relation == "complement" and (
+                is_multi_value(fill.module, fill.subfield)
+                or fill.subfield in LIST_CAPS
+            ):
+                cap = _children_cap(fill.subfield)
+                if isinstance(old, AnswerNode):
+                    node = old
+                elif is_multi_value(fill.module, fill.subfield):
+                    node = AnswerNode(text=old)  # D23 旧晋升：首条存 text
+                else:
+                    # 批B 清单位点（非 multi，如 conflict/existence）：
+                    # children-inclusive 晋升——全部条目进 children（帽计数
+                    # 与 LIST_CAPS 对齐，6 帽第 6 条触发提议、12 帽不提前截断）。
+                    node = AnswerNode(text="", children=[AnswerNode(text=old)])
+                if len(node.children) < cap - 1:
+                    prev_snapshot = (
+                        old.model_copy(deep=True)
+                        if isinstance(old, AnswerNode)
+                        else old
+                    )
+                    node.children.append(AnswerNode(text=fill_value))
+                    _record_auto_merge(
+                        session, key, sf, prev_snapshot, fill_value,
+                        answer_view(node), direct_key, kind="complement",
+                    )
+                    session.answers[key] = node
+                    # 批B 停驻进入/推进：list 位点补充新条目 → 置位 + turns
+                    # 逐轮推进（D24 knowledge_thread 防卡死同构）。
+                    if session.list_thread_key == fill.subfield:
+                        session.list_thread_turns += 1
+                    else:
+                        session.list_thread_key = fill.subfield
+                        session.list_thread_turns = 1
+                    file_diff.append(
+                        _fill_diff(
+                            label, fill.module,
+                            answer_view(prev_snapshot), answer_view(node),
+                        )
+                    )
+                    continue
+                # children >= cap-1 → 帽满：falls through to proposal
+                # （批B 出口③：帽满话术 + D23 提议流归并 + 复位，见下方落点）
+            # conflict / complement-scalar / missing / unknown → 现行三选一拦截
+            # 批B 出口③：帽满退出——停驻态确定性复位（复位落点与 D23 提议流
+            # 同点：帽满话术由 proposal 问句承载，归并走 resolve_proposal）。
+            if session.list_thread_key == fill.subfield:
+                session.list_thread_key = ""
+                session.list_thread_turns = 0
             proposal = Proposal(
                 module=fill.module,
                 subfield=fill.subfield,
-                old=old,
+                old=answer_view(old),
                 new=fill_value,
                 conflict_note=fill.conflict_note,
+                question_text=(getattr(fill, "conflict_question", "") or ""),
             )
             intercepted.append(proposal)
             pk = _proposal_key(fill.module, fill.subfield, fill_value)
@@ -657,6 +1337,14 @@ def _apply_fills(
             "new": fill_value,
         })
         session.answers[key] = fill_value
+        # 批B 停驻进入：complement 命中清单位点（含首轮直写 old=''）→
+        # 置位 + turns=1；后续停驻轮在 complement 追加支路逐轮推进。
+        if relation == "complement" and fill.subfield in LIST_CAPS:
+            if session.list_thread_key == fill.subfield:
+                session.list_thread_turns += 1
+            else:
+                session.list_thread_key = fill.subfield
+                session.list_thread_turns = 1
         mark_field_source(
             session, key,
             FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
@@ -674,12 +1362,12 @@ def _apply_stall_guard(
 ) -> dict[str, Any] | None:
     """Anti-stall guard with LLM-understanding-first fallbacks.
 
-    Stall 2 -> ask the interviewer for seed-referenced example answers
-    (user may reply a bare number to accept one). When suggestions are
-    unavailable, ask the user to rephrase or 跳过 — no fill.
-    Stall >= 3 -> forced_allocate: the LLM judges whether the input
-    belongs to ANY legal field; fills are applied, otherwise the user
-    gets options (suggestion numbers / rephrase / 跳过).
+    Stall 2 no longer intercepts (方向A一期：默认选项由主路径
+    current_options 承担，道歉+示例分支已退役——stall 计数照常累计，
+    2 阶原样回落主路径)。Stall >= 3 -> forced_allocate: the LLM judges
+    whether the input belongs to ANY legal field; fills are applied,
+    otherwise the user gets options (suggestion numbers / rephrase /
+    跳过).
 
     Nothing is ever recorded without LLM judgment (blind-recording fix,
     2026-08-26): the old deterministic raw-text fill is gone.
@@ -702,6 +1390,7 @@ def _apply_stall_guard(
         return None
 
     # 3. track stall count (capped at 3)
+    # telemetry: stall（T5 接线 emission；计数站点锚点）
     if session.stall_subfield == cur_key:
         session.stall_count = min(session.stall_count + 1, 3)
     else:
@@ -709,41 +1398,19 @@ def _apply_stall_guard(
         session.stall_count = 1
 
     module_id, sub_id = cur_key.split(".", 1)
+    from app.domains.creation.a1 import inspiration_log
+
+    inspiration_log.emit_event(
+        "stall",
+        session,
+        module=module_id,
+        subfield=sub_id,
+        stall_count=session.stall_count,
+    )
     sf = get_subfield(module_id, sub_id)
     label = sf["label"] if sf else sub_id
 
-    # 4. stall 2 -> suggestion mode (rely on LLM understanding first)
-    if session.stall_count == 2:
-        try:
-            examples = interviewer.suggest_examples(session, module_id, sub_id)
-        except Exception:  # noqa: BLE001 — degrade, never crash
-            examples = []
-        if examples:
-            session.pending_suggestions = examples
-            seed_label = session.seed_name or session.seed_description[:12] or "种子"
-            lines = "\n".join(
-                f"{i}. {ex}" for i, ex in enumerate(examples, start=1)
-            )
-            result["reply"] = (
-                f"我没能准确理解你的回答。参考种子「{seed_label}」，"
-                f"这里有几个示例方向：\n{lines}\n"
-                "你可以直接回复序号选一个、改写一个再回复、换种说法再答，或回复「跳过」。"
-            )
-            result["next_question"] = _question_payload(session)
-            result["file_diff"] = []
-            return result
-        # suggestions unavailable -> no fill; ask the user to rephrase / skip
-        result["reply"] = (
-            f"我还没能理解这条输入与「{label}」的关系。"
-            "你可以换种说法再答一次，或回复「跳过」先进入下一项。"
-        )
-        result["next_question"] = _question_payload(session)
-        result["file_diff"] = []
-        result["progress"] = progress(session)
-        result["phase"] = session.phase
-        return result
-
-    # 5. stall >= 3 -> LLM forced allocation (judgment; never raw fill)
+    # 4. stall >= 3 -> LLM forced allocation (judgment; never raw fill)
     if session.stall_count >= 3:
         try:
             alloc = interviewer.forced_allocate(session, text)
@@ -756,12 +1423,8 @@ def _apply_stall_guard(
                 prop = intercepted[0]
                 sf = get_subfield(prop.module, prop.subfield)
                 label = sf["label"] if sf else prop.subfield
-                conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
-                result["reply"] = (
-                    f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
-                    f"这次的『{prop.new}』——是要**替换**它，"
-                    f"还是两者**合并**（同一条里都保留），"
-                    f"还是先**放弃**这条修改？"
+                result["reply"] = proposal_question_text(
+                    label, prop.old, prop.new, prop.conflict_note or ""
                 )
                 result["next_question"] = None
                 result["file_diff"] = []
@@ -878,7 +1541,7 @@ def _handle_deflection(
             "module": module_id,
             "section": (sf or {}).get("label", cur_key),
             "old": "",
-            "new": session.answers[cur_key],
+            "new": answer_view(session.answers[cur_key]),
             "deflected": True,
         }],
         "progress": progress(session),
@@ -957,6 +1620,78 @@ def _archive_story_material(
     }
 
 
+def _update_knowledge_thread(
+    session: A1Session, result: Any, *, frozen: bool = False
+) -> None:
+    """D24 ①知识对话态状态机（施工单 §1.3——判定集中单点，禁止散落）。
+
+    置位：本轮 knowledge_used=True（搜索成功+二次生效）→ active=True，
+    turns=1（已在态内则 +1）。
+    保持/退出（active 时逐轮判定）：
+    - knowledge_used=True → 保持（turns 已在置位分支推进）；
+    - 冻结轮（``frozen`` 或 fills 非空）→ 保持且 turns += 1（anti-stuck：
+      施工单原文 turns 只在知识轮推进，但冻结轮若不推进则退出③永不触发；
+      逐轮推进保留 §1.3 防卡死本意——解释性偏离，已报告）；
+    - fills 空且 knowledge_used=False → 话题自然离开，退出④；
+    - turns > 3 → 强制复位，退出③（防卡死）。
+
+    ``frozen`` 标志：冻结发生在状态机更新之前（§1.3 定序），fills 已被
+    丢弃，故由冻结点显式传入，状态机才能区分「冻结保持轮」与「自然离开」。
+    """
+    was_active = session.knowledge_thread_active
+    if getattr(result, "knowledge_used", False):
+        session.knowledge_thread_active = True
+        session.knowledge_thread_turns = (
+            session.knowledge_thread_turns + 1 if was_active else 1
+        )
+    elif was_active:
+        if frozen or result.fills:
+            session.knowledge_thread_turns += 1  # 冻结保持轮（anti-stuck）
+        else:
+            session.knowledge_thread_active = False  # 退出④
+            session.knowledge_thread_turns = 0
+    if session.knowledge_thread_active and session.knowledge_thread_turns > 3:
+        session.knowledge_thread_active = False  # 退出③（防卡死）
+        session.knowledge_thread_turns = 0
+
+
+def _reset_mirror_thread(session: A1Session) -> None:
+    """批C（拍2-18）：讨论镜像态复位（帽满桥回/话题离开/打断共用单点）。"""
+    session.mirror_thread_active = False
+    session.mirror_thread_turns = 0
+
+
+def _build_reanchor_reply(session: A1Session) -> str:
+    """批C（拍2-19）：重锚线头清单——配方已完成模块 + 当前题 + 灵感架存量。
+
+    纯确定性拼装（零 LLM）；四选一分流话术（改某答案/跳去聊某条/
+    继续当前题/给灵感架安家）。fills 不落槽——重锚轮 answers 零变化。
+    """
+    lines: list[str] = ["好，我们把手上的线头摊开看一看。"]
+    if session.answers:
+        lines.append("【已确定的线头】（想改哪条，直接说「把X改成Y」）")
+        for key, value in session.answers.items():
+            lines.append(f"· {key}：{answer_view(value)}")
+    else:
+        lines.append("【已确定的线头】还没有——正好从当前题开始。")
+    sf = get_subfield(session.current_module, session.current_subfield)
+    cur_label = sf["label"] if sf else session.current_subfield
+    lines.append(
+        f"【当前题】{session.current_module}·{cur_label}——说「继续」就回到这题。"
+    )
+    if session.material_pool:
+        lines.append("【灵感架上还放着】（挑一条说「去聊它」就展开）")
+        for item in session.material_pool:
+            item_text = str(item.get("text", "")).strip()
+            if item_text:
+                lines.append(f"· {item_text}")
+    lines.append(
+        "接下来四选一：改某条答案 / 跳去聊灵感架上的某条 / 继续当前题 / "
+        "给灵感架安家（说个新想法我帮你先收着）。"
+    )
+    return "\n".join(lines)
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -1008,8 +1743,21 @@ def _handle_message_impl(
         # Falls through to the interviewer below — same routing rules.
         pass
 
+    # D-2：非 reroll 输入 → 连续 reroll 计数清零（跳过/直选/主路径统一生效）。
+    if text.strip() not in REROLL_KEYWORDS:
+        session.reroll_streak = 0
+
     # ---- skip ----
     if text.strip() == "跳过":
+        # D24 ①退出②：用户显式回到创作流程 → 知识对话态确定性复位。
+        session.knowledge_thread_active = False
+        session.knowledge_thread_turns = 0
+        # 批C：跳过 = 话题离开 → 讨论镜像态同步复位（拍2-18 出口②）。
+        session.mirror_thread_active = False
+        session.mirror_thread_turns = 0
+        # 批B 出口②：跳过退出——清单停驻态归档复位 ""/0。
+        session.list_thread_key = ""
+        session.list_thread_turns = 0
         answer_key = f"{session.current_module}.{session.current_subfield}"
         skipped_module = session.current_module
         skipped_sf = get_subfield(session.current_module, session.current_subfield)
@@ -1021,6 +1769,17 @@ def _handle_message_impl(
             apply_signal,
         )
         apply_signal(session, SIGNAL_SKIPPED, key=answer_key)
+        # D-2：跳过 = 非 reroll 输入 → 连续 reroll 计数清零。
+        session.reroll_streak = 0
+        # telemetry: skip（T5 接线 emission 锚点；结构零改动）
+        from app.domains.creation.a1 import inspiration_log
+
+        inspiration_log.emit_event(
+            "skip",
+            session,
+            module=skipped_module,
+            subfield=answer_key.split(".", 1)[1],
+        )
         return {
             "reply": "已跳过，进入下一项。",
             "next_question": _question_payload(session),
@@ -1037,23 +1796,60 @@ def _handle_message_impl(
 
     cur_key = f"{session.current_module}.{session.current_subfield}"
 
-    # ---- pending-suggestion number pick ("1"/"2"/"3") ----
+    # ---- default-option number pick ("1"/"2"/"3")（方向A一期 D-4）----
+    # 直选绕过占位真值闸（与旧 pick 同一先例：用户显式确认）。
+    # P3 止血（wave1 T3）：options 与当前题严格绑定——绑定戳非空且不等于
+    # cur_key（生成题 ≠ 当前题，如 fills 推进后的跨题残留）时序号不消费，
+    # 落入 interview 文本路径；空戳 = 直设/旧版存量（放行，D-4 兼容）。
+    # telemetry: option_pick（T5 接线 emission 锚点；绑定修复后 digest
+    # 记录的必然是当前题 options——语义自此修正）。
     stripped = text.strip()
+    # 批C（拍2-18/2-19 通道全序）：直选 > 重锚——「2，顺便梳理一下」这类
+    # 直选尾缀元命令，数字部分照常直选消费、尾部元命令忽略（不进重锚）。
     if (
-        session.pending_suggestions
+        stripped
+        and stripped[0] in {"1", "2", "3"}
+        and len(stripped) > 1
+        and REANCHOR_TRIGGER_WORDS
+        and any(w in stripped[1:] for w in REANCHOR_TRIGGER_WORDS)
+    ):
+        stripped = stripped[0]
+    if (
+        session.current_options
         and stripped in {"1", "2", "3"}
         and session.phase != PHASE_COMPLETED
+        and session.options_key in ("", cur_key)
     ):
         idx = int(stripped) - 1
-        if 0 <= idx < len(session.pending_suggestions):
-            value = session.pending_suggestions[idx]
+        if 0 <= idx < len(session.current_options):
+            # D24 ①退出①：直选命中 = 回到创作输入 → 先复位知识态再处理。
+            session.knowledge_thread_active = False
+            session.knowledge_thread_turns = 0
+            # 批C 出口③：直选打断讨论镜像态（拍2-18）。
+            session.mirror_thread_active = False
+            session.mirror_thread_turns = 0
+            value = session.current_options[idx]
+            options_digest = "|".join(
+                str(o) for o in session.current_options[:3]
+            )
             session.answers[cur_key] = value
             session.stall_subfield = ""
             session.stall_count = 0
-            session.pending_suggestions = []
+            session.current_options = []
+            session.options_key = ""
             sync_position(session)
             module_id, sub_id = cur_key.split(".", 1)
             picked_sf = get_subfield(module_id, sub_id)
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "option_pick",
+                session,
+                module=module_id,
+                subfield=sub_id,
+                option_index=idx,
+                options_digest=options_digest,
+            )
             return {
                 "reply": f"已按示例记录：{value}",
                 "next_question": _question_payload(session),
@@ -1068,7 +1864,139 @@ def _handle_message_impl(
                 "phase": session.phase,
             }
 
+    # ---- reroll（换一批）方向A一期 D-2：关键词触发重生成 ----
+    # D-2 例外说明：reroll 是「合并调用承诺」的唯一例外——每次 reroll 额外
+    # +1 次 suggest_examples 调用（连续上限 REROLL_CAP=2）；且 stall 计数
+    # 一律不动（stall-neutral）。
+    if stripped in REROLL_KEYWORDS and session.current_options:
+        if session.reroll_streak >= REROLL_CAP:
+            # 超上限：不再调用生成，options 保持原样可直选。
+            return {
+                "reply": REROLL_CAP_REPLY,
+                "next_question": _question_payload(session),
+                "file_diff": [],
+                "progress": progress(session),
+                "phase": session.phase,
+            }
+        examples = interviewer.suggest_examples(
+            session, session.current_module, session.current_subfield
+        )
+        session.reroll_streak += 1
+        if isinstance(examples, list) and examples:
+            session.current_options = list(examples)
+            # P3 止血（wave1 T3）：reroll 产物 = 当前题新选项 → 同步重打
+            # 归属题键绑定戳（否则跨题残留下 reroll 后的新选项会被直选
+            # 误拒）。reroll 通道其余语义（streak/cap/stall-neutral）零改动。
+            session.options_key = cur_key
+            # telemetry: option_reroll（T4 已接 emission 调用；T5 落 JSON-lines 落盘）
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "option_reroll",
+                session,
+                module=session.current_module,
+                subfield=session.current_subfield,
+                streak=session.reroll_streak,
+            )
+            return {
+                "reply": _render_option_invite(session.current_options),
+                "next_question": _question_payload(session),
+                "file_diff": [],
+                "progress": progress(session),
+                "phase": session.phase,
+            }
+        # 空列表/畸形 = suggest 不可用 → 降级：清空选项，引导自由输入。
+        session.current_options = []
+        return {
+            "reply": "这次没想出更多示例，直接说说你的想法也行。",
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+
     result = interviewer.interview(session, text)
+
+    # ---- D24 ①：知识对话态 fills 冻结（先于一切 fills 消费）----
+    # active 时本轮 fills 一律丢弃（引擎执行权，不依赖 LLM 自律）；
+    # 状态机更新在其后（冻结判定用 pre-update active 态——施工单 §1.3 序）。
+    frozen = False
+    if session.knowledge_thread_active and result.fills:
+        frozen = True
+        _dropped = len(result.fills)
+        result = result.model_copy(update={"fills": []})
+        log_event(
+            session.session_id,
+            "knowledge_freeze",
+            dropped=_dropped,
+            turns=session.knowledge_thread_turns,
+        )
+    _update_knowledge_thread(session, result, frozen=frozen)
+
+    # ---- 批C（拍2-19）：重锚通道——优先于 6.5 知识/镜像/投递/答当前 ----
+    # 显式元命令胜出：打断知识对话态与讨论镜像态（互斥复位），摊开线头
+    # 清单；本轮 fills 一律不落槽（重锚轮 answers 零变化）。触发双路：
+    # LLM 分类键（reanchor）或确定性触发词命中（「梳理一下」闭集）。
+    if getattr(result, "reanchor", False) or text.strip() in (
+        REANCHOR_TRIGGER_WORDS
+    ):
+        session.knowledge_thread_active = False
+        session.knowledge_thread_turns = 0
+        _reset_mirror_thread(session)
+        from app.domains.creation.a1 import inspiration_log
+
+        # 双事件名：``reanchor_triggered``（jsonl 落盘契约，
+        # test_reanchor）+ ``reanchor``（通道矩阵捕获名，test_channel_matrix_v2）。
+        inspiration_log.emit_event("reanchor_triggered", session)
+        inspiration_log.emit_event("reanchor", session)
+        return {
+            "reply": _build_reanchor_reply(session),
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+
+    # ---- 批C（拍2-18）：讨论镜像通道——直选/重锚之下、投递/答当前之上 ----
+    # mirror_hit 判定：LLM 镜像旗标且本轮不是 6.5 知识轮（知识态优先——
+    # 全序 规则6.5知识 > 镜像）。讨论态不吸收 fills（镜子式回应契约）。
+    mirror_hit = bool(getattr(result, "mirror", False)) and not bool(
+        getattr(result, "knowledge_used", False)
+    )
+    if session.mirror_thread_active and not mirror_hit:
+        # 出口②：话题离开（含直选外的正常作答轮）→ 讨论态归档复位。
+        _reset_mirror_thread(session)
+    if mirror_hit:
+        from app.domains.creation.a1 import inspiration_log
+
+        # 双事件名：``mirror_triggered``（jsonl 落盘契约）+
+        # ``discussion_mirror``（通道矩阵捕获名）——同轮双发。
+        inspiration_log.emit_event(
+            "mirror_triggered", session, turns=session.mirror_thread_turns + 1
+        )
+        inspiration_log.emit_event("discussion_mirror", session)
+        qp = _question_payload(session)
+        cur_question = (qp or {}).get("question", "")
+        if session.mirror_thread_turns >= MIRROR_THREAD_CAP:
+            # 出口①：2 轮帽满——第 3 轮虚构内追问 → 确定性桥回当前题。
+            _reset_mirror_thread(session)
+            reply = (
+                f"{result.guidance_reply}"
+                f"（这段推演很有味道——先把它放着，回到手上的问题：{cur_question}）"
+            )
+        else:
+            session.mirror_thread_active = True
+            session.mirror_thread_turns += 1
+            reply = (
+                f"{result.guidance_reply}（回到当前的问题：{cur_question}）"
+            )
+        return {
+            "reply": reply,
+            "next_question": qp,
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
 
     # ---- M0 止血：偏转 → 占位跳过推进指针 ----
     if getattr(result, "deflect", False) and not result.fills:
@@ -1076,6 +2004,9 @@ def _handle_message_impl(
         out_deflect = _handle_deflection(session, result, cur_key)
         if _invited:
             out_deflect["reply"] += _invite_notice(_invited)
+        # 方向A一期白名单：deflect 轮不渲染选项。
+        session.current_options = []
+        session.options_key = ""
         return out_deflect
 
     # ---- M0 止血：叙事素材 → character_sketch 归档（不触发提案三连） ----
@@ -1085,6 +2016,9 @@ def _handle_message_impl(
         out_material = _archive_story_material(session, result)
         if _invited:
             out_material["reply"] += _invite_notice(_invited)
+        # 方向A一期白名单：story_material 轮不渲染选项。
+        session.current_options = []
+        session.options_key = ""
         return out_material
 
     # ---- genuine innovation -> confirmation flow ----
@@ -1109,6 +2043,8 @@ def _handle_message_impl(
 
     # ---- fills (possibly many) -> persist + jump to first unanswered ----
     if result.fills:
+        # D23：自动合并披露基准（_apply_fills 前取样，取增量）。
+        pre = len(session.auto_merge_log)
         file_diff, intercepted = _apply_fills(session, result.fills)
 
         # Advance position FIRST (when not intercepted) so next_question
@@ -1138,12 +2074,10 @@ def _handle_message_impl(
             prop = intercepted[0]
             sf = get_subfield(prop.module, prop.subfield)
             label = sf["label"] if sf else prop.subfield
-            conflict_part = f"（{prop.conflict_note}）" if prop.conflict_note else ""
-            out_fills["reply"] = (
-                f"你之前定过【{label}】是『{prop.old}』{conflict_part}。"
-                f"这次的『{prop.new}』——是要**替换**它，"
-                f"还是两者**合并**（同一条里都保留），"
-                f"还是先**放弃**这条修改？"
+            # D23：单源模板（与 stall 路径逐字节一致）；LLM 人话问句经
+            # proposals dump 的 question_text 键披露（D23 契约）。
+            out_fills["reply"] = proposal_question_text(
+                label, prop.old, prop.new, prop.conflict_note or ""
             )
             out_fills["next_question"] = None  # iron law
             out_fills["file_diff"] = []
@@ -1163,9 +2097,33 @@ def _handle_message_impl(
         out_fills = _round_end_signals(
             session, text, out_fills, provider, pre_module=pre_module
         )
+        # D23 自动合并轻量披露（最后附加——前面任何 wholesale 替换都不覆盖）。
+        new_merges = session.auto_merge_log[pre:]
+        if new_merges and not intercepted:
+            out_fills["auto_merges"] = [dict(m) for m in new_merges]
+            out_fills["reply"] = (
+                out_fills["reply"]
+                + " "
+                + " ".join(
+                f"（已把『{m['new'][:20]}』并入【{m['label']}】——不对就说一声撤销。）"
+                for m in new_merges
+            )
+        ).strip()
+        # 方向A一期：白名单外轮末接线——write-guard 挂起 / forced_allocate
+        # 轮不渲染（blocked），正常轮 examples 非空才追加（D-3/D-4）。
+        _attach_default_options(
+            session, result, out_fills,
+            blocked=bool(intercepted) or guard is not None,
+            bound_key=cur_key,
+        )
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
+    # 批B 出口④：话题离开退出——无 fills 的闲聊/知识话题 → 清单停驻态
+    # 归档复位 ""/0（知识轮除外——D24 冻结/保持语义优先，不构成离开）。
+    if session.list_thread_key and not getattr(result, "knowledge_used", False):
+        session.list_thread_key = ""
+        session.list_thread_turns = 0
     out_chat = {
         "reply": result.guidance_reply or "请围绕当前问题分享你的设定。",
         "next_question": _question_payload(session),
@@ -1182,6 +2140,14 @@ def _handle_message_impl(
     # D21 收尾三连问（T10）+ T17 对齐触发：同上（同帧定序）。
     out = _round_end_signals(
         session, text, out, provider, pre_module=pre_module
+    )
+    # D24 ①披露尾注（§1.5）：知识二段成功轮 → 回复尾追加。仅 knowledge
+    # 通道；user_confused 路径（knowledge_used=False）不经过此分支。
+    if getattr(result, "knowledge_used", False):
+        out["reply"] += "\n（已联网查证）"
+    # 方向A一期：白名单外轮末接线（forced_allocate 轮 blocked）。
+    _attach_default_options(
+        session, result, out, blocked=guard is not None, bound_key=cur_key
     )
     return out
 

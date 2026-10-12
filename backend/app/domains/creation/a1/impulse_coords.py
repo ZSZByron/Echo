@@ -73,6 +73,16 @@ SIGNALS: dict[str, dict[str, float]] = {
     "fill_confirmed":  {"axis_base": 3.0, "conf_d": +0.02},
     "fill_rejected":   {"axis_base": 0.0, "conf_d": -0.02},
     "skipped":         {"axis_base": 0.0, "conf_d": -0.05},
+    # 用户直纠三值信号（D21 前端 phase T3，spec §10.1 加固）：用户在对话中
+    # 明确说「更像讲故事 / 更像建设定 / 差不多」→ 确定性闭环（护栏 1 闭集
+    # additive 追加，既有五枚举逐字不动）。axis_fixed：无涉键模块的用户
+    # 直纠信号方向恒定（+1 向叙事端 / -1 向建构端 / 0 不动），仅当 key 为空
+    # 时生效（有 key 仍走 family 判定）。步长沿用 fill_confirmed 同数量级
+    # 6.0（用户显式纠偏 > 单次 fill 确认），置信度增量 +0.05（显式用户动作
+    # 面弱于推断包整包采纳 +0.10）。
+    "user_nudge_story":   {"axis_base": 6.0, "conf_d": +0.05, "axis_fixed": +1.0},
+    "user_nudge_builder": {"axis_base": 6.0, "conf_d": +0.05, "axis_fixed": -1.0},
+    "user_nudge_confirm": {"axis_base": 0.0, "conf_d": +0.08, "axis_fixed": 0.0},
 }
 
 # 防振荡参数（spec L318：滞后 + 每会话调整上限 + 冷却轮数 + ≤1 次重排）
@@ -181,8 +191,12 @@ def apply_signal(session: Any, signal: str, key: str = "") -> dict[str, Any]:
         return {"applied": False, "coords": coords}
 
     # 阻尼（spec L310：置信度决定调整步长，低置信 → 大阻尼）：
-    # 有效步长 = 基准步长 × 置信度。
-    raw = _axis_direction(session, key, spec["axis_base"])
+    # 有效步长 = 基准步长 × 置信度。用户直纠信号（axis_fixed，T3）无涉键
+    # 模块 → 方向恒定，不查 family；带 key 时仍以 family 判定为准。
+    if not key and spec.get("axis_fixed"):
+        raw = spec["axis_fixed"] * spec["axis_base"]
+    else:
+        raw = _axis_direction(session, key, spec["axis_base"])
     axis_delta = round(raw * coords["confidence"], 4)
     new_axis = max(_AXIS_MIN, min(_AXIS_MAX, coords["axis"] + axis_delta))
     new_conf = max(_CONF_MIN, min(

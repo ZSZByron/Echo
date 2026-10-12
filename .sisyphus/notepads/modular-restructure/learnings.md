@@ -159,3 +159,8 @@
 - 配方收窄类变更的下游破裂点不在"显式契约"而在"隐式形状依赖"：watchdog/live_projection 测试用 recipe_modules[:3] 硬编码 romance 旧 6 模块的"半程"位置——半程语义必须写成 len//2 通用切片，配方长度变化才不炸。
 - TDD 红灯批次要一次翻完所有同族断言（三个测试文件 9 处）再跑全量，否则 GREEN 后还会被二阶依赖（进度摘要含"历史时间线"断言）再拉回 RED。
 - 灵魂契约断言写成独立命名测试（zero worldview modules），而非塞进既有子集测试的附加行——终审裁决的"不可回退性"由测试名承载，回填意图会在测试名上先撞墙。
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

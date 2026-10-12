@@ -705,3 +705,8 @@ _visual_bg_tasks[file_id] = thread
 用户需求: 有模块缺失时在窗口主动询问, 而非让用户自己看底部提示猜
 实现: sync_position 先扫低于50%门禁的模块的未填字段, 无缺失再回退全局顺序
 语义迁移: test_multi_field_fills_jump_to_first_unanswered 断言更新(过半模块的收尾字段让位于缺失模块)
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.

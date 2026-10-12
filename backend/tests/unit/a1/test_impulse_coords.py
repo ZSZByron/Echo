@@ -102,10 +102,12 @@ class TestDeterministicUpdate:
     """护栏 1：确定性更新——显式信号闭集，同信号 → 同坐标 + 全留痕。"""
 
     def test_signal_enum_closed(self):
+        # T3（D21 前端 phase）additive 追加用户直纠三值；既有五枚举逐字不动
         assert set(SIGNALS) == {
             "pack_applied", "pack_rejected",
             "fill_confirmed", "fill_rejected",
             "skipped",
+            "user_nudge_story", "user_nudge_builder", "user_nudge_confirm",
         }
 
     def test_same_signals_same_coords(self):

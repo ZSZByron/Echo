@@ -252,8 +252,10 @@ class TestGuideEngine:
 
     # ---- anti-stall guard ----
 
-    def test_stall_suggests_examples_then_number_pick(self):
-        """Stall 2 -> seed-referenced suggestions; number reply picks one."""
+    def test_stall2_no_canned_examples_pick_reads_current_options(self):
+        """Stall 2 no longer offers canned examples/apology (legacy name:
+        test_stall_suggests_examples_then_number_pick). Number pick reads
+        A1Session.current_options instead."""
         s = make_session()
         # Advance past name to concept
         s.answers["IP定位.name"] = "x"
@@ -271,26 +273,29 @@ class TestGuideEngine:
         assert "IP定位.concept" not in s.answers
         assert s.current_subfield == "concept"  # still on concept
         assert s.stall_count == 1
-        assert s.pending_suggestions == []
 
-        # Turn 2: same misroute -> suggestion mode (LLM-understanding first)
+        # Turn 2: same misroute -> stall 2, no canned example/apology branch
         out2 = handle_message(s, user_text, misroute)
-        assert "IP定位.concept" not in s.answers  # NOT raw-filled yet
+        assert "IP定位.concept" not in s.answers  # NOT raw-filled
         assert s.current_subfield == "concept"  # position unchanged
-        assert "示例" in out2["reply"]
-        assert "序号" in out2["reply"]
-        assert len(s.pending_suggestions) == 3
-        assert s.stall_count == 2  # stays at 2 so next stall escalates
+        assert "示例方向" not in out2["reply"]
+        assert "我没能准确理解" not in out2["reply"]
+        assert s.stall_count == 2
 
-        # Turn 3: user replies "2" -> pick second example, advance
+        # Turn 3a: reply "2" with current_options empty -> NOT picked,
+        # goes interview path (misroute fill lands core_experience)
+        out3a = handle_message(s, "2", misroute)
+        assert "IP定位.concept" not in s.answers
+        assert s.answers["IP定位.core_experience"] == "决斗体验"
+        assert s.current_subfield == "concept"  # concept still unfilled
+
+        # Turn 3b: with current_options set, reply "2" picks option 2
+        s.current_options = ["甲", "乙", "丙"]
         out3 = handle_message(s, "2", misroute)
-        assert s.answers["IP定位.concept"] == "示例二"  # second canned example
-        assert "已按示例记录" in out3["reply"]
+        assert s.answers["IP定位.concept"] == "乙"
         assert s.current_subfield != "concept"  # advanced past concept
-        assert s.pending_suggestions == []
         assert s.stall_count == 0
-        diff_fields = [d["field"] for d in out3["file_diff"]]
-        assert "核心概念" in diff_fields
+        assert s.current_options == []
 
     def test_stall_third_turn_never_raw_fills(self):
         """Stall 3 goes through LLM forced_allocate — never raw-text fill
@@ -315,9 +320,9 @@ class TestGuideEngine:
         assert "跳过" in out3["reply"] or "换" in out3["reply"]
         assert s.stall_count <= 3  # capped, not reset (field still unfilled)
 
-    def test_stall_suggest_unavailable_asks_rephrase(self):
-        """When suggest_examples returns [] (LLM offline), stall 2 asks the
-        user to rephrase / 跳过 — never raw-fills."""
+    def test_stall2_examples_unavailable_no_apology(self):
+        """When suggest_examples returns [] (LLM offline), stall 2 still
+        never raw-fills (legacy name: test_stall_suggest_unavailable_asks_rephrase)."""
         s = make_session()
         s.answers["IP定位.name"] = "x"
         s.current_subfield = "concept"
@@ -330,10 +335,11 @@ class TestGuideEngine:
         user_text = "高魔科技世界"
 
         handle_message(s, user_text, misroute)  # stall 1
-        out2 = handle_message(s, user_text, misroute)  # suggestions empty -> ask rephrase
+        out2 = handle_message(s, user_text, misroute)  # stall 2
         assert "IP定位.concept" not in s.answers
         assert "已按原文直接记录" not in out2["reply"]
-        assert "跳过" in out2["reply"] or "换" in out2["reply"]
+        assert "我没能准确理解" not in out2["reply"]
+        assert "示例方向" not in out2["reply"]
         assert s.current_subfield == "concept"  # position unchanged
 
     def test_number_without_pending_suggestions_passthrough(self):

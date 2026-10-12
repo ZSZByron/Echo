@@ -16,7 +16,9 @@ import os
 
 import httpx
 
-_ZHIPU_TOOLS_URL = "https://open.bigmodel.cn/api/paas/v4/tools"
+# 2026-10-09 修复：旧 /tools 端点契约已死（无 model 字段必返 1211「模型不存在」），
+# 切换至官方现行 Web Search API。响应的 search_result 结构与旧端点一致。
+_ZHIPU_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/web_search"
 _MAX_RESULTS = 5
 _TIMEOUT_SECONDS = 10.0
 
@@ -29,12 +31,13 @@ def _api_key() -> str | None:
 async def _search_raw(query: str, api_key: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         resp = await client.post(
-            _ZHIPU_TOOLS_URL,
+            _ZHIPU_SEARCH_URL,
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "tool": "web_search",
-                "messages": [{"role": "user", "content": query}],
-                "stream": False,
+                "search_query": query,
+                "search_engine": "search_std",
+                "search_intent": False,
+                "count": _MAX_RESULTS,
             },
         )
         resp.raise_for_status()

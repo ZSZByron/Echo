@@ -37,6 +37,8 @@ from app.domains.creation.a1.graphify import (
 )
 from app.domains.creation.a1.guide_engine import (
     A1Session,
+    AnswerNode,
+    answer_view,
     apply_recipe_switch,
     core_recipe_modules,
     handle_message,
@@ -169,6 +171,14 @@ def _save_store() -> None:
 # In-memory lock to prevent duplicate concurrent poster generation for the
 # same file_id (mirrors _generation_tasks in assets_routes.py).
 _poster_generation_tasks: dict[str, Any] = {}
+
+
+def _answers_view(session: A1Session) -> dict[str, str]:
+    """D23: answers 值渲染视图——AnswerNode → answer_view 纯串（str 直通）。
+
+    下游（组装/prompt/响应）永远只收到 plain strings；键级用法不经过此视图。
+    """
+    return {k: answer_view(v) for k, v in session.answers.items()}
 
 _ISSUER_DB = Path(__file__).resolve().parents[2] / "data" / "a1_codes.db"
 _ISSUER_DB.parent.mkdir(parents=True, exist_ok=True)
@@ -305,6 +315,7 @@ def _build_dimension_result_set(session: A1Session) -> DimensionResultSet:
     kwargs: dict[str, dict[str, str]] = {"LAW": {}, "ACT": {}, "NAR": {}, "WST": {}, "SOC": {}}
     dim_by_cls = {cls: dim for dim, cls in _TAG_TO_OUTPUT}
     for value in session.answers.values():
+        value = answer_view(value)
         if not value or value.startswith("[其他]"):
             continue
         for fragment in value.split(";"):
@@ -556,7 +567,7 @@ def _build_graph(
 
     nodes, edges, bg_id, module_serial_by_id, entry_serial_by_id = (
         assemble_background_tree(
-            session.answers, MODULES, session.ip_code, session.session_id,
+            _answers_view(session), MODULES, session.ip_code, session.session_id,
             module_summaries=(
                 llm_result.module_summaries if llm_result is not None else None
             ),
@@ -732,7 +743,7 @@ def start_session(req: StartRequest) -> dict:
         "first_question": _question_payload(session),
         "file": {
             "status": "draft",
-            "answers": session.answers,
+            "answers": _answers_view(session),
             "sections": _build_sections(session),
         },
         "seed": {
@@ -781,6 +792,8 @@ async def chat(req: ChatRequest) -> dict:
             "divergent_question": None,
         }
         out.update(_open_question_payload(oq_log, session))
+        out["closing"] = _closing_signal(session)
+        out["pending_alignments"] = _pending_alignments_payload(session)
         _save_store()
         return out
 
@@ -849,7 +862,7 @@ async def chat(req: ChatRequest) -> dict:
         first_sf = first_subfield("骰子设定")
         if first_sf and session.current_subfield == first_sf["id"]:
             # Derive recommendation from current answers
-            dice_rec = derive_dice_recommendation(session.answers)
+            dice_rec = derive_dice_recommendation(_answers_view(session))
             if dice_rec["recommendations"]:
                 out["dice_recommendation"] = dice_rec
 
@@ -861,6 +874,8 @@ async def chat(req: ChatRequest) -> dict:
     # A 触发点：视觉设计模块填满时启动后台预生成
     await _trigger_visual_bg_if_filled(session.session_id)
 
+    out["closing"] = _closing_signal(session)
+    out["pending_alignments"] = _pending_alignments_payload(session)
     _save_store()
     return out
 
@@ -888,35 +903,49 @@ def chat_confirm(req: ConfirmRequest) -> dict:
             "不要了": "drop",
         }
 
-        # Check if choice needs clarification (ambiguous short responses)
-        is_ambiguous = (
-            len(req.choice.strip()) < 5 and
-            not any(keyword in req.choice for keyword in
-                    ["替换", "换成", "合并", "并存", "都保留", "两个都要", "放弃", "算了", "不要了"])
-        )
+        # Map natural language to canonical choice (D23: keyword hit →
+        # resolve as today; canonical English values pass through verbatim,
+        # preserving the pre-D23 identity passthrough for API callers).
+        choice_stripped = req.choice.strip()
+        canonical_choice = choice_mapping.get(choice_stripped)
+        if canonical_choice is None and choice_stripped in ("replace", "merge", "drop"):
+            canonical_choice = choice_stripped
 
-        if is_ambiguous:
-            # Return needs_clarification response without side effects
-            proposal_key = req.proposal.get("key", "")
-            proposal_entry = session.pending_proposals.get(proposal_key)
-            if proposal_entry:
-                proposal = proposal_entry["proposal"]
-                return {
-                    "needs_clarification": True,
-                    "reply": (
-                        f"你之前定过【{proposal.subfield}】是『{proposal.old}』。"
-                        f"这次的『{proposal.new}』——是要**替换**它，"
-                        f"还是两者**合并**（同一条里都保留），"
-                        f"还是先**放弃**这条修改？"
-                    ),
-                    "next_question": None,
-                }
-
-        # Map natural language to canonical choice
-        canonical_choice = choice_mapping.get(req.choice.strip(), req.choice)
-
-        # Extract proposal key from request
         proposal_key = req.proposal.get("key", "")
+
+        if canonical_choice is None:
+            # D23: keyword miss → intent classification via the SAME
+            # interviewer instance the /api/a1/chat endpoint uses.
+            proposal_entry = session.pending_proposals.get(proposal_key)
+            intent: str | None = None
+            if proposal_entry is not None:
+                _proposal = proposal_entry["proposal"]
+                try:
+                    intent = _get_interviewer().classify_confirm_intent(
+                        _proposal.old, _proposal.new, req.choice
+                    )
+                except Exception:  # noqa: BLE001 — classifier unavailable
+                    intent = None
+            if intent in ("replace", "merge", "drop"):
+                canonical_choice = intent
+            else:
+                # Fallback (intent == "other"/None): needs_clarification
+                # response without side effects (template text unchanged).
+                if proposal_entry:
+                    proposal = proposal_entry["proposal"]
+                    return {
+                        "needs_clarification": True,
+                        "reply": (
+                            f"你之前定过【{proposal.subfield}】是『{proposal.old}』。"
+                            f"这次的『{proposal.new}』——是要**替换**它，"
+                            f"还是两者**合并**（同一条里都保留），"
+                            f"还是先**放弃**这条修改？"
+                        ),
+                        "next_question": None,
+                    }
+                # No proposal on file: preserve pre-D23 passthrough
+                # (resolve_proposal will report not-found / drop semantics).
+                canonical_choice = req.choice
 
         # Call resolve_proposal from guide_engine
         from app.domains.creation.a1.guide_engine import resolve_proposal
@@ -968,6 +997,25 @@ def chat_confirm(req: ConfirmRequest) -> dict:
     out["next_question"] = _question_payload(session)
     _save_store()
     return out
+
+
+class MergeUndoRequest(BaseModel):
+    session_id: str
+    token: str
+
+
+@router.post("/api/a1/merge/undo")
+def merge_undo(req: MergeUndoRequest) -> dict:
+    """D23: 撤销一次自动合并（幂等——未知/已撤销 token → 200 restored=False，
+    resolve 先例）。恢复以 guide_engine.undo_auto_merge 快照为准。"""
+    _load_once()
+    session = _SESSIONS.get(req.session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    from app.domains.creation.a1.guide_engine import undo_auto_merge
+    result = undo_auto_merge(session, req.token)
+    _save_store()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1170,147 @@ def get_live_projection(file_id: str) -> dict:
     return project_live(session)
 
 
+def _pending_alignments_payload(session: A1Session) -> list[dict[str, Any]]:
+    """chat 响应 additive 对齐提案序列化（D21 前端 phase T2）。
+
+    五字段：key（dict 键，resolve 端点惯例）/ action / content / quote /
+    stale_warning。**target（节点 id）与 graph_code 绝不外露**（G5 雷区）。
+    """
+    payload: list[dict[str, Any]] = []
+    for key, entry in session.pending_alignments.items():
+        p: Any = entry["proposal"]
+        payload.append(
+            {
+                "key": key,
+                "action": p.action,
+                "content": p.content,
+                "quote": p.quote,
+                "stale_warning": list(p.stale_warning),
+            }
+        )
+    return payload
+
+
+def _closing_signal(session: A1Session) -> dict[str, Any]:
+    """chat 响应 additive 收尾信号（D21 前端 phase T1）。
+
+    triggered = closing_step > 0 and not closing_settled——既有字段
+    一个不动，只追加 closing 键。
+    """
+    return {
+        "step": session.closing_step,
+        "settled": session.closing_settled,
+        "triggered": session.closing_step > 0 and not session.closing_settled,
+    }
+
+
+@router.get("/api/a1/file/{file_id}/closing-state")
+def get_closing_state(file_id: str) -> dict:
+    """收尾询问状态快照（D21 前端 phase T1，零 LLM 纯投影）。
+
+    triggered = closing_step > 0 and not closing_settled；preview 复用
+    build_output_preview（收尾询问唯一数据源，D22⑤/⑦）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.closing_gate import build_output_preview
+    return {
+        "file_id": file_id,
+        "closing_step": session.closing_step,
+        "closing_settled": session.closing_settled,
+        "triggered": session.closing_step > 0 and not session.closing_settled,
+        "preview": build_output_preview(file_id),
+    }
+
+
+class _AlignmentResolveRequest(BaseModel):
+    accept: bool
+
+
+@router.post("/api/a1/file/{file_id}/alignment/{key:path}/resolve")
+def alignment_resolve(file_id: str, key: str, req: _AlignmentResolveRequest) -> dict:
+    """解析一条待定对齐提案（D21 前端 phase T2，resolve_proposal 先例）。
+
+    未知 key → 200 + {applied: false, error: "not_found"}（幂等不抛错，
+    领域函数 resolve_alignment 已如此）。registry_db 接线同既有端点
+    （_registry_db()，stale 传播用）。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.alignment_flow import resolve_alignment
+
+    result = resolve_alignment(session, key, req.accept, registry_db=_registry_db())
+    resp: dict[str, Any] = {
+        "applied": bool(result.get("applied")),
+        "accept": req.accept,
+    }
+    if result.get("error"):
+        resp["error"] = result["error"]
+    return resp
+
+
+class _ImpulseSignalRequest(BaseModel):
+    """T3 用户直纠信号请求：白名单三值 only（离散，无连续滑杆值）。"""
+
+    signal: str
+
+
+#: T3 用户直纠三值白名单（端点级校验——与领域护栏阻尼 200 分离：
+#: 白名单外 = 400 请求错；白名单内被护栏阻尼 = 200 applied=false 诚实透传）。
+_NUDGE_SIGNAL_WHITELIST = frozenset({
+    "user_nudge_story", "user_nudge_builder", "user_nudge_confirm",
+})
+
+
+@router.post("/api/a1/file/{file_id}/impulse-coords/signal")
+def post_impulse_signal(file_id: str, req: _ImpulseSignalRequest) -> dict:
+    """用户直纠三值信号（D21 前端 phase T3，spec §10.1 显式信号闭集）。
+
+    更像讲故事 / 更像建设定 / 差不多 → apply_signal 确定性更新三件套；
+    阻尼（每会话上限/冷却轮）→ 200 + applied=false（护栏语义透传不隐藏）。
+    """
+    _load_once()
+    if req.signal not in _NUDGE_SIGNAL_WHITELIST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"signal must be one of {sorted(_NUDGE_SIGNAL_WHITELIST)}",
+        )
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1.impulse_coords import apply_signal
+    result = apply_signal(session, req.signal)
+    _save_store()
+    return {
+        "file_id": file_id,
+        "session_id": session.session_id,
+        "applied": result["applied"],
+        "axis": result["coords"]["axis"],
+        "confidence": result["coords"]["confidence"],
+    }
+
+
+@router.get("/api/a1/file/{file_id}/draft-version")
+def get_draft_version(file_id: str) -> dict:
+    """会话态草稿版本（D21 前端 phase T3，纯内存投影，零 LLM 零落库）。
+
+    读 ``session.draft_alpha``（{baseline, round, step} 纯内存 dict），
+    版本串经 a1.draft_version.draft_label() 真实输出（α0.{round} /
+    α0.{round}{n}）；草稿期外（round=0 或 step=0）→ {available: false}。
+    """
+    _load_once()
+    session = _session_for_file_or_404(file_id)
+    from app.domains.creation.a1 import draft_version
+    state = session.draft_alpha or {}
+    label = draft_version.draft_label(state) if state else None
+    if label is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "version": label,
+        "baseline": state["baseline"],
+        "round": state["round"],
+    }
+
+
 def _recipe_module_ids(session: A1Session) -> list[str]:
     """Ordered in-recipe module ids (M1 recipe gate semantics).
 
@@ -1152,7 +1341,7 @@ def _build_sections(session: A1Session) -> list[dict]:
         fields = []
         for sf in module["fields"]:
             answer_key = f"{module_id}.{sf['id']}"
-            value = session.answers.get(answer_key, "")
+            value = answer_view(session.answers.get(answer_key, ""))
             fields.append({
                 "id": sf["id"],
                 "label": sf["label"],
@@ -1197,7 +1386,13 @@ def get_file(file_id: str) -> dict:
     return {
         "file_id": file_id,
         "status": rec["status"],
-        "answers": session.answers,
+        "answers": _answers_view(session),
+        # D23: 层级答案树（AnswerNode → 完整结构；str → 等价叶子节点形态）
+        "answers_tree": {
+            k: (v.model_dump() if isinstance(v, AnswerNode)
+                else {"text": v, "children": [], "source": ""})
+            for k, v in session.answers.items()
+        },
         "graph_code": rec["graph_code"],
         "session_id": session.session_id,
         "sections": _build_sections(session),
@@ -1613,7 +1808,7 @@ def _extract_visual_design(session: A1Session) -> dict[str, str]:
     visual: dict[str, str] = {}
     for sf in subs_for_module(_VISUAL_DESIGN_MODULE):
         key = f"{_VISUAL_DESIGN_MODULE}.{sf['id']}"
-        val = session.answers.get(key, "")
+        val = answer_view(session.answers.get(key, ""))
         if val:
             visual[sf["id"]] = val
     return visual
@@ -1796,7 +1991,7 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         "first_question": _question_payload(session),
         "file": {
             "status": "draft",
-            "answers": session.answers,
+            "answers": _answers_view(session),
             "sections": _build_sections(session),
         },
         "innovations": parsed.get("innovations") or [],
@@ -2397,7 +2592,7 @@ def generate_module_doc(file_id: str) -> dict:
 
     ip_name = session.ip_code or session.seed_name or "未命名世界"
     doc, output_ledger = compile_document(
-        session.answers,
+        _answers_view(session),
         title=f"{ip_name}：主模组",
         ip_name=ip_name,
         graph_code=code,
@@ -2450,7 +2645,7 @@ def generate_dice_template(file_id: str) -> dict:
     issuer = GraphCodeIssuer(_ISSUER_DB)
     code = issuer.next(session.user_id, ip=rec["ip"], stage="TD")
     template = project_dice_template(
-        session.answers,
+        _answers_view(session),
         graph_code=code,
         upstream_graph_code=rec["graph_code"],
         used_stale=stale,
@@ -2490,7 +2685,7 @@ def generate_character_template(file_id: str) -> dict:
     ]
     try:
         template = project_character_template(
-            session.answers, dice,
+            _answers_view(session), dice,
             graph_code=code,
             upstream_graph_code=rec["graph_code"],
             used_stale=stale,
@@ -2572,7 +2767,7 @@ def generate_world_bible(file_id: str) -> dict:
 
     ip_name = session.ip_code or session.seed_name or "未命名世界"
     doc, output_ledger = compile_world_bible(
-        session.answers,
+        _answers_view(session),
         title=f"{ip_name}：世界圣经",
         ip_name=ip_name,
         graph_code=code,
@@ -2610,7 +2805,7 @@ def generate_character_codex(file_id: str) -> dict:
 
     ip_name = session.ip_code or session.seed_name or "未命名世界"
     doc, output_ledger = compile_codex(
-        session.answers,
+        _answers_view(session),
         character_name=ip_name,
         graph_code=code,
         upstream_graph_code=rec["graph_code"],
@@ -2647,7 +2842,7 @@ def generate_story_outline(file_id: str) -> dict:
 
     ip_name = session.ip_code or session.seed_name or "未命名世界"
     doc, output_ledger = compile_outline(
-        session.answers,
+        _answers_view(session),
         title=f"{ip_name}：故事大纲",
         ip_name=ip_name,
         graph_code=code,

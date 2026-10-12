@@ -394,3 +394,8 @@ Research conducted on 5 key areas relevant to the UGC project:
 - SaaS billing: [SaaS Billing Architecture 2026](https://www.saas-billing-architecture.com/subscription-billing-architecture-pricing-models/entitlements-feature-gating/)
 - API throttling: [ASOasis 2026](https://asoasis.tech/articles/2026-04-20-0253-api-throttling-user-tier-management/)
 - React libraries: [Modern React SPA](https://modernreactspa.com/learn/building-a-component-library), [Sujeet.pro](https://sujeet.pro/articles/component-library-architecture-and-governance), [Clay](https://github.com/brikalabs/clay), [Datum UI](https://github.com/datum-cloud/datum-ui), [Cytario Design](https://github.com/cytario/cytario-design/)
+
+## F3 QA D23 (2026-10-08)
+- E2E stub: patch app.api.a1_routes._get_interviewer; TestClient must use app.main:app (a1_routes exports router only).
+- AnswerNode shape: first write = root text; complement appends to children (answers_tree dumps both).
+- All D23 paths verified: equivalent auto-merge+token+undo roundtrip, complement child append, conflict proposal w/ question_text, classify_confirm_intent merge, raise->needs_clarification fallback template byte-identical to 89ffa2f^.
