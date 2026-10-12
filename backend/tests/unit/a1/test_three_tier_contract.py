@@ -337,7 +337,9 @@ def test_list_spots_and_caps() -> None:
     # cap 表：位点键与树内标注一一对应 + 灵感架；12 帽×3 + 6 帽×12
     caps = getattr(sm, "LIST_CAPS")
     tree_list_ids = set(list_l3) | set(list_l2)
-    assert set(caps) == tree_list_ids | {"material_pool"}, (
+    # 批B additive 演进（learnings 批A 先例）：旧字段宇宙清单位点
+    # key_relations 入表（T4 红测契约 LIST_CAPS["key_relations"] 直读）。
+    assert set(caps) == tree_list_ids | {"material_pool", "key_relations"}, (
         "cap 表位点与树内清单位点不齐：tree=%s caps=%s"
         % (sorted(tree_list_ids), sorted(caps))
     )
@@ -346,8 +348,8 @@ def test_list_spots_and_caps() -> None:
     assert big == ["existence", "key_nodes", "material_pool"], (
         "12 帽应为灵感架/关键节点/存在物三处，实得 %s" % big
     )
-    assert len(small) == 12 and all(v == 6 for v in caps.values()) or True
-    assert len(small) == 12, "6 帽应为 12 处，实得 %d：%s" % (len(small), small)
+    # 批B additive 演进：key_relations 入表（6 帽档）→ 6 帽 12→13 处。
+    assert len(small) == 13, "6 帽应为 13 处（12+key_relations），实得 %d：%s" % (len(small), small)
 
 
 def test_q16_branch_main_question() -> None:

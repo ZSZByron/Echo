@@ -44,6 +44,14 @@ from app.domains.creation.seed.a1_question_tree import (
     module_ids,
     subs_for_module,
 )
+from app.domains.creation.seed.story_modules import (
+    LIST_CAPS,
+    THREE_TIER_TREE,
+    VS_DIM_DIR,
+    VS_DUAL,
+    VS_FROM_TO,
+    VS_POINT,
+)
 from app.domains.creation.shared.module_registry import (
     ANCHOR_BY_TYPE,  # noqa: F401 — E1-Lite 数据已迁入注册表，原位置 re-export 兼容
     MODULE_POOL,
@@ -195,13 +203,15 @@ class AnswerNode(BaseModel):
     source: str = ""
 
 
-def answer_view(value: str | AnswerNode) -> str:
-    """C11 渲染确定性：str 直通；node = 非空片段按深度优先序「；」连接。
-
-    渲染纯函数（同输入同输出，无状态）；空 text/空 children 片段跳过。
+def answer_view(value: str | AnswerNode | dict[str, Any]) -> str:
+    """C11 渲染确定性：str 直通；node = 非空片段按深度优先序「；」连接；
+    dict（批B 结构化值）= 叶值深度优先「；」连接（additive——str/node
+    行为逐字节不变）。渲染纯函数（同输入同输出，无状态）；空片段跳过。
     """
     if isinstance(value, str):
         return value
+    if isinstance(value, dict):
+        return _l3_render(value)
     parts: list[str] = []
     if value.text.strip():
         parts.append(value.text)
@@ -251,8 +261,323 @@ def proposal_question_text(
 
 
 _AUTO_MERGE_LOG_CAP = 20  # 滚动上限：轻量披露不无限膨胀
-ANSWER_CHILDREN_CAP = 6  # D23 拍板 4——多值字段子条目上限
+ANSWER_CHILDREN_CAP = 6  # D23 拍板 4——多值字段子条目上限（非清单位点默认）
 MERGE_TARGET_PREFIX_CHARS = 12  # merge_target 前缀定位长度
+
+
+def _children_cap(subfield_id: str) -> int:
+    """清单帽位点表驱动（批B）：LIST_CAPS 命中按表取值（6/12 两档），
+    未命中回退 D23 默认 ANSWER_CHILDREN_CAP——12 帽位点
+    （existence/key_nodes/material_pool）不再被硬编码 6 提前截断。"""
+    return LIST_CAPS.get(subfield_id, ANSWER_CHILDREN_CAP)
+
+
+# ---------------------------------------------------------------------------
+# 批B：三-tier 树消费面（L3 值 schema + 树写/读入口）
+#
+# 存储布局（answers 平面键集合零新增）：
+# - 锚节点键 = L2 id（无点号，永不与 module.field 平面宇宙相交）；
+#   值 = AnswerNode(text=L2 label, children=[L3 节点...])。
+# - L3 节点 source = l3_id（树定位可回放）；结构化部件存为
+#   source=部件键 的子节点（⇉ change 部件嵌套子节点）；
+#   清单追加存 source="" 的子节点（D23 complement 同构）。
+# ---------------------------------------------------------------------------
+
+
+def _build_l3_index() -> dict[str, dict[str, Any]]:
+    """THREE_TIER_TREE → l3_id 定位表（惰性一次性构建，纯数据投影）。"""
+    idx: dict[str, dict[str, Any]] = {}
+    for l1 in THREE_TIER_TREE:
+        for l2 in l1["l2"]:
+            for l3 in l2["l3"]:
+                idx[str(l3["id"])] = {
+                    "l1_id": l1["id"],
+                    "l1_label": str(l1.get("label", "")),
+                    "l2_id": str(l2["id"]),
+                    "l2_label": str(l2.get("label", "")),
+                    "vs": str(l3["vs"]),
+                }
+    return idx
+
+
+_L3_INDEX = _build_l3_index()
+
+#: vs → 合法部件键闭集（⑥稿 §0 判定表；半填 = 键可缺，不允许越集）。
+_L3_PART_KEYS: dict[str, frozenset[str]] = {
+    VS_FROM_TO: frozenset({"from", "to", "trigger"}),
+    VS_DIM_DIR: frozenset({"dimension", "direction", "magnitude"}),
+    VS_DUAL: frozenset({"point", "change"}),
+}
+
+#: 数值部件键（落库为文本、读回转数值；magnitude=0 是真实内容不是空）。
+_L3_NUMERIC_PART_KEYS = frozenset({"magnitude"})
+
+
+def validate_l3_value(l3_id: str, value: Any) -> bool:
+    """值 schema 校验入口（批B）。合法 → True；形状越界 → ValueError。
+
+    - ● 位点只认纯文本：结构化 dict → 拒绝（拒绝或降级二选一，本实现
+      选拒绝——调用方可用 _l3_render 自行降级）。
+    - ▶/⇄/⇉ 位点：dict 半填缺字段宽容；str 降级为点形态文本。
+    - 幅度 0 合法（⑥§2-16 拒绝线特例：数值部件不查真值）。
+    - 树外位点（旧 35 字段宇宙）→ 惯例按 ● 处理，恒合法。
+    """
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        return True
+    vs = meta["vs"]
+    if vs == VS_POINT:
+        if isinstance(value, dict):
+            raise ValueError(f"● 位点不接受结构化值：{l3_id}")
+        return True
+    if isinstance(value, str):
+        return True
+    if not isinstance(value, dict):
+        raise ValueError(f"不支持的值形态：{l3_id}（vs={vs}）")
+    allowed = _L3_PART_KEYS.get(vs, frozenset())
+    for k in value:
+        if allowed and k not in allowed:
+            raise ValueError(f"未知值字段 {k!r}（位点 {l3_id}，vs={vs}）")
+    return True
+
+
+def _l3_render(value: Any) -> str:
+    """结构化值 → 渲染串（叶值深度优先「；」连接；answer_view dict 支路复用）。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        leaves: list[str] = []
+
+        def _walk(v: Any) -> None:
+            if isinstance(v, dict):
+                for x in v.values():
+                    _walk(x)
+            else:
+                leaves.append(str(v))
+
+        _walk(value)
+        return "；".join(leaves)
+    return str(value)
+
+
+def _l3_part_node(part_key: str, part_value: Any) -> AnswerNode:
+    """部件键/值 → 部件节点（⇉ change 等嵌套 dict → 嵌套部件子节点）。"""
+    if isinstance(part_value, dict):
+        return AnswerNode(
+            source=part_key,
+            children=[_l3_part_node(k, v) for k, v in part_value.items()],
+        )
+    return AnswerNode(source=part_key, text=str(part_value))
+
+
+def _l3_part_scalar(node: AnswerNode) -> Any:
+    """部件节点 → 标量值（数值部件键转数值——magnitude=0 落库可查）。"""
+    if node.source in _L3_NUMERIC_PART_KEYS:
+        try:
+            return int(node.text)
+        except ValueError:
+            try:
+                return float(node.text)
+            except ValueError:
+                pass
+    return node.text
+
+
+def _l3_parse_node(node: AnswerNode) -> dict[str, Any]:
+    """L3 节点 → 结构化部件 dict；无部件（●/降级点形态）→ {"point": 渲染串}。"""
+    parts: dict[str, Any] = {}
+    for c in node.children:
+        if c.source:
+            if c.children:
+                parts[c.source] = {
+                    gc.source: _l3_part_scalar(gc) for gc in c.children if gc.source
+                }
+            else:
+                parts[c.source] = _l3_part_scalar(c)
+    if parts:
+        return parts
+    return {"point": answer_view(node)}
+
+
+def _l3_lookup(session_or_answers: Any, l3_id: str) -> Any:
+    """L3 定位读：平面遗留键（l2.l3 旧宇宙成员）优先，其次 L2 锚树内扫描。"""
+    answers = getattr(session_or_answers, "answers", session_or_answers)
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        return answers.get(l3_id, "")
+    flat_key = f"{meta['l2_id']}.{l3_id}"
+    if flat_key in answers:
+        return answers[flat_key]
+    anchor = answers.get(meta["l2_id"])
+    if isinstance(anchor, AnswerNode):
+        for c in anchor.children:
+            if c.source == l3_id:
+                return c
+    return ""
+
+
+def l3_value_parts(session_or_answers: Any, l3_id: str) -> dict[str, Any]:
+    """结构化值读入口（批B）：l3_id → 部件 dict。
+
+    - ●/降级点形态 → {"point": 文本}；▶/⇄/⇉ → 部件键 dict（⇉ change 嵌套）。
+    - 无 vs 标注的存量平面串答案 → 全按 ● 处理（{"point": 原串}）。
+    - 未写入 → {}。
+    """
+    found = _l3_lookup(session_or_answers, l3_id)
+    if isinstance(found, AnswerNode):
+        return _l3_parse_node(found)
+    if isinstance(found, str) and found:
+        return {"point": found}
+    return {}
+
+
+def _l3_truthy_leaf(value: Any) -> bool:
+    """真值闸树扩展（复用 J1 is_truthy_answer 语义，不发明第二套判定）：
+    字符串走 is_truthy_answer；数值即真实内容（magnitude=0 不是空）；
+    dict/AnswerNode 递归——任一部件真实即真值（半填宽容）。"""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, str):
+        return is_truthy_answer(value)
+    if isinstance(value, AnswerNode):
+        return _l3_truthy_leaf(_l3_parse_node(value))
+    if isinstance(value, dict):
+        return any(_l3_truthy_leaf(v) for v in value.values())
+    return False
+
+
+def l3_answer_truthy(value_or_answers: Any, key: str | None = None) -> bool:
+    """树真值谓词（批B）：有真实内容即真值——半填与全填同判。
+
+    两种调用形：l3_answer_truthy(值)（直接判值）/
+    l3_answer_truthy(answers|session, l3_id)（按位点定位后判值）。
+    """
+    if key is None:
+        return _l3_truthy_leaf(value_or_answers)
+    found = _l3_lookup(value_or_answers, key)
+    if isinstance(found, str) and not found:
+        return False
+    return _l3_truthy_leaf(found)
+
+
+def read_l3_answer(session: Any, l3_id: str) -> AnswerNode:
+    """L3 树读入口（批B）：l3_id → AnswerNode（未写入 → 空 node）。"""
+    found = _l3_lookup(session, l3_id)
+    return found if isinstance(found, AnswerNode) else AnswerNode()
+
+
+def _l3_node_contains(node: AnswerNode, rendered: str) -> bool:
+    """L3 同值短路：节点 text 或任一追加条目精确等于 rendered。"""
+    if node.text == rendered:
+        return True
+    return any(c.text == rendered for c in node.children if not c.source)
+
+
+def _l3_assign(session: Any, l3_id: str, value: Any, rendered: str) -> None:
+    """首次写入/覆写：结构化 dict → 部件子节点 + 渲染串入 text；str → text。"""
+    node = read_l3_answer(session, l3_id)
+    if isinstance(value, dict):
+        kept = [c for c in node.children if not c.source]
+        node.children = kept + [
+            _l3_part_node(k, v) for k, v in value.items()
+        ]
+    node.text = rendered
+
+
+def _l3_merge_parts(node: AnswerNode, value: dict[str, Any], rendered: str) -> None:
+    """结构化补充/归并：按部件键并入（已有部件覆写、缺字段宽容保留）。"""
+    remaining = [c for c in node.children if not c.source]
+    new_parts = [_l3_part_node(k, v) for k, v in value.items()]
+    node.children = remaining + new_parts
+    if not node.text.strip():
+        node.text = rendered
+
+
+def apply_l3_fill(
+    session: Any,
+    l3_id: str,
+    value: Any,
+    relation: str | None = None,
+    merge_target: str | None = None,
+    merged_value: str | None = None,
+    conflict_note: str = "",
+) -> dict[str, Any]:
+    """L3 树写入口（批B）：57 新 L3 答案以 AnswerNode children 挂 L2 锚下。
+
+    - 57 新 L3 不进 A1Session 平面字段（锚键 = L2 id，无点号）；
+      D23 语义归并（等价/补充/矛盾）在 L3 层沿用。
+    - relation 缺省 = 直写（同值短路）；complement = 追加条目/并入部件；
+      equivalent = 同值短路 + 归并（点形态拼串同构）；conflict = 三选一
+      提议流（pending_proposals，resolve_proposal 拍板）。
+    - 半填宽容：结构化 dict 缺字段不拒绝，落库部分形状。
+    """
+    meta = _L3_INDEX.get(l3_id)
+    if meta is None:
+        raise ValueError(f"树内无此 L3：{l3_id}")
+    validate_l3_value(l3_id, value)
+    answers = session.answers
+    l2_id = meta["l2_id"]
+    rel = (relation or "").strip().lower()
+    rendered = _l3_render(value)
+
+    anchor = answers.get(l2_id)
+    if not isinstance(anchor, AnswerNode):
+        legacy = anchor if isinstance(anchor, str) else meta["l2_label"]
+        anchor = AnswerNode(text=legacy)
+        answers[l2_id] = anchor
+    node = next((c for c in anchor.children if c.source == l3_id), None)
+    if node is None:
+        node = AnswerNode(source=l3_id)
+        anchor.children.append(node)
+
+    if rel == "complement":
+        if isinstance(value, dict):
+            _l3_merge_parts(node, value, rendered)
+        else:
+            node.children.append(AnswerNode(text=rendered))
+            if not node.text.strip():
+                node.text = rendered
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    if rel == "equivalent":
+        if _l3_node_contains(node, rendered):
+            return {"applied": False, "l3_id": l3_id, "reason": "duplicate"}
+        if isinstance(value, dict):
+            _l3_merge_parts(node, value, rendered)
+        elif merge_target and (fill_child := _find_child_by_prefix(node, merge_target)):
+            fill_child.text = (merged_value or "").strip() or rendered
+        elif node.text.strip():
+            node.text = f"{node.text}；{rendered}"
+        else:
+            node.text = rendered
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    if rel in ("", "none", "unknown", "point", "direct"):
+        if node.text == rendered:
+            return {"applied": False, "l3_id": l3_id, "reason": "duplicate"}
+        _l3_assign(session, l3_id, value, rendered)
+        return {"applied": True, "l3_id": l3_id, "anchor": l2_id}
+
+    # conflict / 其余语义 → D23 三选一提议流（等价归并达帽同路，见
+    # _apply_fills 清单停驻出口③）。
+    proposal = Proposal(
+        module=l2_id,
+        subfield=l3_id,
+        old=answer_view(node),
+        new=rendered,
+        conflict_note=conflict_note,
+        question_text="",
+    )
+    pk = _proposal_key(l2_id, l3_id, rendered)
+    session.pending_proposals[pk] = {
+        "proposal": proposal,
+        "options": ["replace", "merge", "drop"],
+    }
+    return {"applied": False, "l3_id": l3_id, "proposal_key": pk}
 
 
 def _record_auto_merge(
@@ -834,6 +1159,16 @@ def _apply_fills(
         seen_keys.add(key)
         sf = get_subfield(fill.module, fill.subfield)
         old = session.answers.get(key, "")
+        relation = (getattr(fill, "relation", "") or "").strip().lower()
+        # 批B 出口①：直答退出——停驻清单位点收到非 complement 输入
+        # （用户直接回答当前问）→ 确定性复位 ""/0（D24 出口①同构）。
+        if (
+            session.list_thread_key
+            and fill.subfield == session.list_thread_key
+            and relation != "complement"
+        ):
+            session.list_thread_key = ""
+            session.list_thread_turns = 0
 
         # Branch 2: skip — same value
         if old and old == fill_value:
@@ -869,7 +1204,15 @@ def _apply_fills(
                 continue
             label = sf["label"] if sf else fill.subfield
 
-            if relation == "equivalent":
+            # 批B 出口③（等价归并达帽）：清单位点帽子只剩一格时，等价归并
+            # 不再静默合并 → 改走 D23 提议流（resolve_proposal 拍板）。
+            _equivalent_at_cap = (
+                relation == "equivalent"
+                and fill.subfield in LIST_CAPS
+                and isinstance(old, AnswerNode)
+                and len(old.children) >= _children_cap(fill.subfield) - 1
+            )
+            if relation == "equivalent" and not _equivalent_at_cap:
                 if isinstance(old, AnswerNode) and (fill.merge_target or "").strip():
                     child = _find_child_by_prefix(old, fill.merge_target)
                     if child is not None:
@@ -902,9 +1245,21 @@ def _apply_fills(
                     _fill_diff(label, fill.module, answer_view(prev_snapshot), merged)
                 )
                 continue
-            if relation == "complement" and is_multi_value(fill.module, fill.subfield):
-                node = old if isinstance(old, AnswerNode) else AnswerNode(text=old)
-                if len(node.children) < ANSWER_CHILDREN_CAP:
+            if relation == "complement" and (
+                is_multi_value(fill.module, fill.subfield)
+                or fill.subfield in LIST_CAPS
+            ):
+                cap = _children_cap(fill.subfield)
+                if isinstance(old, AnswerNode):
+                    node = old
+                elif is_multi_value(fill.module, fill.subfield):
+                    node = AnswerNode(text=old)  # D23 旧晋升：首条存 text
+                else:
+                    # 批B 清单位点（非 multi，如 conflict/existence）：
+                    # children-inclusive 晋升——全部条目进 children（帽计数
+                    # 与 LIST_CAPS 对齐，6 帽第 6 条触发提议、12 帽不提前截断）。
+                    node = AnswerNode(text="", children=[AnswerNode(text=old)])
+                if len(node.children) < cap - 1:
                     prev_snapshot = (
                         old.model_copy(deep=True)
                         if isinstance(old, AnswerNode)
@@ -916,6 +1271,13 @@ def _apply_fills(
                         answer_view(node), direct_key, kind="complement",
                     )
                     session.answers[key] = node
+                    # 批B 停驻进入/推进：list 位点补充新条目 → 置位 + turns
+                    # 逐轮推进（D24 knowledge_thread 防卡死同构）。
+                    if session.list_thread_key == fill.subfield:
+                        session.list_thread_turns += 1
+                    else:
+                        session.list_thread_key = fill.subfield
+                        session.list_thread_turns = 1
                     file_diff.append(
                         _fill_diff(
                             label, fill.module,
@@ -923,8 +1285,14 @@ def _apply_fills(
                         )
                     )
                     continue
-                # children >= cap → falls through to proposal (cap, 拍板 4)
+                # children >= cap-1 → 帽满：falls through to proposal
+                # （批B 出口③：帽满话术 + D23 提议流归并 + 复位，见下方落点）
             # conflict / complement-scalar / missing / unknown → 现行三选一拦截
+            # 批B 出口③：帽满退出——停驻态确定性复位（复位落点与 D23 提议流
+            # 同点：帽满话术由 proposal 问句承载，归并走 resolve_proposal）。
+            if session.list_thread_key == fill.subfield:
+                session.list_thread_key = ""
+                session.list_thread_turns = 0
             proposal = Proposal(
                 module=fill.module,
                 subfield=fill.subfield,
@@ -955,6 +1323,14 @@ def _apply_fills(
             "new": fill_value,
         })
         session.answers[key] = fill_value
+        # 批B 停驻进入：complement 命中清单位点（含首轮直写 old=''）→
+        # 置位 + turns=1；后续停驻轮在 complement 追加支路逐轮推进。
+        if relation == "complement" and fill.subfield in LIST_CAPS:
+            if session.list_thread_key == fill.subfield:
+                session.list_thread_turns += 1
+            else:
+                session.list_thread_key = fill.subfield
+                session.list_thread_turns = 1
         mark_field_source(
             session, key,
             FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
@@ -1325,6 +1701,9 @@ def _handle_message_impl(
         # D24 ①退出②：用户显式回到创作流程 → 知识对话态确定性复位。
         session.knowledge_thread_active = False
         session.knowledge_thread_turns = 0
+        # 批B 出口②：跳过退出——清单停驻态归档复位 ""/0。
+        session.list_thread_key = ""
+        session.list_thread_turns = 0
         answer_key = f"{session.current_module}.{session.current_subfield}"
         skipped_module = session.current_module
         skipped_sf = get_subfield(session.current_module, session.current_subfield)
@@ -1608,6 +1987,11 @@ def _handle_message_impl(
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
+    # 批B 出口④：话题离开退出——无 fills 的闲聊/知识话题 → 清单停驻态
+    # 归档复位 ""/0（知识轮除外——D24 冻结/保持语义优先，不构成离开）。
+    if session.list_thread_key and not getattr(result, "knowledge_used", False):
+        session.list_thread_key = ""
+        session.list_thread_turns = 0
     out_chat = {
         "reply": result.guidance_reply or "请围绕当前问题分享你的设定。",
         "next_question": _question_payload(session),

@@ -599,6 +599,8 @@ LIST_CAPS: dict[str, int] = {
     "core_scene_list": 6,
     "faction_type": 6,
     "conflict": 6,
+    "key_relations": 6,        # 批B additive：旧字段宇宙清单位点（T4 红测契约
+                               # LIST_CAPS["key_relations"] 直读；6 帽档）
     "unknown_to_hero": 6,
     "hidden_by_hero": 6,
     "audience_foreshadow": 6,
