@@ -65,17 +65,34 @@ def closing_settled(session: A1Session) -> bool:
     return session.closing_settled
 
 
+def _rack_inventory_line(session: A1Session) -> str:
+    """批D 回收时机②：收尾盘点——摊开灵感架存量（空架返回空串，字节不变）。
+
+    设计稿 §2.3：「收尾三连问前统一盘点（架上有 3 件宝贝还没安家）」。
+    """
+    if not session.material_pool:
+        return ""
+    items = "；".join(
+        f"「{(m.get('text') or '')[:30]}」" for m in session.material_pool
+    )
+    return (
+        f"灵感架上还有 {len(session.material_pool)} 件宝贝没安家：{items}。"
+        "先记着，回头随时安家。"
+    )
+
+
 def maybe_trigger(session: A1Session) -> str | None:
     """轮末检查：双条件命中且未进入收尾态 → 进入 Q1，返回提示文案。
 
     已在收尾态（1..3）或已 settled → None（幂等，不重置进度）。
+    批D additive：灵感架非空 → 提示前先摊开存量盘点（回收时机②）。
     """
     if session.closing_settled or session.closing_step != 0:
         return None
     if not is_preset_phase_complete(session):
         return None
     session.closing_step = 1
-    return f"{TRIGGER_PREFIX}{_question_text(1)}"
+    return f"{_rack_inventory_line(session)}{TRIGGER_PREFIX}{_question_text(1)}"
 
 
 def _match_any(text: str, keywords: tuple[str, ...]) -> bool:

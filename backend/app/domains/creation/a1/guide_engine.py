@@ -1017,6 +1017,29 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
     if entry is None:
         return {"applied": False, "choice": choice, "error": "not_found"}
 
+    # 批D：灵感架安家提案（rack_home 前缀）——确认=落目标槽 + pool -1 +
+    # rack_recycled 事件；拒绝=pool 保留 + 零事件（条目标记 declined，
+    # 不再重复提议）。**用户确认铁律**：只有显式 choice 才动 pool。
+    if entry.get("rack_home"):
+        session.pending_proposals.pop(key, None)
+        if choice == "replace":
+            target = entry["rack_target"]
+            session.answers[target] = entry["rack_text"]
+            mark_field_source(session, target, FIELD_SOURCE_LLM_FILL)
+            session.material_pool = [
+                m for m in session.material_pool
+                if m.get("text") != entry["rack_text"]
+            ]
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event("rack_recycled", session, target=target)
+            return {"applied": True, "choice": choice}
+        # drop / 其余 choice：条目留在架上，标 declined（不再提议）
+        for m in session.material_pool:
+            if m.get("text") == entry["rack_text"]:
+                m["declined"] = True
+        return {"applied": False, "choice": choice}
+
     proposal: Proposal = entry["proposal"]
     field_key = f"{proposal.module}.{proposal.subfield}"
 
@@ -1292,6 +1315,15 @@ def _apply_fills(
                     else:
                         session.list_thread_key = fill.subfield
                         session.list_thread_turns = 1
+                    # 批D 埋点收口：清单条目追加事件（fail-silent，additive）。
+                    from app.domains.creation.a1 import inspiration_log
+
+                    inspiration_log.emit_event(
+                        "list_append",
+                        session,
+                        module=fill.module,
+                        subfield=fill.subfield,
+                    )
                     file_diff.append(
                         _fill_diff(
                             label, fill.module,
@@ -1345,6 +1377,15 @@ def _apply_fills(
             else:
                 session.list_thread_key = fill.subfield
                 session.list_thread_turns = 1
+            # 批D 埋点收口：清单条目首条直写追加事件（与上方补条支路同名）。
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "list_append",
+                session,
+                module=fill.module,
+                subfield=fill.subfield,
+            )
         mark_field_source(
             session, key,
             FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
@@ -1692,6 +1733,130 @@ def _build_reanchor_reply(session: A1Session) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# 批D（波次二拍2-13）：灵感架——入架路径 + 自由流程安家提议 + 确认钩子
+# ---------------------------------------------------------------------------
+
+#: 灵感架安家提案键前缀（pending_proposals 键空间；entry["rack_home"]=True）。
+RACK_PROPOSAL_PREFIX = "rack_home:"
+#: 引擎侧确定性确认/保留短语闭集（用户确认铁律：只有这些显式短语才
+#: 消费安家提案，其余输入照常走访谈管线；不依赖 LLM 自律）。
+RACK_CONFIRM_WORDS = frozenset({"安进去", "安进去吧", "给它安家"})
+RACK_KEEP_WORDS = frozenset({"先留着", "留着", "先留着吧"})
+
+
+def _rack_slots_clause(slots: list[str]) -> str:
+    """建议槽位人话片段（≤2 个，点号转间隔号；空 = 兜底句）。"""
+    named = [s.replace(".", "·") for s in slots if isinstance(s, str) and s]
+    if not named:
+        return "——先记着，回头再给它认个门"
+    return "——它可能属于" + "或".join(f"『{s}』" for s in named[:2])
+
+
+def _stow_delivery(session: A1Session, result: Any, text: str) -> str:
+    """投递「无家可归」素材入架（永不拒绝）：pool 追加 + rack_stowed 事件。
+
+    帽满（LIST_CAPS["material_pool"]=12）挤最旧——永不拒收（⑤稿 §9.3）。
+    返回 rack_stowed 话术（含「灵感架」）。
+    """
+    from app.domains.creation.seed.story_modules import LIST_CAPS as _LIST_CAPS
+
+    cap = _LIST_CAPS.get("material_pool", 12)
+    entry = {
+        "text": text.strip(),
+        "suggested_slots": list(getattr(result, "suggested_slots", []) or []),
+        "created_at": session.message_rounds,
+    }
+    while len(session.material_pool) >= cap:
+        session.material_pool.pop(0)
+    session.material_pool.append(entry)
+    from app.domains.creation.a1 import inspiration_log
+
+    inspiration_log.emit_event(
+        "rack_stowed",
+        session,
+        chars=len(entry["text"]),
+        slots=entry["suggested_slots"],
+    )
+    return (
+        f"记进你的灵感架了{_rack_slots_clause(entry['suggested_slots'])}。"
+        "想现在给它找个家，还是先留着？"
+    )
+
+
+def _maybe_propose_rack_homing(session: A1Session, out: dict[str, Any]) -> None:
+    """自由流程回收时机①：正常答题轮后提议安家（LLM 只提议，绝不直写）。
+
+    - 候选 = 第一条未 declined 的架上条目；无候选 / 已有挂起安家提案 → 零动作。
+    - 提议挂 pending_proposals（rack_home 前缀，resolve_proposal 拍板），
+      回复尾追加安家问句（含目标 L3 槽位 + 原文摘要）。
+    """
+    if not session.material_pool:
+        return
+    if any(
+        k.startswith(RACK_PROPOSAL_PREFIX) for k in session.pending_proposals
+    ):
+        return
+    item = next(
+        (m for m in session.material_pool if not m.get("declined")), None
+    )
+    if item is None:
+        return
+    target = (item.get("suggested_slots") or [""])[0]
+    if not target:
+        return
+    mod, _, sub = target.partition(".")
+    session.pending_proposals[f"{RACK_PROPOSAL_PREFIX}{target}"] = {
+        "proposal": Proposal(module=mod or target, subfield=sub or target,
+                             old="", new=item["text"]),
+        "options": ["安进去", "先留着"],
+        "rack_home": True,
+        "rack_target": target,
+        "rack_text": item["text"],
+    }
+    out["reply"] = (
+        f"{out.get('reply', '')}\n灵感架上还留着一条「{item['text'][:30]}」"
+        f"没安家——要把它安进『{target.replace('.', '·')}』吗？"
+        "（安进去 / 先留着）"
+    )
+
+
+def _try_rack_homing_reply(session: A1Session, stripped: str) -> dict[str, Any] | None:
+    """安家提案的显式短语消费钩子（先于 interviewer，确定性零 LLM）。
+
+    「安进去」→ resolve replace（落槽 + pool -1 + rack_recycled 事件）；
+    「先留着」→ resolve drop（pool 保留 + 零事件）。非提案轮 / 非闭集
+    短语 → None（照常走访谈管线）。
+    """
+    keys = [
+        k for k in session.pending_proposals
+        if k.startswith(RACK_PROPOSAL_PREFIX)
+    ]
+    if not keys:
+        return None
+    key = keys[0]
+    if stripped in RACK_CONFIRM_WORDS:
+        applied = resolve_proposal(session, key, "replace").get("applied")
+        if applied:
+            return {
+                "reply": "好，已给它安家——灵感架上少一件，世界图里多一笔。",
+                "next_question": _question_payload(session),
+                "file_diff": [],
+                "progress": progress(session),
+                "phase": session.phase,
+            }
+    if stripped in RACK_KEEP_WORDS:
+        resolve_proposal(session, key, "drop")
+        return {
+            "reply": "好，先留在灵感架上——想安家时说「安进去」就行。",
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+    return None
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -1915,8 +2080,12 @@ def _handle_message_impl(
             "phase": session.phase,
         }
 
-    result = interviewer.interview(session, text)
+    # ---- 批D：灵感架安家提案的显式短语消费（先于 interviewer，零 LLM）----
+    rack_out = _try_rack_homing_reply(session, stripped)
+    if rack_out is not None:
+        return rack_out
 
+    result = interviewer.interview(session, text)
     # ---- D24 ①：知识对话态 fills 冻结（先于一切 fills 消费）----
     # active 时本轮 fills 一律丢弃（引擎执行权，不依赖 LLM 自律）；
     # 状态机更新在其后（冻结判定用 pre-update active 态——施工单 §1.3 序）。
@@ -1992,6 +2161,24 @@ def _handle_message_impl(
             )
         return {
             "reply": reply,
+            "next_question": qp,
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+
+    # ---- 批D（拍2-13）：灵感架入架——投递「无家可归」素材，永不拒绝 ----
+    # delivery=true 且 fills 留空 = LLM 判定无槽可落 → 入架（帽满挤最旧），
+    # rack_stowed 话术 + 事件；指针不动、answers 零变化。
+    if getattr(result, "delivery", False) and not result.fills:
+        rack_line = _stow_delivery(session, result, text)
+        qp = _question_payload(session)
+        cur_question = (qp or {}).get("question", "")
+        return {
+            "reply": (
+                f"{result.guidance_reply}{rack_line}"
+                f"（回到当前的问题：{cur_question}）"
+            ),
             "next_question": qp,
             "file_diff": [],
             "progress": progress(session),
@@ -2116,6 +2303,8 @@ def _handle_message_impl(
             blocked=bool(intercepted) or guard is not None,
             bound_key=cur_key,
         )
+        # 批D 回收时机①：自由流程正常答题轮后 → 灵感架安家提议（additive）。
+        _maybe_propose_rack_homing(session, out_fills)
         return out_fills
 
     # ---- chat / off-topic: reply only, nothing persisted ----
