@@ -17,6 +17,7 @@ implementation without touching the pipeline.
 from __future__ import annotations
 
 import asyncio
+import re
 import unicodedata
 from typing import Any, Sequence
 
@@ -252,11 +253,48 @@ async def parse_modules(provider: LLMProvider, text: str) -> dict[str, Any]:
         if len(innovations) >= 5:
             break
     return {
-        "answers": answers,
+        "answers": wrap_value_shapes(answers),
         "innovations": innovations,
         "truncated": truncated,
         "clipped_answers": clipped_answers,
     }
+
+
+# ---------------------------------------------------------------------------
+# 批E-1 上传值形状联动：▶ 位点预填包装
+# ---------------------------------------------------------------------------
+
+#: A→B 形状正则：箭头式 / 「从A到B（/变成/转为/变为）」式。
+_ARROW_RE = re.compile(r"^(.+?)→(.+)$")
+_CONG_RE = re.compile(r"^从(.+?)(?:到|变成|转为|变为)(.+)$")
+
+
+def wrap_value_shapes(answers: dict[str, str]) -> dict[str, Any]:
+    """上传预填值形状包装（批E-1）：▶ 位点（vs=from_to）命中 A→B 文本 →
+    ``{"from": ..., "to": ...}`` 结构化值；点类字段 = ● 纯文本原样。
+
+    确定性纯正则，零 LLM；无箭头形状的文本保持纯文本（●降级不硬拆）。
+    """
+    from app.domains.creation.a1.guide_engine import _L3_INDEX, VS_FROM_TO
+
+    wrapped: dict[str, Any] = {}
+    for key, value in answers.items():
+        l3_id = key.rsplit(".", 1)[-1]
+        meta = _L3_INDEX.get(l3_id)
+        if (
+            isinstance(value, str)
+            and meta is not None
+            and meta["vs"] == VS_FROM_TO
+            and key == f"{meta['l2_id']}.{l3_id}"
+        ):
+            m = _ARROW_RE.match(value.strip()) or _CONG_RE.match(value.strip())
+            if m:
+                from_text, to_text = (part.strip() for part in m.groups())
+                if from_text and to_text:
+                    wrapped[key] = {"from": from_text, "to": to_text}
+                    continue
+        wrapped[key] = value
+    return wrapped
 
 
 # ---------------------------------------------------------------------------

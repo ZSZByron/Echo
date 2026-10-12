@@ -399,6 +399,20 @@ def _l3_parse_node(node: AnswerNode) -> dict[str, Any]:
     return {"point": answer_view(node)}
 
 
+def l3_value_node(value: Any) -> AnswerNode | str:
+    """结构化部件 dict → 扁平 AnswerNode（批E-1 上传联动消费面）。
+
+    部件存 source=部件键 子节点 + 渲染串入 text（与 apply_l3_fill 落库
+    形态同构），l3_value_parts 可读回部件。非 dict → 原样返回（● 纯文本）。
+    """
+    if not isinstance(value, dict):
+        return value if isinstance(value, str) else str(value)
+    return AnswerNode(
+        text=_l3_render(value),
+        children=[_l3_part_node(k, v) for k, v in value.items()],
+    )
+
+
 def _l3_lookup(session_or_answers: Any, l3_id: str) -> Any:
     """L3 定位读：平面遗留键（l2.l3 旧宇宙成员）优先，其次 L2 锚树内扫描。"""
     answers = getattr(session_or_answers, "answers", session_or_answers)

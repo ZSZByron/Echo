@@ -600,6 +600,29 @@ def _build_graph(
     file_rec["dead_edges"] = dead_edges
     file_rec["assemble_warnings"] = llm_warnings
 
+    # ---- 批E-1：值形态 → 迁移边/衔接边确定性编译（图谱装配铁律：零 LLM；
+    # 无形状旧会话零产出——升级前字节回归 0 diff）----
+    from app.domains.creation.a1.value_shape_edges import compile_value_shape_edges
+
+    _sn, _se, _sw = compile_value_shape_edges(session)
+    if _sn or _se:
+        known = set(nodes)
+        for shape_node in _sn:
+            if shape_node.id not in known:
+                nodes[shape_node.id] = shape_node
+        for shape_edge in _se:
+            if shape_edge.from_node_id in nodes and shape_edge.to_node_id in nodes:
+                edges.append(shape_edge)
+            else:
+                dead_edges.append({
+                    "from": shape_edge.from_node_id,
+                    "to": shape_edge.to_node_id,
+                    "relation": shape_edge.relation,
+                    "confidence": shape_edge.confidence,
+                    "reason": "endpoint_missing",
+                })
+        llm_warnings.extend(_sw)
+
     graph = KnowledgeGraph(
         scene_id=session.session_id, background_node_id=bg_id,
         nodes=nodes, edges=edges,
@@ -1949,7 +1972,15 @@ def _prefill_session(user_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         user_id=user_id,
         ip_code=f"IP{ip_no:04d}",
     )
-    session.answers = dict(parsed["answers"])
+    # 批E-1 上传值形状联动：parse_modules 的 ▶ 包装值（dict）→ 扁平
+    # AnswerNode（部件子节点 + 渲染串），l3_value_parts 可读回部件；
+    # 点类纯文本原样直通。
+    from app.domains.creation.a1.guide_engine import l3_value_node
+
+    session.answers = {
+        k: l3_value_node(v) if isinstance(v, dict) else v
+        for k, v in dict(parsed["answers"]).items()
+    }
     # M4a 出口三（上传预填 → upload_prefill）：parse_modules 结果定格的唯一
     # 标记点（parse_modules 本身是纯函数不触碰 session——接线在会话构建处）。
     session.field_sources = {k: "upload_prefill" for k in session.answers}

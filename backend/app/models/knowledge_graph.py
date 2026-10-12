@@ -29,6 +29,10 @@ class EdgeType(str, Enum):
     SEMANTIC = "semantic"  # LLM-inferred concept edge (needs user confirmation)
     RULE = "rule"  # machine-executable rule edge (confirmed by axis assignment)
     STRUCTURE = "structure"  # answer value parsing/expansion edge
+    # 批E-1：值形态确定性编译边（LLM prompt 词表不收录——图谱装配铁律：
+    # transition/linkage 由 vs 形状确定性编译产出，见 a1.value_shape_edges）。
+    TRANSITION = "transition"  # 迁移边（▶ from态 → to态，trigger 落边属性）
+    LINKAGE = "linkage"  # 衔接边（⇄ dimension+direction / 支线卡衔接）
 
 
 class GraphNode(BaseModel):
@@ -87,6 +91,9 @@ class KnowledgeGraph(BaseModel):
     scene_id: str
     nodes: dict[str, GraphNode] = Field(default_factory=dict)
     edges: list[GraphEdge] = Field(default_factory=list)
+    #: 批E-1 降级标记：from_dict 遇未注册 edge_type 被跳过的边数
+    #: （不进 to_dict 序列化——既有字节回归面零扰动）。
+    degraded_edge_count: int = Field(default=0, exclude=True)
     background_node_id: Optional[str] = None
 
     @staticmethod
@@ -209,10 +216,17 @@ class KnowledgeGraph(BaseModel):
             graph.nodes[nid] = node
 
         for edata in data.get("edges", []):
+            try:
+                edge_type = EdgeType(edata.get("edge_type", "tree"))
+            except ValueError:
+                # 批E-1 降级（s2-unknown-enum-degrade 先例）：未注册边类型
+                # 跳过 + 降级标记，绝不抛异常（图谱装配韧性）。
+                graph.degraded_edge_count += 1
+                continue
             edge = GraphEdge(
                 from_node_id=edata["from_node_id"],
                 to_node_id=edata["to_node_id"],
-                edge_type=EdgeType(edata.get("edge_type", "tree")),
+                edge_type=edge_type,
                 visual_description=edata.get("visual_description", ""),
                 relation=edata.get("relation", ""),
                 confidence=edata.get("confidence", ""),
