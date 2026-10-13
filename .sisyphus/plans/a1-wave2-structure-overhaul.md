@@ -719,7 +719,7 @@ Max Concurrent: 1（施工）；FINAL 波 4
   - Files: 两个测试文件 + fixture
   - Pre-commit: 全绿
 
-- [ ] 11. 终门禁 + 治理收官（D26 + 全链落痕）
+- [x] 11. 终门禁 + 治理收官（D26 + 全链落痕）
 
   **What to do**:
   - 终门禁亲自复跑：全量 pytest + cov（≥80%）+ tsc 零新增 + frontend/ diff 为空 + ruff 增量清零；提交链白名单全核对
@@ -778,19 +778,19 @@ Max Concurrent: 1（施工）；FINAL 波 4
 
 > 4 审并行，全部 APPROVE 后呈报用户等明确 okay。不得自动收工。
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   通读本单全文。逐条 Must Have 验证实现存在（读文件/跑命令）；逐条 Must NOT Have 全仓搜索违禁模式（含 frontend/ diff、L1398、门禁计数口径、双槽唯一性）；evidence 文件齐全性（.sisyphus/evidence/wave2-*）；交付物对照。
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | Evidence [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   pytest 全量 + cov ≥80%；ruff 触碰文件增量清零（存量口径）；mypy 改动文件零新增；AI slop 扫描（as any 型/py 等价物、空 catch、print 残留、恒真断言、注释密度异常）；A1Session 字段 additive 枚举核对（42→45 且仅三字段）。
   Output: `Tests [N/N] | Lint [增量0] | Files [N clean] | VERDICT`
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+- [x] F3. **Real Manual QA** — `unspecified-high`
   清洁状态起栈：四幕病理 TestClient 重放逐幕取证；六通道共存矩阵全对触发；清单追加×3 到帽；存量 fixture 会话全流程；真机冒烟指引落盘（非阻塞，按验收协议三承诺式写法——本波次承诺：任何话有去处/变化有形状/清单能一直加）。
   Output: `Scenarios [N/N] | Integration [N/N] | Legacy [PASS] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   逐 commit 对照白名单；跨批污染检查；未归账文件清点；拍2-4 排除项零实现核对；「记下了」修复范围核对（仅⑨稿枚举行）；story_modules 1.2 文案零回改核对（④稿字节 diff）。
   Output: `Tasks [N/N compliant] | Contamination [CLEAN] | Unaccounted [CLEAN] | VERDICT`
 
