@@ -77,3 +77,120 @@
 - 红测格局：34 RED / 17 GREEN（锚测：四通道既有序 9 对、Q16 形态、⑨稿记下了枚举行、引擎文案键集、no-home 诚实话术、fail-silent、emit_event 契约）。六情形枚举值（模板 situation 闭集）：arrow_full_question / arrow_from_missing / arrow_to_missing / arrow_trigger_missing / dim_full_question / dim_direction_missing——T7 落 26 模板时逐字使用。
 - 26 = ▶20 + ⇄5 + 支线主问1（⑥稿 §0 咬合）；57 L3 追问候选键：followup/followups/l3_followup/prompt/prompts/追问，规范=短(≤60)/问句(？结尾)。
 - 全量门禁：1760 passed / 34 failed（全在三新文件）/ 基线 1743 零扰动；evidence wave2-t6-red.txt。
+
+## 2026-10-12 批C（T7）实现要点（T8 需读）——仓库已迁移至 C:\Users\Administrator\AppData\Local\Temp\opencode\UGC-recovered（原 H:\UGC 灾后弃用，代码随固化提交 2d29545 入库）
+
+### 埋点事件名（inspiration_log.emit_event，fail-silent，T8 直接复用）
+- 镜像通道双事件：`mirror_triggered`（带 turns=mirror_thread_turns+1，jsonl 契约锁定）+ `discussion_mirror`（通道级捕获，与 mirror_triggered 同点双发）。位置：guide_engine.py mirror_hit 分支（约 :1969-1977）。
+- 重锚通道双事件：`reanchor_triggered`（jsonl 契约锁定，test_reanchor）+ `reanchor`（通用捕获，test_channel_matrix_v2）。位置：guide_engine.py reanchor 分支（约 :1950-1951）。
+
+### 优先级接线点（guide_engine.py _handle_message_impl 内从高到低）
+- reanchor 分支在 **规则6.5 知识冻结区之后**（:1939 起）：判定 = `result.reanchor`（LLM）or `text in REANCHOR_TRIGGER_WORDS`（显式元命令「梳理一下」，REANCHOR_TRIGGER_WORDS 集合常量 :811——LLM 已判则以 reanchor 为准，免本地文本对比占租）；进入即双清 knowledge_thread_* + _reset_mirror_thread，folds 无关、fills 零吸收、answers 零变化。
+- mirror 分支在 reanchor 之后（:1961 起）：mirror_hit = result.mirror 且非 knowledge_used（知识态优先、讨论态其次）；镜像线程帽 MIRROR_THREAD_CAP=2（:808）——turns>=cap 时第 3 轮确定性桥回当前题并 _reset_mirror_thread，否则 mirror_thread_active=True + turns+=1，reply = guidance_reply + 「先回到当前的问题：{cur_question}」。
+- 退出复位：用户离开讨论态（直选/重锚/其它支路命中非 mirror）→ _reset_mirror_thread（:1658，置 mirror_thread_active=False/turns=0）。
+
+### 话术常量与话术区
+- interviewer.py：InterviewResult additive 双键 `mirror: bool` / `reanchor: bool`（:119-120，delivery 先例同构）；_parse additive 解析 `raw.get("mirror"/"reanchor")`（:1040-1043）；prompt schema 提示三行（:652-660 mirror=true→fills 须空、:660 reanchor=true→guidance_reply 一句化呼应）+ JSON 示例行 :720。
+- guide_engine.py：_build_reanchor_reply（:1664）五段清单拼接——「好的，我们把手上的线头捋一捋」+ 确认要点（answers 逐条）/或空答话术 + 【当前题】module.label + 灵感架素材逐条 + 四选一收束句（「先记这条 / 去掉灵感架上的某条 / 回到当前题 / 灵感架能帮我说」语义）；「已按示例记录」（:1854）原样存活（字节锁）。
+- 「记下了」修复行：⑨稿第 31 行 ▶from 模板枚举行（26 模板之一），引擎侧无「记下了：」固定文案（负向保护锁定）。
+
+### 26 模板 / 57 追问
+- 六情形闭集（situation 枚举，模板逐字）：arrow_full_question / arrow_from_missing / arrow_to_missing / arrow_trigger_missing / dim_full_question / dim_direction_missing；26 = ▶20+⇄5+支线主问1；57 L3 追问候选键=followup(s)，规范短(≤60)+问句「？」结尾。
+
+### 收尾与环境
+- 全量 1789 passed / cov 84.85%（evidence wave2-t7-gate.txt）；ruff 增量交集法本批实测 app 侧 8 处——但 diff ab83518..2d29545 是灾后固化提交（批A/B 增量同入一 diff），批C 单独增量无法隔离，如实登记。
+- **新仓库路径（后续任务必读）：C:\Users\Administrator\AppData\Local\Temp\opencode\UGC-recovered**；pytest 一律 `.venv\Scripts\python -m pytest`；.sisyphus/evidence/ gitignored 属正常。
+
+## 2026-10-12 T7 收尾执行补充（零代码改动，evidence 四件 + PROJECT_STATE/learnings 登记）
+
+### 收尾验证实测
+- 六测试文件转绿：73 passed（test_channel_matrix_v2 / test_discussion_mirror / test_reanchor / test_three_tier_contract / test_delivery_intent / test_channel_coexistence_matrix）→ evidence/wave2-t7-matrix-green.txt
+- 全量门禁复跑：1789 passed / 0 failed / cov 84.87%（≥80 门禁过）→ wave2-t7-gate.txt（尾部附 T7 验收面）
+- T7 验收面：test_rule65_and_rule7_byte_identical 实际位于 test_delivery_intent.py，单测 -v 复跑 PASSED（-q 全量输出不显示用例名，需单跑留痕——注意点）；A1Session 五枚 additive 字段实例化默认值：material_pool=[] / list_thread_key='' / list_thread_turns=0 / mirror_thread_active=False / mirror_thread_turns=0（pydantic 模型，验证方式 = A1Session(session_id=...,user_id=...) 后 getattr，不能 __new__ 直读）
+- ruff 增量核对口径修正：逐行归类（ab83518..HEAD -U0 + 行号归属新增行）优于"批C 六文件全量计数"——生产侧真实增量仅 4 条 E501（guide_engine:1217 / interviewer:50,718,720），其余 8 条为基线存量；tests 侧 12 条风格类豁免照旧 → wave2-t7-ruff.txt
+- 白名单：批 C 收敛于三生产文件 + 六测试文件 + 灵感日志三件；frontend/ 区间 diff 为空 → wave2-t7-whitelist.txt
+
+### 灾难恢复纪要（后续批次必读）
+- 新仓库路径（唯一有效）：C:\Users\Administrator\AppData\Local\Temp\opencode\UGC-recovered；**H:\UGC 已损坏废弃，任何操作禁止指向**
+- 灾后基线对：ab83518（远程 clone 底座）→ 2d29545（灾后重建提交，波次一+二批A/B/C 全部并入，批 C 无独立提交）
+- 增量口径特例：批A/B/C 改动同处 ab83518..2d29545 单 diff，无法单独隔离批 C 增量，核对时用逐行新增行归类
+- 临时脚本勿放 $TEMP 根（会被覆盖/找不到），放 C:\Users\Administrator\AppData\Local\Temp\opencode\ 下
+
+## 2026-10-12 批D（T8 灵感架闭环）实现要点
+
+### 引擎接线（guide_engine.py）
+- 入架：_handle_message_impl 镜像分支之后/偏转之前新支路——`delivery and not fills` → _stow_delivery（帽满挤最旧，永不拒绝）+ rack_stowed 事件 + 话术（含「灵感架」）。
+- 自由流程回收：fills 支路 return 前 _maybe_propose_rack_homing（候选=首条未 declined 条目；目标=suggested_slots[0]；挂 pending_proposals 键 `rack_home:{target}`，entry 带 rack_home/rack_target/rack_text）。
+- resolve_proposal additive rack 分支：replace=answers[target] 直写 + pool 过滤移除 + rack_recycled 事件；drop=条目标 `declined:True`（不重复提议；不用新 A1Session 字段——_T9_SESSION_FIELDS 冻结锁禁改）。提案轮/hooks 前置：_try_rack_homing_reply 在 interviewer 之前消费「安进去/先留着」闭集短语（确定性零 LLM）。
+- list_append 事件落点两处：_apply_fills 补条支路（children append）+ 首条 complement 直写支路。
+
+### 关键裁定
+- suggested_slots 走引擎侧 getattr 发现式消费（model_construct + __dict__ 注入测试，test_channel_matrix_v2 先例）——**InterviewResult 零扩容**，test_channel_coexistence_matrix/matrix_v2 两枚 frozen 键集锁零触碰。pydantic v2 model_construct 不收未知键，非字段属性须 `result.__dict__["k"]=v` 注入。
+- 拒绝记忆用 pool 条目内 `declined` 标记（不用 tombstone——pending_proposals 非空会阻塞收尾双条件 is_preset_phase_complete）。
+- /file GET 的 material_pool 投影 = 一行 additive（finalize 端点零改动，pool 永不进 missing_sections）。
+- closing_flow.maybe_trigger 前置 _rack_inventory_line（空架返回空串，无 pool 字节不变）。
+
+### 环境坑（Windows pwsh）
+- `git show | Out-File` 会按控制台编码（GBK）解码 UTF-8 输出 → 基线副本错乱导致 ruff 计数假象（base=144 vs 实际 1）。正确姿势：`git cat-file -p ... > file`（字节直通）。
+- ruff 增量口径：基线副本须以 `.py` 扩展名放仓库树内（backend/_basetmp/）跑同配置；逐文件 base vs worktree 计数比对——批D 三生产文件增量 0。
+
+### 收尾
+- 全量 1802 passed / 0 failed / cov 84.89%；evidence wave2-t8-{rack-loop,gate-unblocked,gate,whitelist}.txt。
+
+## 2026-10-12 批E-1（T9 graphify 迁移边/衔接边 + 上传值形状联动）实现要点（T10 必读）
+
+### 边类型常量/注册位置（T10 直接引用）
+- EdgeType 枚举新增 TRANSITION="transition"（迁移边）/ LINKAGE="linkage"（衔接边）——backend/app/models/knowledge_graph.py（additive，Tree/CROSS/Semantic/Rule/Structure 零改动）。
+- 词表铁律落点：transition/linkage 不入 concept_edge_vocab.VOCAB_RELATION_NAMES、不入 build_graphify_prompt（负向锚测 test_not_in_llm_prompt_vocab 锁死）。
+- 确定性编译模块：backend/app/domains/creation/a1/value_shape_edges.py，入口 compile_value_shape_edges(session) -> (minted_nodes, edges, warnings)；常量 EDGE_TRANSITION/EDGE_LINKAGE；状态节点 id 方案 v:{l2_id}.{l3_id}:from|to（GraphNode level=4, serial VS{n}-1/2）。
+
+### 装配接线点（T10 复证用）
+- a1_routes._build_graph：dead_edges/assemble_warnings 写入之后、KnowledgeGraph 构造之前——compile 产出节点并入 nodes（幂等跳过已存在 id）、边端点双在图内才并、缺席落 dead_edges(reason=endpoint_missing)。
+- 旧会话回归锁：无形状 fixture → compile 零产出，_build_graph to_dict sha256 = fe3545a8ef0993f590700aaedcb0f1c288b9c386e14507be554907568afb5f82（nodes=5/edges=4，固化于测试 REGRESSION_SNAPSHOT_SHA）。
+- 拒绝线语义：⇄ direction=拒绝 或 magnitude=0 / ▶ from==to → visual_description 尾注「（拒绝线）」，边不丢。
+- 支线卡衔接：side_link_mode(●)+side_link_point(▶) 双真值 → linkage 边 branch_card.side_link_point → story_line（概念边家族扩展）；半边不硬接。
+
+### 上传联动（worldview_upload）
+- wrap_value_shapes(answers)：vs=from_to 位点扁平键命中 A→B / 从A到B(变成/转为/变为) 正则 → {"from","to"} dict；无形状文本保持纯文本（●降级）。parse_modules 出口统一调用。
+- _prefill_session：dict 值经 guide_engine.l3_value_node（新 helper，部件子节点+渲染串 text）转扁平 AnswerNode——pydantic answers: dict[str, str|AnswerNode] 类型闸要求；l3_value_parts 可读回部件。
+
+### 未知边类型降级（s2-unknown-enum 先例）
+- KnowledgeGraph.from_dict：EdgeType(...) ValueError → 跳过该边 + degraded_edge_count += 1（新字段 exclude=True，不进 to_dict——序列化字节面零扰动）。
+
+### 门禁
+- 全量 1822 passed / 0 failed / cov 84.93%（基线 1802 + 20 新增）；ruff app 增量 0（worldview_upload 仅存量 UP035）；evidence wave2-t9-{edges,regression,gate,whitelist}.txt。
+- 坑：pytest 必须以 backend 为工作目录跑（仓库根跑 capture 崩）；evidence 落盘用绝对路径。
+
+## 2026-10-13 批E-2（T10 四幕病理回归 + 存量兼容全检 + 交叉烟测）实现要点
+
+### 范式与选型
+- 端点级重放照 D23 F3 先例：TestClient + monkeypatch a1_routes._get_interviewer（_ScriptedStub 按轮弹出 InterviewResult.model_construct 配置：fills/mirror/delivery/knowledge_used，零真实 LLM）。
+- 新 L3 位点（side_link_point/side_ending/success_path/failure_path）chat fills 不可达（interviewer 只产旧 35 字段平面 fills）→ 引擎直调 apply_l3_fill + l3_value_parts/read_l3_answer 断言（T5 先例一致）。
+
+### 四幕断言面（test_wave2_pathology_replay.py，11 passed）
+- 幕一：complement 补充 → 首条 text 保留 + children+1；pending_proposals=={}（非弹问）；conflict 对照组走三选一拦截。
+- 幕二：side_link_point/side_ending 各自 from/to 部件承载；success_path 零污染；半填宽容。
+- 幕三：双终点挂 branch_trees L2 锚下（**锚键 = L2 id "branch_trees"，不是 "剧情"**——首版断言写错被红测抓住）；双节点 sources 分流非压缩单值。
+- 幕四：LIST_CAPS["key_relations"]==6 锚；×3 追加 turns 推进无提议；children>=cap-1 时 complement 帽满出口③ + equivalent 达帽出口③ 均走提议流且 list_thread 复位；直答（非 complement）出口① / 跳过出口② 复位；拦截态数据不丢。
+- 镜像桥回话术实际文案是"（回到当前的问题：…）"——**无"先"字**（learnings 批C 段记录的"先回到当前的问题"与源码有出入，断言以源码为准）。
+
+### 交叉烟测（全通道版）
+- 序列：清单追加→镜像→投递入架→知识态→直选→正常追加轮；四状态机逐轮互斥断言零污染。直选复位 knowledge/mirror + options 对称消费，但**不打断 list_thread**（复位出口只有①直答/②跳过/③帽满/④话题离开四条）；knowledge 轮豁免 list_thread 复位（:2327）。
+
+### 存量兼容全检（test_wave2_legacy_compat.py，4 passed）
+- fixture 构造法：A1Session(**43旧字段).model_dump() 后手工 pop 五枚新字段（_LEGACY_43_FIELDS 逐字对照 T1 契约）→ {"version":1,"sessions":…,"files":…} 直写 autouse tmp store → _loaded=False 触发懒加载直通。
+- 链路：GET file → finalize 409（missing_sections==["角色"] 手工预计算：2/6=33%≤half，recipe_modules=["角色"] 收窄门禁）→ chat 一轮 4 条无 relation ● 纯文本 fills → finalize 200 → graph 断言 edge_type 零 transition/linkage（T9 回归锁语义）→ 再序列化 model_validate 往返。
+- finalize 200 在 conftest autouse provider stub 下降级纯 TREE 图，visual bg 后台线程与既有 finalize 测试同范式无害。
+
+### 门禁
+- 全量 1837 passed / 0 failed / cov 85.07%（基线 1822 + 15 新增）；两新文件 ruff 全清（I001 自动修 + ARG002 消参）；evidence 四件 wave2-t10-{pathology,legacy-e2e,gate,whitelist}.txt。
+
+
+## T11 收官记录（2026-10-13）
+
+- 终门禁五件全过：1837 passed / 0 failed / cov 85.09%（门禁 80%）；frontend 零触碰双证（git diff ab83518..HEAD 空 + tsc 0）；批 E 两文件 ruff 全清；白名单链四笔+本笔无越界。证据 wave2-t11-closeout.txt。
+- 复跑经验：pytest 全量 ~98s；tsc 需 frontend 目录下 npx tsc --noEmit（npm install 201 包 ~15s，灾后 node_modules 重装可行）。
+- 批 E 测试文件实际路径 tests\unit\a1\（非 tests/ 根）——ruff 增量核对注意路径。
+- D26 按范式落盘：19 拍板+三自定决策+六通道全序+D21 豁免台账+LIST_CAPS cap 位点表+灾难恢复注记+契约演进两案+遗留清单+验收协议附录（三承诺三原则，波次三沿用）+E0 五事件埋点提示行。
+- 两指南 Q16 只加不改：故事向 §15 后插 §16；文案逐句分析 §2.2 尾插 ⑯（Q16 原文即人话态逐字采用）。Q16 原文源 = story_modules.Q16_BRANCH_CARD。
+- 收官提交一笔（治理态全量入库）；波次三不自动开工。

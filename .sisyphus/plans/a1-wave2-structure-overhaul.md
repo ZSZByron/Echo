@@ -479,7 +479,7 @@ Max Concurrent: 1（施工）；FINAL 波 4
   - Files: 四测试文件 + 矩阵扩展
   - Pre-commit: RED 确认
 
-- [ ] 7. 批 C 绿：interviewer 实现 + 批门禁
+- [x] 7. 批 C 绿：interviewer 实现 + 批门禁
 
   **What to do**:
   - `interviewer.py`：
@@ -539,7 +539,7 @@ Max Concurrent: 1（施工）；FINAL 波 4
 
 ### 批 D：灵感架回收时机
 
-- [ ] 8. 批 D：三回收时机引擎侧 + 埋点收口 + 批门禁
+- [x] 8. 批 D：三回收时机引擎侧 + 埋点收口 + 批门禁
 
   **What to do**:
   - 回收时机一（自由流程）：进入自由流程节点（预设配方完成后逐级细化时），引擎检查 material_pool 存量 → 对可落位条目生成"安家提议"（落位确认话术=⑨§3 投递族"灵感入架"逆过程），用户确认后写入对应 L3 清单/字段并从 pool 移除
@@ -602,7 +602,7 @@ Max Concurrent: 1（施工）；FINAL 波 4
 
 ### 批 E：graphify 边 + 病理回归 + 收官
 
-- [ ] 9. graphify 迁移边+衔接边（红→绿）+ 批门禁
+- [x] 9. graphify 迁移边+衔接边（红→绿）+ 批门禁
 
   **What to do**:
   - 红测：▶ 答案编译为**迁移边**（from 态节点→to 态节点，trigger 为边属性）；⇄ 编译为**衔接边**（dimension+direction 落边语义）；支线卡衔接（方式+点）入概念边家族；● 不变（flat NL 现行路径）
@@ -661,7 +661,7 @@ Max Concurrent: 1（施工）；FINAL 波 4
   - Files: graphify.py / 编译模块 / worldview_upload.py / 测试
   - Pre-commit: 回归锁绿
 
-- [ ] 10. 病理回归四幕 + 存量兼容全检
+- [x] 10. 病理回归四幕 + 存量兼容全检
 
   **What to do**:
   - 四幕病理回归自动化（TestClient 端点级，D23 F3 先例）：
