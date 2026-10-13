@@ -58,12 +58,12 @@
 见 TL;DR Deliverables 清单。
 
 ### Definition of Done
-- [ ] 全量 pytest ≥1691 passed / 0 failed / cov ≥80%（基线 1691，净增用例 ≥40）
-- [ ] 四幕病理回归自动化全绿（老父亲/支线结局/这是分支/追加循环）
-- [ ] 存量会话（42 字段无形状）加载+定稿行为与升级前一致
-- [ ] `tsc --noEmit` 零新增（前端零触碰）
-- [ ] ruff 触碰文件增量清零（存量不动）
-- [ ] D26 + PROJECT_STATE + MOC + 指南补 Q16 落痕
+- [x] 全量 pytest ≥1691 passed / 0 failed / cov ≥80%（基线 1691，净增用例 ≥40）
+- [x] 四幕病理回归自动化全绿（老父亲/支线结局/这是分支/追加循环）
+- [x] 存量会话（42 字段无形状）加载+定稿行为与升级前一致
+- [x] `tsc --noEmit` 零新增（前端零触碰）
+- [x] ruff 触碰文件增量清零（存量不动）
+- [x] D26 + PROJECT_STATE + MOC + 指南补 Q16 落痕
 
 ### Must Have
 - 三级树 id 宇宙严格超集（旧 35 id ⊆ 新树，零改名零删除）
@@ -819,8 +819,8 @@ git diff --stat <batch-base>..HEAD                          # 白名单内
 ```
 
 ### Final Checklist
-- [ ] 全部 Must Have 存在
-- [ ] 全部 Must NOT Have 缺席
-- [ ] 四幕病理 + 存量兼容 + 门禁护栏三套测试绿
+- [x] 全部 Must Have 存在
+- [x] 全部 Must NOT Have 缺席
+- [x] 四幕病理 + 存量兼容 + 门禁护栏三套测试绿
 - [ ] F1-F4 全 APPROVE + 用户 okay
-- [ ] D26/PROJECT_STATE/MOC/指南 Q16 落痕
+- [x] D26/PROJECT_STATE/MOC/指南 Q16 落痕
