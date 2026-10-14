@@ -1855,6 +1855,11 @@ def _handle_message_impl(
             # 批C 出口③：直选打断讨论镜像态（拍2-18）。
             session.mirror_thread_active = False
             session.mirror_thread_turns = 0
+            # 批B 出口①补线（T10 病理四幕发现，2026-10-14）：直选 = 直接
+            # 回答当前问——清单停驻态归档复位（跳过分支同款对称；本分支
+            # 早退返回，此前绕过出口④的「话题离开」兜底复位）。
+            session.list_thread_key = ""
+            session.list_thread_turns = 0
             value = session.current_options[idx]
             options_digest = "|".join(
                 str(o) for o in session.current_options[:3]
