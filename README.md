@@ -58,7 +58,7 @@ graphify —— 一次 LLM 调用，把全部自然语言答案编译为 SIR 五
 ### 工具链
 - **CI/CD**: GitHub Actions
 - **Linter**: ruff + mypy（后端）/ oxlint（前端）
-- **启动**: PowerShell 一键脚本 `start.ps1`
+- **启动**: 手动双终端（推荐，见「快速开始」）/ 一键脚本 `start.ps1`（存在路径硬编码问题）
 
 ---
 
@@ -66,7 +66,7 @@ graphify —— 一次 LLM 调用，把全部自然语言答案编译为 SIR 五
 
 ### 前置要求
 
-- Python 3.11+（项目使用 Anaconda `F:\Anaconda\envs\Deepcode` 环境）
+- Python 3.11+（后端使用项目内虚拟环境 `backend\.venv`）
 - Node.js 18+
 - PowerShell 5.1+ 或 PowerShell 7+
 
@@ -77,19 +77,18 @@ graphify —— 一次 LLM 调用，把全部自然语言答案编译为 SIR 五
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-deactivate
+.venv\Scripts\python -m pip install -e .
 ```
 
-复制 `.env.example` 到 `.env`，填入 LLM Provider API 密钥：
+复制 `backend\.env.example` 到 `backend\.env`，填入 LLM Provider API 密钥：
 
 ```env
 ACTIVE_PROVIDER=deepseek
 DEEPSEEK_API_KEY=your-key-here
 ```
 
-支持的 Provider：
+支持多 Provider 并存（按 `ACTIVE_PROVIDER` 切换），全部键见 `backend\.env.example`：
+
 | Provider | 配置键 | 默认模型 |
 |----------|--------|---------|
 | `openai` | `OPENAI_API_KEY` | gpt-4o-mini |
@@ -98,6 +97,8 @@ DEEPSEEK_API_KEY=your-key-here
 | `qwen` | `QWEN_API_KEY` | qwen-plus |
 | `kimi` | `KIMI_API_KEY` | moonshot-v1-8k |
 | `glm` | `GLM_API_KEY` | glm-4 |
+
+> 无 LLM 密钥也能起服务：健康检查、种子列表、访谈「跳过」路径均零 LLM；生成类功能需密钥。
 
 #### 前端配置
 
@@ -108,25 +109,27 @@ npm install
 
 ### 2. 启动服务
 
-#### 方法一：一键启动脚本（推荐）
+#### 方法一：手动启动（推荐，2026-09-29 实测可用）
+
+```powershell
+# 后端（项目 venv，无需激活）
+cd backend
+.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 前端（新开一个终端）
+cd frontend
+npm run dev
+```
+
+验证：后端健康检查 `http://localhost:8000/api/health` 返回 200；前端 `http://localhost:5173/a1` 可访问。
+
+#### 方法二：一键启动脚本
 
 ```powershell
 .\start.ps1
 ```
 
-> ⚠️ **已知问题（断点 J，未修复）**: `start.ps1` 硬编码 Anaconda 环境路径 `F:\Anaconda\envs\Deepcode\python.exe`。如果 Python 安装位置不同，请修改脚本或使用手动启动。
-
-#### 方法二：手动启动
-
-```bash
-# 后端
-cd backend
-.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 前端（新终端）
-cd frontend
-npm run dev
-```
+> ⚠️ **已知问题（断点 J，未修复）**: `start.ps1` 硬编码 Anaconda 环境路径 `F:\Anaconda\envs\Deepcode\python.exe`，不使用 `backend\.venv`。Python 安装位置不同或无此 Anaconda 环境时脚本直接退出——请改用方法一。
 
 ### 3. 访问应用
 

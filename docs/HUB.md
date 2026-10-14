@@ -35,7 +35,7 @@ updated: 2026-09-28
 | 文件 | 管什么 |
 |---|---|
 | [[0_index-v0.7|索引 v0.7]] | 五表体系 + 权威声明（治理地图，比本页细一层） |
-| [[1_project-control-tower-v0.6|控制塔 v0.6]] | 方向级一页指针（→ PROJECT_STATE） |
+| [[1_project-control-tower-v0.7|控制塔 v0.7]] | 方向级一页指针 + 产品主线时序（→ PROJECT_STATE） |
 | [[2_product-architecture-v0.3|表2 产品架构 v0.3]] | 系统由什么组成（空间） |
 | [[3_knowledge-assets|表3 知识资产]] | 内容什么算数 |
 | [[4_ux-flow-v0.4|表4 UX v0.4]] | 用户怎么用——两阶段生命周期/说人话铁则/罗盘/收尾三连问（D21）+ §5.5 语义合并与层级条目（**D23 新落**） |
