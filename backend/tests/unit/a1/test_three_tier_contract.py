@@ -247,9 +247,13 @@ _A1SESSION_OLD_FIELDS = frozenset({
     "reroll_streak",
 })
 
-# 拍 2-13/2-18/2-19 数据面：灵感架 + 清单追加循环停驻状态（恰好三枚）。
+# 拍 2-13/2-18/2-19 数据面：灵感架 + 清单追加循环停驻状态 + 批C 增量。
+# 批C（裁定 D26）：mirror_thread_active/turns 两枚——讨论镜像通道停驻态，
+# 照 D24 knowledge_thread_* 先例紧邻落位（bool=False/int=0 零迁移）；
+# "恰好三枚"立法本意是防 92 L3 炸平面字段，非禁通道状态机，扩至五枚。
 _A1SESSION_NEW_FIELDS = frozenset({
     "material_pool", "list_thread_key", "list_thread_turns",
+    "mirror_thread_active", "mirror_thread_turns",
 })
 
 

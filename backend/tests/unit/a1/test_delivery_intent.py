@@ -178,6 +178,8 @@ _T9_SESSION_FIELDS = frozenset(
         "stall_subfield", "user_id",
         # 波次二 additive 三枚（拍2-13/2-16/2-18，G3 零迁移先例）
         "material_pool", "list_thread_key", "list_thread_turns",
+        # 批C additive 两枚（拍2-18 讨论镜像停驻态，裁定 D26——D24 先例）
+        "mirror_thread_active", "mirror_thread_turns",
     }
 )
 

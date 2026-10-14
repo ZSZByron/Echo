@@ -110,6 +110,14 @@ class InterviewResult(BaseModel):
     # fills 写入路径零变化；A1Session/store/持久化结构零变更（一期边界：
     # 投递式机制设计 §5 施工序一期，落位仍写现有槽）。
     delivery: bool = False
+    # 批C（波次二拍2-18/2-19）：讨论镜像 + 话头重锚意图键（additive 布尔，
+    # delivery 键先例——与既有 interview 单次 LLM 调用同返回，零新增调用）。
+    # mirror=true：用户在虚构内追问/推演【用户已确定的内容】里已确立的
+    # 设定（讨论轮，引擎镜子式回应、不吸收 fills）；reanchor=true：用户
+    # 说「梳理一下」等显式元命令，要求摊开已确定线头（引擎拼清单）。
+    # 仅意图信号；判定/执行权在 guide_engine 单消费侧（D-A2-4 铁律）。
+    mirror: bool = False
+    reanchor: bool = False
 
 
 class Interviewer(Protocol):
@@ -438,6 +446,11 @@ class RealLLMInterviewer:
         )
         if knowledge_hit:
             result.knowledge_used = True  # D24 ①桥接旗标（引擎消费）
+        # 批C：knowledge_request 信号透传（矩阵契约面）——非模型字段
+        # （InterviewResult 字段宇宙锁死，见 test_channel_matrix_v2），
+        # 经 model_copy 附着实例属性，field 宇宙零扰动。
+        if isinstance(raw, dict) and raw.get("knowledge_request"):
+            result = result.model_copy(update={"knowledge_request": True})
         self._open_question_answered = result.open_question_answered
         log_event(
             session.session_id,
@@ -629,6 +642,24 @@ class RealLLMInterviewer:
                 "guidance_reply 中承诺加入任何模块，也不得因此改变 fills 行为。",
                 "　　契约说明：worldview_invites 为新增可选键，旧解析器忽略未知"
                 "键，向前兼容（G6b/M0 偏转先例，D20）。",
+                # 批C（拍2-18/2-19）：讨论镜像 + 重锚判定规则（additive，
+                # 与 delivery/knowledge_request 同返回单次调用——零新增调用）。
+                "7.7 讨论判定（虚构内发问/自言推演，优先于规则 6 的闲聊分支）："
+                "如果用户在追问或推演【用户已确定的内容】里已确立的设定"
+                "（例：已写下「师姐的剑挂在城门口」，用户问「她为什么一定"
+                "要挂在城门口？」——问题对象是这个世界里已有的设定），或"
+                "在自言自语地推演已确立设定——这是创作讨论，不是知识求助："
+                "置 mirror=true，fills 必须留空、is_innovative=false；"
+                "guidance_reply 用镜子式回应——把用户的推演接过去轻轻复述"
+                "一句（只顺着用户的意思，不添加新设定、不下结论、不复述"
+                "填空），再用一句话把话题桥接回【当前问题】。如果用户问的"
+                "是现实世界的知识（不是这个世界里的事），走 6.5，mirror=false。",
+                "7.8 重锚判定（显式元命令）：如果用户说「梳理一下」，或明确"
+                "要求摊开已确定的线头/进度（如「整理一下我们聊到哪了」"
+                "「看看现在都确定了什么」「帮我把思路捋一捋」）：置 "
+                "reanchor=true，fills 必须留空；guidance_reply 一句简短回应"
+                "（如「好，我们把线头摊开看一看。」）即可——线头清单由系统"
+                "拼装，你不代列。",
                 "8. guidance_reply（中文，总共不超过三句话）：先用一句话确认已记录的"
                 "设定——引用用户输入中的具体关键词，给出有内容的确认而非套话；"
                 "再用一句话衔接收尾即可。**问句单源铁律：guidance_reply 中严禁出现任何"
@@ -686,7 +717,7 @@ class RealLLMInterviewer:
                 ' "guidance_reply": "...", "is_innovative": false, "innovative_category": null,',
                 ' "user_confused": false, "knowledge_request": false, "search_query": null, "divergent_question": null,',
                 ' "deflect": false, "story_material": null, "open_question_answered": null,',
-                ' "worldview_invites": [], "delivery": false, "examples": ["...", "...", "..."]}',
+                ' "worldview_invites": [], "delivery": false, "mirror": false, "reanchor": false, "examples": ["...", "...", "..."]}',
             ]
         )
 
@@ -1006,6 +1037,10 @@ class RealLLMInterviewer:
         # 约束下落清单内既有槽；无槽可落时 LLM 置 delivery=true 且 fills
         # 留空（温和回题），解析侧保持原样透传。
         delivery = bool(raw.get("delivery"))
+        # 批C：mirror/reanchor additive 键解析（bool 直透，delivery 先例；
+        # 缺省 False = 存量行为零扰动）。零确定性兜底改写——信号直透引擎。
+        mirror = bool(raw.get("mirror"))
+        reanchor = bool(raw.get("reanchor"))
 
         return InterviewResult(
             fills=fills,
@@ -1023,6 +1058,8 @@ class RealLLMInterviewer:
             worldview_invites=worldview_invites,
             examples=examples,
             delivery=delivery,
+            mirror=mirror,
+            reanchor=reanchor,
         )
 
 

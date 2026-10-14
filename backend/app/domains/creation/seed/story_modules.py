@@ -628,3 +628,162 @@ STORYLINE_ORDER: list[str] = (
     + [f["id"] for f in M11_CHARACTER["fields"]]
     + [Q16_BRANCH_CARD["id"]]
 )
+
+# ---------------------------------------------------------------------------
+# 批C（拍2-15）：⑨稿动态问句模板数据区（§1 两族 26 项，槽位变量化）。
+# 纯数据字典 + 按需取用（半填补问 ▶⇄ 时机由 guide_engine 决定）——
+# 不造模板引擎抽象（批C 施工单红线）。situation 闭集六值：
+# ▶ 全问/补from/补to/补trigger 四情形 + ⇄ 全问/补方向两情形；
+# 第 26 项 = 支线主问（side_card_full_question，Q16 同源话术的模板态）。
+# ---------------------------------------------------------------------------
+
+#: ▶ 起终点式情形闭集（⑨稿 §1.1）。
+SITUATION_ARROW_FULL = "arrow_full_question"
+SITUATION_ARROW_FROM_MISSING = "arrow_from_missing"
+SITUATION_ARROW_TO_MISSING = "arrow_to_missing"
+SITUATION_ARROW_TRIGGER_MISSING = "arrow_trigger_missing"
+#: ⇄ 属性维度式情形闭集。
+SITUATION_DIM_FULL = "dim_full_question"
+SITUATION_DIM_DIRECTION_MISSING = "dim_direction_missing"
+#: 支线主问（第 26 项，⑥稿 §0 咬合：▶20 + ⇄5 + 支线1 = 26）。
+SITUATION_SIDE_CARD_FULL = "side_card_full_question"
+
+#: 26 动态问句模板（⑨稿 §1.1 骨架 + §1.2 逐项实例化；槽位用 {变量}）。
+DYNAMIC_INVITE_TEMPLATES: list[dict[str, str]] = [
+    # ── ▶ 起终点式 · 全问（from/to 都空）──
+    {"situation": SITUATION_ARROW_FULL, "target": "力量.获取方式",
+     "template": "得到{力量}之前{角色}是什么人？得到之后成了什么？走的是哪条路？"},
+    {"situation": SITUATION_ARROW_FULL, "target": "历史.关键节点",
+     "template": "这件大事之前{世界}什么样？之后变成了什么样？是哪件事促成的？"},
+    {"situation": SITUATION_ARROW_FULL, "target": "历史.当代主剧情",
+     "template": "这个时代从什么{起点局面}开始，正被推向什么{终点局面}？"},
+    {"situation": SITUATION_ARROW_FULL, "target": "支线.衔接点",
+     "template": "{支线}在哪个节骨眼上碰到{主线}？碰之前之后各什么样？"},
+    {"situation": SITUATION_ARROW_FULL, "target": "玩法.玩家身份",
+     "template": "{玩家}从什么{起点身份}起步，最后站到什么{终点位置}？"},
+    # ── ▶ 起终点式 · 补 from（只知终点，问起点）──
+    {"situation": SITUATION_ARROW_FROM_MISSING, "target": "剧情.破局大事",
+     "template": "他如今{后态}——他原来的日子什么样？是哪件事把它砸碎的？"},
+    {"situation": SITUATION_ARROW_FROM_MISSING, "target": "角色.代价史",
+     "template": "这个缺陷每次发作——发作前{角色}什么样、发作后什么样？"},
+    {"situation": SITUATION_ARROW_FROM_MISSING, "target": "角色.弧光起点",
+     "template": "结尾时他是{终点人格}——开头的他是什么人？"},
+    {"situation": SITUATION_ARROW_FROM_MISSING, "target": "玩法.成长尽头",
+     "template": "一路变强，变到头是{终点形态}——起步时的他是什么样？"},
+    {"situation": SITUATION_ARROW_FROM_MISSING, "target": "剧情.支线结局",
+     "template": "这条支线走到头落在{终点}——它是从哪里长出来的？"},
+    # ── ▶ 起终点式 · 补 to（只知起点，问终点）──
+    {"situation": SITUATION_ARROW_TO_MISSING, "target": "剧情.选项一",
+     "template": "选{选项一}这边：得到什么、失去什么？最后把他推向哪里？"},
+    {"situation": SITUATION_ARROW_TO_MISSING, "target": "剧情.选项二",
+     "template": "选{选项二}这边：得到什么、失去什么？最后把他推向哪里？"},
+    {"situation": SITUATION_ARROW_TO_MISSING, "target": "剧情.僵局的代价",
+     "template": "如果{角色}一直拖着不选，每天会塌掉什么？塌到最后是什么局面？"},
+    {"situation": SITUATION_ARROW_TO_MISSING, "target": "角色.弧光终点",
+     "template": "从{起点人格}出发的这个人，你想让他最后变成什么样？"},
+    {"situation": SITUATION_ARROW_TO_MISSING, "target": "剧情.成功线",
+     "template": "赢到{成功线那头}，世界和他各是什么样？要走过什么才能到？"},
+    # ── ▶ 起终点式 · 补 trigger（两态都有，问促成事件）──
+    {"situation": SITUATION_ARROW_TRIGGER_MISSING, "target": "剧情.中途转折",
+     "template": "是什么事，让{角色}从{误向}转到了{真相}？"},
+    {"situation": SITUATION_ARROW_TRIGGER_MISSING, "target": "剧情.明暗交汇点",
+     "template": "是什么事，让{暗线}浮出水面、和{明线}撞上？"},
+    {"situation": SITUATION_ARROW_TRIGGER_MISSING, "target": "剧情.失败线",
+     "template": "是什么事，把他从{现状}推到了{败局}那一步？"},
+    {"situation": SITUATION_ARROW_TRIGGER_MISSING, "target": "角色.弧光转折",
+     "template": "是哪件事，把他从{起点}推成了{终点}？"},
+    {"situation": SITUATION_ARROW_TRIGGER_MISSING, "target": "历史.关键节点",
+     "template": "是什么事，把世界从{前态}推成了{后态}？"},
+    # ── ⇄ 属性维度式 ──
+    {"situation": SITUATION_DIM_FULL, "target": "力量.力量代价",
+     "template": "用{力量}要付代价——在{维度}上，是变多了还是变少了？变化有多猛？"},
+    {"situation": SITUATION_DIM_FULL, "target": "剧情.交换之秤",
+     "template": "他要的东西在{维度}上往哪边走？那跌下去的是什么？"},
+    {"situation": SITUATION_DIM_FULL, "target": "角色.关系卡变化",
+     "template": "这段关系里，{维度}现在是多是少？往后会怎么走？"},
+    {"situation": SITUATION_DIM_DIRECTION_MISSING, "target": "剧情.摇摆第三者",
+     "template": "{人物}的立场——是往{我方}的方向走，还是往{对方}的方向走？"},
+    {"situation": SITUATION_DIM_DIRECTION_MISSING, "target": "剧情.大方向",
+     "template": "整个故事的情绪——{故事}是往涨的方向走，还是往跌的方向走？"},
+    # ── 支线主问（第 26 项）──
+    {"situation": SITUATION_SIDE_CARD_FULL, "target": "支线.主问",
+     "template": "除了{主线}，有没有一条{副线}你也想看着它长出来？（可以跳过）"},
+]
+
+# ---------------------------------------------------------------------------
+# 批C（拍2-15）：⑨稿 §2 L3 追问话术（57 项 = 剧情 32 + 角色 25）。
+# 场景：自由流程细化 / 半填补问 / AI 选项生成素材——追问体（短、口语、
+# 问句形态）。按 l3 id 表驱动挂入 THREE_TIER_TREE 的 ``followup`` 键
+# （纯数据追加，树形态契约 {id,label,vs,...} 之上 additive，零消费面扰动；
+# 挂点消费归 guide_engine 半填补问/L3 追问时机，批D 回收）。
+# ---------------------------------------------------------------------------
+
+_L3_FOLLOWUPS: dict[str, str] = {
+    # ── 剧情 32 ──
+    "daily_life": "大事来之前，他平常的一天怎么过？",
+    "breaking_incident": "这事是怎么砸到他头上的？",
+    "incident_scene": "把这一幕想成一幅画：几点、在哪、谁在场？",
+    "option_one_cost": "选这边，他心里先想到的是谁？",
+    "option_two_cost": "选这边，他心里先想到的是谁？",
+    "dilemma_stall_cost": "如果拖着不选，最先塌的是什么？",
+    "desired_object": "这东西为什么对他这么重要？",
+    "blocking_wall": "谁、或什么，拦着他得不到？",
+    "exchange_scale": "他要的东西在涨，那跌下去的是什么？",
+    "first_thread": "追踪是从哪件事正式开始的？",
+    "mid_twist": "哪次变化让他发现——自己一直追错了方向？",
+    "final_thread": "追到最后，真相是什么形状？",
+    "unknown_to_hero": "有什么事，别人都知道、只有他蒙在鼓里？",
+    "hidden_by_hero": "他自己死死藏着什么？",
+    "audience_foreshadow": "读者早早知道、他却不知道的雷——什么时候炸？",
+    "darklight_cross": "瞒着的那条线，哪一刻浮出水面、和明线撞上？",
+    "success_path": "成功那头，他失去了谁？",
+    "failure_path": "失败那头，他还剩下什么？",
+    "pusher": "除了他自己，谁还在推着这事走？",
+    "blocker": "拦着的人——他图什么？",
+    "swing_third": "那个人立场往哪边偏？什么事会让他倒戈？",
+    "overall_tone": "这个方向上，最狠的一段起伏在哪？",
+    "ending_aftertaste": "合上故事那一刻，你想让读者心里留什么滋味？",
+    "core_scene_list": "故事反复发生的地方有哪几处？",
+    "scene_mood": "每个地方，用两三个词形容气氛？",
+    "signature_image": "读者会记住的那个画面是什么？",
+    "side_summary": "这条支线，一句话讲什么？",
+    "side_carrier": "它挂在谁身上？",
+    "side_type": "它是感情线、成长线、世界揭示线还是对手线？",
+    "side_link_mode": "它怎么接上主线——送线索、改选择、回个味、还是爆炸？",
+    "side_link_point": "支线在哪个节骨眼上碰到主线？碰之前之后各什么样？",
+    "side_ending": "这条支线走到头，落在哪里？",
+    # ── 角色 25 ──
+    "social_identity": "除了这份身份，他私下还靠什么过日子？",
+    "self_identity": "他自己怎么看自己——和别人眼里的他差在哪？",
+    "one_line_intro": "他妈妈会怎么介绍他？仇人呢？",
+    "outer_goal": "嘴上这个目标，他打算从哪一步开始动手？",
+    "inner_need": "他嘴上要那个，心里缺的是什么？",
+    "deepest_fear": "他最怕失去什么？",
+    "desire_root": "这份想要，是从哪件事上长出来的？",
+    "trait_weakness": "什么软处会反复坑他？",
+    "fatal_softspot": "哪个点一戳他就失控？哪个人一出现他就乱？",
+    "cost_history": "这个缺陷每次发作——发作前他什么样、发作后什么样？",
+    "flaw_origin": "这毛病怎么长出来的？",
+    "family_bond": "说说这个人——什么关系、为什么要命？",
+    "rival": "说说这个人——什么关系、为什么要命？",
+    "owed_person": "说说这个人——什么关系、为什么要命？",
+    "ally": "说说这个人——什么关系、为什么要命？",
+    "relation_card_format": "这段关系里，信任是多是少？往后会怎么走？",
+    "arc_start": "开头的他是什么人？",
+    "arc_turning": "哪件事逼他开始变？",
+    "arc_end": "结尾他变成什么人？",
+    "arc_refuse": "有没有可能——全世界都变了，他偏不变？",
+    "visual_trait": "人群里一眼认出他，靠哪个特征？",
+    "signature_outfit": "他常穿什么？什么场合会换？",
+    "carry_item": "一直带在身上的东西？有来历吗？",
+    "habitual_gesture": "紧张时、说谎时，各有什么小动作？",
+    "voice_temperament": "他说话什么调子？第一面给人什么感觉？",
+}
+
+# 表驱动挂接：followup 键 additive 写入树内 L3 节点（57 项逐字对应）。
+for _l1_node in THREE_TIER_TREE:
+    for _l2_node in _l1_node["l2"]:
+        for _l3_node in _l2_node["l3"]:
+            _followup_text = _L3_FOLLOWUPS.get(str(_l3_node["id"]), "")
+            if _followup_text:
+                _l3_node["followup"] = _followup_text

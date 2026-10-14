@@ -123,8 +123,10 @@ def _session(**kw) -> A1Session:
     return A1Session(**base)
 
 
-def _options_session() -> A1Session:
-    s = _session()
+def _options_session(**kw) -> A1Session:
+    # 锚测缺陷修正（TDD 例外留痕）：透传 **kw 至 _session——原实现丢弃
+    # kwargs，致 direct_pick_beats_knowledge 场景无法预置知识态。
+    s = _session(**kw)
     s.current_options = ["公司职员", "医生", "教师"]
     return s
 

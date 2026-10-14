@@ -239,6 +239,9 @@ def test_mirror_triggered_event_written_to_jsonl(tmp_log_path):
 
 def test_telemetry_failure_is_silent_for_mirror(tmp_path, monkeypatch):
     blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir", encoding="utf-8")  # 锚测缺陷修正：照
+    # test_inspiration_log.py 先例把 blocker 造成文件，mkdir 才会失败
+    # （否则 parents=True 会建出目录、写入成功，"故障"永不发生）。
     bad_path = blocker / "sub" / "inspiration_log.jsonl"
     monkeypatch.setattr(inspiration_log, "LOG_PATH", bad_path)
     s = _session()

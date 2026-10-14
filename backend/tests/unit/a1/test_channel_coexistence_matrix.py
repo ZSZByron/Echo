@@ -18,6 +18,9 @@ from app.domains.creation.a1.interviewer import (
 
 # ---------------------------------------------------------------------------
 # schema additive 锁：InterviewResult 键集 = 既有键 + delivery（1.3 唯一增量）
+# 批C（2026-10-12）演进：+mirror/reanchor 两枚 additive 意图键（delivery 键
+# 同款先例，T6 红测 test_interviewresult_keys_additive_mirror_reanchor_only
+# 接棒闭集）——冻结集随意图键演进扩容，锁语义（零删改）不变。
 # ---------------------------------------------------------------------------
 
 _PRE_13_RESULT_FIELDS = frozenset(
@@ -32,7 +35,9 @@ _PRE_13_RESULT_FIELDS = frozenset(
 
 def test_interviewresult_keys_additive_delivery_only():
     fields = frozenset(InterviewResult.model_fields.keys())
-    assert fields == _PRE_13_RESULT_FIELDS | {"delivery"}
+    assert fields == _PRE_13_RESULT_FIELDS | {
+        "delivery", "mirror", "reanchor",
+    }
 
 
 # ---------------------------------------------------------------------------

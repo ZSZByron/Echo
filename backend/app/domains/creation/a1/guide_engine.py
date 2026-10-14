@@ -766,6 +766,13 @@ class A1Session(BaseModel):
     # default ""/0 零迁移（options_key 先例）。
     list_thread_key: str = ""
     list_thread_turns: int = 0
+    # 波次二拍2-18（批C，裁定 D26）：讨论镜像通道停驻状态——与
+    # knowledge_thread_*（D24）/list_thread_*（批B）声明式样同构紧邻落位。
+    # active=用户在虚构内讨论态（镜子式回应轮）；turns=讨论态内轮数
+    # （2 轮帽：第 3 轮虚构内追问 → 确定性桥回当前题并复位）。
+    # bool=False/int=0 零迁移（G3 先例）。
+    mirror_thread_active: bool = False
+    mirror_thread_turns: int = 0
 
 
 def first_question() -> dict[str, Any]:
@@ -795,6 +802,13 @@ REROLL_KEYWORDS = {"换一批", "再来一批", "换组"}
 REROLL_CAP = 2
 # D-2：超上限话术（契约10 断言「直接选」「自己的话」子串）。
 REROLL_CAP_REPLY = "示例换了几轮了，先试试直接选一个，或用自己的话说说。"
+
+# 批C（拍2-18）：讨论镜像 2 轮帽——讨论态内至多 2 轮镜子式回应，第 3 轮
+# 虚构内追问触发确定性桥回当前题并复位（D24 knowledge turns>3 防卡死先例）。
+MIRROR_THREAD_CAP = 2
+# 批C：重锚显式元命令触发词（分类提示词 7.8 同源；此处供引擎侧确定性兜底
+# 识别——LLM 已分类时以 reanchor 键为准，此表仅作文档性闭集）。
+REANCHOR_TRIGGER_WORDS = {"梳理一下"}
 
 
 def _question_payload(session: A1Session) -> dict[str, Any] | None:
@@ -1641,6 +1655,43 @@ def _update_knowledge_thread(
         session.knowledge_thread_turns = 0
 
 
+def _reset_mirror_thread(session: A1Session) -> None:
+    """批C（拍2-18）：讨论镜像态复位（帽满桥回/话题离开/打断共用单点）。"""
+    session.mirror_thread_active = False
+    session.mirror_thread_turns = 0
+
+
+def _build_reanchor_reply(session: A1Session) -> str:
+    """批C（拍2-19）：重锚线头清单——配方已完成模块 + 当前题 + 灵感架存量。
+
+    纯确定性拼装（零 LLM）；四选一分流话术（改某答案/跳去聊某条/
+    继续当前题/给灵感架安家）。fills 不落槽——重锚轮 answers 零变化。
+    """
+    lines: list[str] = ["好，我们把手上的线头摊开看一看。"]
+    if session.answers:
+        lines.append("【已确定的线头】（想改哪条，直接说「把X改成Y」）")
+        for key, value in session.answers.items():
+            lines.append(f"· {key}：{answer_view(value)}")
+    else:
+        lines.append("【已确定的线头】还没有——正好从当前题开始。")
+    sf = get_subfield(session.current_module, session.current_subfield)
+    cur_label = sf["label"] if sf else session.current_subfield
+    lines.append(
+        f"【当前题】{session.current_module}·{cur_label}——说「继续」就回到这题。"
+    )
+    if session.material_pool:
+        lines.append("【灵感架上还放着】（挑一条说「去聊它」就展开）")
+        for item in session.material_pool:
+            item_text = str(item.get("text", "")).strip()
+            if item_text:
+                lines.append(f"· {item_text}")
+    lines.append(
+        "接下来四选一：改某条答案 / 跳去聊灵感架上的某条 / 继续当前题 / "
+        "给灵感架安家（说个新想法我帮你先收着）。"
+    )
+    return "\n".join(lines)
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -1701,6 +1752,9 @@ def _handle_message_impl(
         # D24 ①退出②：用户显式回到创作流程 → 知识对话态确定性复位。
         session.knowledge_thread_active = False
         session.knowledge_thread_turns = 0
+        # 批C：跳过 = 话题离开 → 讨论镜像态同步复位（拍2-18 出口②）。
+        session.mirror_thread_active = False
+        session.mirror_thread_turns = 0
         # 批B 出口②：跳过退出——清单停驻态归档复位 ""/0。
         session.list_thread_key = ""
         session.list_thread_turns = 0
@@ -1750,6 +1804,16 @@ def _handle_message_impl(
     # telemetry: option_pick（T5 接线 emission 锚点；绑定修复后 digest
     # 记录的必然是当前题 options——语义自此修正）。
     stripped = text.strip()
+    # 批C（拍2-18/2-19 通道全序）：直选 > 重锚——「2，顺便梳理一下」这类
+    # 直选尾缀元命令，数字部分照常直选消费、尾部元命令忽略（不进重锚）。
+    if (
+        stripped
+        and stripped[0] in {"1", "2", "3"}
+        and len(stripped) > 1
+        and REANCHOR_TRIGGER_WORDS
+        and any(w in stripped[1:] for w in REANCHOR_TRIGGER_WORDS)
+    ):
+        stripped = stripped[0]
     if (
         session.current_options
         and stripped in {"1", "2", "3"}
@@ -1761,6 +1825,9 @@ def _handle_message_impl(
             # D24 ①退出①：直选命中 = 回到创作输入 → 先复位知识态再处理。
             session.knowledge_thread_active = False
             session.knowledge_thread_turns = 0
+            # 批C 出口③：直选打断讨论镜像态（拍2-18）。
+            session.mirror_thread_active = False
+            session.mirror_thread_turns = 0
             value = session.current_options[idx]
             options_digest = "|".join(
                 str(o) for o in session.current_options[:3]
@@ -1865,6 +1932,71 @@ def _handle_message_impl(
             turns=session.knowledge_thread_turns,
         )
     _update_knowledge_thread(session, result, frozen=frozen)
+
+    # ---- 批C（拍2-19）：重锚通道——优先于 6.5 知识/镜像/投递/答当前 ----
+    # 显式元命令胜出：打断知识对话态与讨论镜像态（互斥复位），摊开线头
+    # 清单；本轮 fills 一律不落槽（重锚轮 answers 零变化）。触发双路：
+    # LLM 分类键（reanchor）或确定性触发词命中（「梳理一下」闭集）。
+    if getattr(result, "reanchor", False) or text.strip() in (
+        REANCHOR_TRIGGER_WORDS
+    ):
+        session.knowledge_thread_active = False
+        session.knowledge_thread_turns = 0
+        _reset_mirror_thread(session)
+        from app.domains.creation.a1 import inspiration_log
+
+        # 双事件名：``reanchor_triggered``（jsonl 落盘契约，
+        # test_reanchor）+ ``reanchor``（通道矩阵捕获名，test_channel_matrix_v2）。
+        inspiration_log.emit_event("reanchor_triggered", session)
+        inspiration_log.emit_event("reanchor", session)
+        return {
+            "reply": _build_reanchor_reply(session),
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+
+    # ---- 批C（拍2-18）：讨论镜像通道——直选/重锚之下、投递/答当前之上 ----
+    # mirror_hit 判定：LLM 镜像旗标且本轮不是 6.5 知识轮（知识态优先——
+    # 全序 规则6.5知识 > 镜像）。讨论态不吸收 fills（镜子式回应契约）。
+    mirror_hit = bool(getattr(result, "mirror", False)) and not bool(
+        getattr(result, "knowledge_used", False)
+    )
+    if session.mirror_thread_active and not mirror_hit:
+        # 出口②：话题离开（含直选外的正常作答轮）→ 讨论态归档复位。
+        _reset_mirror_thread(session)
+    if mirror_hit:
+        from app.domains.creation.a1 import inspiration_log
+
+        # 双事件名：``mirror_triggered``（jsonl 落盘契约）+
+        # ``discussion_mirror``（通道矩阵捕获名）——同轮双发。
+        inspiration_log.emit_event(
+            "mirror_triggered", session, turns=session.mirror_thread_turns + 1
+        )
+        inspiration_log.emit_event("discussion_mirror", session)
+        qp = _question_payload(session)
+        cur_question = (qp or {}).get("question", "")
+        if session.mirror_thread_turns >= MIRROR_THREAD_CAP:
+            # 出口①：2 轮帽满——第 3 轮虚构内追问 → 确定性桥回当前题。
+            _reset_mirror_thread(session)
+            reply = (
+                f"{result.guidance_reply}"
+                f"（这段推演很有味道——先把它放着，回到手上的问题：{cur_question}）"
+            )
+        else:
+            session.mirror_thread_active = True
+            session.mirror_thread_turns += 1
+            reply = (
+                f"{result.guidance_reply}（回到当前的问题：{cur_question}）"
+            )
+        return {
+            "reply": reply,
+            "next_question": qp,
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
 
     # ---- M0 止血：偏转 → 占位跳过推进指针 ----
     if getattr(result, "deflect", False) and not result.fills:
