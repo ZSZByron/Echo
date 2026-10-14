@@ -110,3 +110,4 @@ A1 主线：v0.5 统一模型 + v0.5.1 加固补丁治理定型，J1/J3/J4 已�
 - GraphViewContent/A1GraphSection 为组件内嵌套定义，父状态变化会重挂载（当前影响仅为图谱重复 GET，可接受）
 - pytest 收尾偶发 "Event loop is closed" 线程告警 ×2（冒烟级观察项，不影响通过）
 - 〔已销账 2026-09-24〕~~test_c7_loop_e2e 4 失败 + tests.xt 收集错误~~（eb22a6f 已修，全量复测 1009/1009 全绿）；~~vitest 收集 Playwright spec~~（vitest.config 早已排除 tests/e2e/**，实测确认）；~~useTypewriter 测试失败~~（实测 231/231 全绿）
+**2026-10-13（波次二验收闭卷）：产品方明确 okay 验收通过。**波次二 15/15 任务 + F1-F4 四审 APPROVE 全绿收官（1837 passed / cov 85.09% / 提交链 8 笔 @17843e5）。真机冒烟 E0-02 已归档（wave2-smoke-e0-02.md：5 项异常全定位为存量/红线项，新立案 guidance_reply 卫生闸归波次三，零阻塞）。下一波=波次三拍板（图谱页安家 UI/新边渲染/L1398 拼接语治理/tests ruff 存量 + E0-02 五项）。

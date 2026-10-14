@@ -822,5 +822,5 @@ git diff --stat <batch-base>..HEAD                          # 白名单内
 - [x] 全部 Must Have 存在
 - [x] 全部 Must NOT Have 缺席
 - [x] 四幕病理 + 存量兼容 + 门禁护栏三套测试绿
-- [ ] F1-F4 全 APPROVE + 用户 okay
+- [x] F1-F4 全 APPROVE + 用户 okay
 - [x] D26/PROJECT_STATE/MOC/指南 Q16 落痕
