@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import '../theme.css';
 import type { A1Proposal, AlignmentItem, AutoMergeDisclosure } from '../../types/a1';
 import { ProposalCard } from './ProposalCard';
@@ -89,6 +89,9 @@ function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecomm
   );
 }
 
+/** 多行输入框自动增高上限（px），封顶后内部滚动 */
+const TEXTAREA_MAX_HEIGHT = 160;
+
 export function GuidedChat({
   messages,
   onSend,
@@ -99,7 +102,7 @@ export function GuidedChat({
   pendingQuestion = null,
   pendingQuestionsCount = 0,
   onSkipQuestion,
-  alignments = [],
+  alignments,
   fileId = '',
   autoMerges = [],
   onAutoMergeUndone
@@ -108,12 +111,14 @@ export function GuidedChat({
   const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
   const [displayProposals, setDisplayProposals] = useState<A1Proposal[]>([]);
   // D21 T10: local alignment list — synced from prop, removed on resolve
-  const [alignmentItems, setAlignmentItems] = useState<AlignmentItem[]>(alignments);
+  // （修复：prop 未传时不得用解构默认参数当 effect 依赖——每次渲染新 [] 引用会在首次
+  //   内部状态重渲染后触发 setState→rerender 无限循环；undefined 引用稳定，body 内 ?? [] 兜底）
+  const [alignmentItems, setAlignmentItems] = useState<AlignmentItem[]>(alignments ?? []);
   // D21 T10: inline idempotent hint after a not_found resolve (no error popup)
   const [alignmentStaleHint, setAlignmentStaleHint] = useState(false);
 
   useEffect(() => {
-    setAlignmentItems(alignments);
+    setAlignmentItems(alignments ?? []);
   }, [alignments]);
 
   // Split proposals: first 3 go to display, rest to tray
@@ -126,8 +131,9 @@ export function GuidedChat({
     }
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const send = () => {
     if (input.trim() && !disabled) {
       // User ignores proposals and sends message - move display proposals to tray
       if (displayProposals.length > 0) {
@@ -138,6 +144,27 @@ export function GuidedChat({
       setInput('');
     }
   };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    send();
+  };
+
+  // 多行输入约定：Enter 发送 / Shift+Enter 换行；IME 组合中的回车（中文输入法选词）不触发发送
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  // 自动增高：随内容长高，封顶后内部滚动
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
+  }, [input]);
 
   const handleProposalResolved = (key: string) => {
     // Remove from display proposals
@@ -298,14 +325,16 @@ export function GuidedChat({
 
       {/* Input area */}
       <form onSubmit={handleSubmit} className="border-t border-slate-800 p-4">
-        <div className="flex gap-3">
-          <input
-            type="text"
+        <div className="flex gap-3 items-end">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder="Type your message..."
-            className="flex-1 bg-slate-900 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+            className="flex-1 bg-slate-900 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:border-indigo-500 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
           />
           <button
             type="submit"

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { GuidedChat, type DiceRecommendationResponse } from "../guided/GuidedChat";
 
 describe("GuidedChat with Dice Recommendations", () => {
@@ -92,5 +92,55 @@ describe("GuidedChat with Dice Recommendations", () => {
 
     const input = screen.getByPlaceholderText("Type your message...");
     expect(input).toBeDisabled();
+  });
+});
+
+describe("GuidedChat multi-line input", () => {
+  const messages = [
+    { id: "1", type: "assistant" as const, text: "Hello" }
+  ];
+
+  it("renders a textarea instead of a single-line input", () => {
+    render(<GuidedChat messages={messages} onSend={() => {}} />);
+    const box = screen.getByPlaceholderText("Type your message...");
+    expect(box.tagName.toLowerCase()).toBe("textarea");
+  });
+
+  it("Enter key sends the message", () => {
+    const onSend = vi.fn();
+    render(<GuidedChat messages={messages} onSend={onSend} />);
+
+    const box = screen.getByPlaceholderText("Type your message...");
+    fireEvent.change(box, { target: { value: "主线是复仇" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("主线是复仇");
+    expect(box).toHaveValue("");
+  });
+
+  it("Shift+Enter inserts a newline without sending", () => {
+    const onSend = vi.fn();
+    render(<GuidedChat messages={messages} onSend={onSend} />);
+
+    const box = screen.getByPlaceholderText("Type your message...");
+    fireEvent.change(box, { target: { value: "第一段" } });
+    fireEvent.keyDown(box, { key: "Enter", shiftKey: true });
+    fireEvent.change(box, { target: { value: "第一段\n第二段" } });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue("第一段\n第二段");
+  });
+
+  it("Enter during IME composition does not send", () => {
+    const onSend = vi.fn();
+    render(<GuidedChat messages={messages} onSend={onSend} />);
+
+    const box = screen.getByPlaceholderText("Type your message...");
+    fireEvent.change(box, { target: { value: "拼音" } });
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue("拼音");
   });
 });
