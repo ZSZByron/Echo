@@ -1059,7 +1059,20 @@ def resolve_proposal(session: A1Session, key: str, choice: str) -> dict[str, Any
         key=field_key,
     )
     session.pending_proposals.pop(key, None)
-    return {"applied": applied, "choice": choice}
+    out: dict[str, Any] = {"applied": applied, "choice": choice}
+    # 批D（拍2-13）：灵感架安家提案结算——confirm 后从 pool 移除该素材
+    # （拒绝/drop 不动 pool）+ rack_recycled 埋点（与 mirror/reanchor
+    # 同 jsonl 机制）。key 前缀 "rack:" 由 _rack_round_end 装包时打上。
+    if key.startswith("rack:") and applied:
+        from app.domains.creation.a1 import inspiration_log
+
+        inspiration_log.emit_event("rack_recycled", session, target=field_key)
+        for _i, item in enumerate(session.material_pool):
+            if item.get("text") == proposal.new:
+                session.material_pool.pop(_i)
+                break
+        out["from_pool"] = True
+    return out
 
 
 def _fallback_divergent(session: A1Session, fills: list[InterviewFill]) -> str | None:
@@ -1285,6 +1298,14 @@ def _apply_fills(
                         answer_view(node), direct_key, kind="complement",
                     )
                     session.answers[key] = node
+                    # 批D 埋点：清单追加循环每轮追加成功 → list_append
+                    # （事件名逐字契约；jsonl 与批C 事件同文件 additive）。
+                    from app.domains.creation.a1 import inspiration_log
+
+                    inspiration_log.emit_event(
+                        "list_append", session, field=key,
+                        size=len(node.children),
+                    )
                     # 批B 停驻进入/推进：list 位点补充新条目 → 置位 + turns
                     # 逐轮推进（D24 knowledge_thread 防卡死同构）。
                     if session.list_thread_key == fill.subfield:
@@ -1345,6 +1366,12 @@ def _apply_fills(
             else:
                 session.list_thread_key = fill.subfield
                 session.list_thread_turns = 1
+            # 批D 埋点：清单首位追加成功 → list_append（与循环轮同契约）。
+            from app.domains.creation.a1 import inspiration_log
+
+            inspiration_log.emit_event(
+                "list_append", session, field=key, size=1,
+            )
         mark_field_source(
             session, key,
             FIELD_SOURCE_HUMAN if key == direct_key else FIELD_SOURCE_LLM_FILL,
@@ -1998,6 +2025,39 @@ def _handle_message_impl(
             "phase": session.phase,
         }
 
+    # ---- 批D（拍2-13）：投递无家分支——灵感架入架（永不拒收） ----
+    # 通道全序（批C）：…>镜像>投递>答当前。rack 入架发生在投递分支内部：
+    # delivery=true 且无槽可落（fills 空）→ pool append + rack_stowed
+    # 话术 + 埋点；delivery=true 且 fills 非空 = 有槽可落 → 既有归位路径
+    # 消费，不经此分支。6.5 知识轮（knowledge_used）优先级更高，不拦截。
+    if (
+        getattr(result, "delivery", False)
+        and not result.fills
+        and not getattr(result, "knowledge_used", False)
+    ):
+        session.material_pool.append({
+            "text": text.strip(),
+            "home": f"{session.current_module}.{session.current_subfield}",
+            "turn": session.message_rounds,
+        })
+        from app.domains.creation.a1 import inspiration_log
+
+        inspiration_log.emit_event(
+            "rack_stowed", session, pool_size=len(session.material_pool)
+        )
+        qp = _question_payload(session)
+        cur_question = (qp or {}).get("question", "")
+        return {
+            "reply": (
+                "这个想法有味道——先帮你收进灵感架了，"
+                f"找到合适的家我再帮你安顿。回到刚才的问题：{cur_question}"
+            ),
+            "next_question": qp,
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
+
     # ---- M0 止血：偏转 → 占位跳过推进指针 ----
     if getattr(result, "deflect", False) and not result.fills:
         _invited = _apply_worldview_invites(session, result.worldview_invites)
@@ -2252,9 +2312,82 @@ def _round_end_signals(
     if session.pending_alignments:
         out["reply"] = out.get("reply", "") + _alignment_notice(session)
         return out
+    pre_closing_step = session.closing_step
     from app.domains.creation.a1.closing_flow import interject as _closing_hook
 
-    return _closing_hook(session, text, out)
+    out = _closing_hook(session, text, out)
+    # 批D：灵感架回收时机一（自由流提议）+ 时机二（收尾预览摊开）——
+    # closing 触发环节（step 0→1 跃迁）同帧执行，不改变三连问状态机。
+    return _rack_round_end(
+        session, out,
+        triggered=(pre_closing_step == 0 and session.closing_step == 1),
+    )
+
+
+def _rack_round_end(
+    session: A1Session,
+    out: dict[str, Any],
+    *,
+    triggered: bool,
+) -> dict[str, Any]:
+    """批D：灵感架回收时机一/二（引擎侧，仅预设配方完成后生效）。
+
+    - 时机一 自由流提议：pool 存量逐条装包 pending_proposals（key 前缀
+      ``rack:``，options=[merge, drop]）——复用 resolve_proposal 提议流
+      先例（LLM 提议→确定性校验→用户确认铁律；drop=拒绝则 pool 保留）。
+      已提议条目打 ``proposed`` 标记去重（不新增会话字段）。
+    - 时机二 收尾预览摊开：closing 触发环节 reply 追加
+      「你还有 N 个想法在灵感架上：…，要安家吗？」；不安家随定稿存档
+      （pool 不清空、跨定稿保留；回收时机三=图谱页 UI 归波次三）。
+    """
+    if not session.material_pool:
+        return out
+    from app.domains.creation.a1.closing_gate import is_preset_phase_complete
+
+    if not is_preset_phase_complete(session):
+        return out
+    additions: list[str] = []
+    new_proposals: list[Proposal] = []
+    if triggered:
+        for item in session.material_pool:
+            if item.get("proposed"):
+                continue
+            home = str(item.get("home") or "")
+            module, _, subfield = home.partition(".")
+            sf = get_subfield(module, subfield) if subfield else None
+            label = sf["label"] if sf else (subfield or "灵感架")
+            proposal = Proposal(
+                module=module,
+                subfield=subfield,
+                old=answer_view(session.answers.get(home, "")),
+                new=str(item.get("text", "")),
+                conflict_note="",
+                question_text="",
+            )
+            pk = "rack:" + _proposal_key(module, subfield, proposal.new)
+            session.pending_proposals[pk] = {
+                "proposal": proposal,
+                "options": ["merge", "drop"],
+            }
+            item["proposed"] = True
+            new_proposals.append(proposal)
+            additions.append(
+                f"灵感架上还存着一个想法：「{proposal.new}」"
+                f"——要把它安进【{label}】吗？同意我就收进去，"
+                "不想安也可以先留在架上。"
+            )
+        texts = "；".join(f"「{it.get('text', '')}」" for it in session.material_pool)
+        additions.append(
+            f"你还有 {len(session.material_pool)} 个想法在灵感架上：{texts}"
+            "——要安家吗？不安家也没关系，定稿后它们会随会话存档。"
+        )
+    if additions:
+        out["reply"] = out.get("reply", "") + "\n" + "\n".join(additions)
+    if new_proposals:
+        out.setdefault("proposals", []).extend(
+            p.model_dump() for p in new_proposals
+        )
+    return out
 
 
 def progress(session: A1Session) -> dict[str, Any]:

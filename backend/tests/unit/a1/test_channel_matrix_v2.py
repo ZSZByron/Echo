@@ -601,7 +601,10 @@ def test_engine_copy_overpromise_free_and_existing_keys_untouched():
 
 
 def test_delivery_no_home_reply_stays_honest(monkeypatch):
-    """问句不可落槽 → 诚实话术，不出现「记下了」过线承诺。"""
+    """批D 更新（拍2-13 解除灵感架休眠）：投递无家 → 入架话术 + pool
+    append（永不拒收）。旧契约（温和回题、灵感架休眠不接）由批D 入架
+    路径取代——「不过线承诺」精神保留：话术为确定性模板（收着/回题，
+    不说「记下了/已记录」），回题句保留。"""
     _capture_inspiration_events(monkeypatch)
     s = _session()
     out = handle_message(
@@ -613,5 +616,8 @@ def test_delivery_no_home_reply_stays_honest(monkeypatch):
             guidance_reply="这个我先放在灵感架上。回到刚才：主角的职业是什么？",
         ),
     )
-    assert "记下了" not in out["reply"]
-    assert "主角的职业" in out["reply"]  # 温和回题（波次一先例语义）
+    assert "灵感架" in out["reply"]                     # rack_stowed 话术
+    assert len(s.material_pool) == 1                   # 永不拒收：pool +1
+    assert s.answers == {}                             # 不占当前题槽
+    assert "记下了" not in out["reply"]                 # 过线承诺锁保持
+    assert out["next_question"] is not None            # 回题（不问两遍）
