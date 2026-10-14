@@ -29,6 +29,10 @@ class EdgeType(str, Enum):
     SEMANTIC = "semantic"  # LLM-inferred concept edge (needs user confirmation)
     RULE = "rule"  # machine-executable rule edge (confirmed by axis assignment)
     STRUCTURE = "structure"  # answer value parsing/expansion edge
+    # A1 波次二批E-1（T9）：值形态确定性编译新边（additive；前端未知类型
+    # 按 s2-unknown-enum-degrade 先例走 default 分支降级，不炸）。
+    MIGRATION = "migration"  # ▶ 迁移边（from 态节点→to 态节点，trigger 落边属性）
+    LINKAGE = "linkage"  # ⇄ 衔接边（dimension+direction 落边语义）
 
 
 class GraphNode(BaseModel):

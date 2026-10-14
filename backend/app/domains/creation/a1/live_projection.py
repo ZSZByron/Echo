@@ -137,3 +137,195 @@ def project_live(session: Any) -> dict[str, Any]:
         "edges": proj_edges,
         "note": "live projection：半成品背景树快照（非定稿图谱，零 LLM 装配）",
     }
+
+
+# ---------------------------------------------------------------------------
+# 值形态 → 图谱新边 确定性编译（波次二批E-1，T9；值形态设计稿 §4 工程落点）
+#
+# 铁律：LLM 只在 graphify 单点产 SIR；本段是纯确定性装配——从会话 answers
+# 的 vs 形状（fills/上传包装产物）直接装配迁移边/衔接边/支线衔接概念边，
+# 同输入可复现、零 LLM。●（point 形）不进此通道：现行 flat NL 路径字节不变
+# （旧会话无形状 fills → 本函数零产出 → _build_graph 输出逐字节不变）。
+# ---------------------------------------------------------------------------
+
+#: 支线卡衔接位点（branch_card 卡内：方式=point / 点=from_to）——改入既有
+# 概念边家族（SEMANTIC 待审），不走迁移边通道。
+_SIDE_LINK_MODE_L3 = "side_link_mode"
+_SIDE_LINK_POINT_L3 = "side_link_point"
+
+
+def compile_value_shape_edges(
+    session: Any,
+) -> tuple[list[GraphNode], list[GraphEdge], list[str]]:
+    """vs 形状 answers → 迁移边/衔接边/支线衔接概念边（零 LLM，确定性）。
+
+    - ▶（from_to）→ MIGRATION 迁移边：from 态节点→to 态节点，trigger 落
+      边属性（visual_description）；半填宽容：仅 to 仍产边，from 缺省
+      语义留痕（缺省态节点描述可辨 + warning）。
+    - ⇄（dim_dir）→ LINKAGE 衔接边：dimension+direction 落边语义；
+      拒绝线 = magnitude 0 特例仍产边（0 是真实内容不是空）。
+    - 支线卡衔接（side_link_mode + side_link_point 双真）→ 既有概念边
+      家族：SEMANTIC / relation="衔接·{方式}" / confirmed=False 待审。
+    - ●（point / 降级点形态）→ 不产边（flat NL 路径字节不变）。
+
+    Returns ``(nodes, edges, warnings)``——节点由调用方 setdefault 进
+    节点表（id 前缀 ``vs:`` 不与既有 id 空间相交）。
+    """
+    # 局部导入：避免模块加载期拉起 guide_engine 全量依赖链（本模块保持轻量）。
+    from app.domains.creation.a1.guide_engine import (
+        AnswerNode,
+        l3_value_parts,
+    )
+    from app.domains.creation.seed.story_modules import (
+        THREE_TIER_TREE,
+        VS_DIM_DIR,
+        VS_FROM_TO,
+    )
+
+    answers = session.answers
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    warnings: list[str] = []
+    serial = 0
+
+    def _state_node(l3_id: str, role: str, text: str) -> str:
+        """态节点（迁移边/衔接边端点）：id ``vs:{l3_id}:{role}``。"""
+        nonlocal serial
+        serial += 1
+        nid = f"vs:{l3_id}:{role}"
+        nodes.append(GraphNode(
+            id=nid, serial_number=f"VS{serial}", level=4,
+            description=text,
+        ))
+        return nid
+
+    def _parts(l2_id: str, l3_id: str) -> dict[str, Any]:
+        """位点值 → 部件 dict（平面 dict 直读；其余走批B l3_value_parts
+        统一读入口——AnswerNode/纯串/树内 L3 全覆盖）。"""
+        raw = answers.get(f"{l2_id}.{l3_id}", "")
+        if isinstance(raw, dict):
+            return raw
+        return l3_value_parts(session, l3_id)
+
+    side_mode_text = ""
+    side_point_parts: dict[str, Any] | None = None
+
+    for l1 in THREE_TIER_TREE:
+        for l2 in l1["l2"]:
+            for l3 in l2["l3"]:
+                l3_id = str(l3["id"])
+                vs = str(l3["vs"])
+                parts = _parts(str(l2["id"]), l3_id)
+                if not parts:
+                    continue
+                # 支线卡衔接位点先捕获（方式=●点形也要收——双真才入概念边）
+                if l3_id == _SIDE_LINK_MODE_L3:
+                    side_mode_text = "；".join(
+                        str(v) for v in parts.values() if str(v)
+                    )
+                    continue
+                if l3_id == _SIDE_LINK_POINT_L3:
+                    side_point_parts = parts
+                    continue
+                if set(parts) == {"point"}:
+                    continue  # ● 点/降级点形态 → 现行 flat NL 路径（零改动）
+                if vs == VS_FROM_TO:
+                    _emit_migration(l3_id, parts, _state_node, edges, warnings)
+                elif vs == VS_DIM_DIR:
+                    _emit_linkage(l3_id, parts, _state_node, edges)
+
+    # 支线卡衔接：方式+点双真 → 概念边家族（SEMANTIC 待审）
+    if side_mode_text and side_point_parts:
+        _emit_side_link(
+            side_mode_text, side_point_parts, _state_node, edges,
+        )
+    return nodes, edges, warnings
+
+
+def _emit_migration(
+    l3_id: str,
+    parts: dict[str, Any],
+    state_node: Any,
+    edges: list[GraphEdge],
+    warnings: list[str],
+) -> None:
+    """▶ from_to 部件 → 迁移边（半填宽容；from 缺省语义留痕）。"""
+    from_text = str(parts.get("from", "") or "").strip()
+    to_text = str(parts.get("to", "") or "").strip()
+    trigger = str(parts.get("trigger", "") or "").strip()
+    if not from_text and not to_text:
+        return  # 无端点部件：无边可装配（真值闸上游已滤占位）
+    if from_text:
+        fid = state_node(l3_id, "from", from_text)
+    else:
+        fid = state_node(l3_id, "from", "（from 缺省·留痕）")
+        warnings.append(f"▶ from 缺省留痕: {l3_id}")
+    if to_text:
+        tid = state_node(l3_id, "to", to_text)
+    else:
+        tid = state_node(l3_id, "to", "（to 缺省·留痕）")
+        warnings.append(f"▶ to 缺省留痕: {l3_id}")
+    # trigger 为边属性（非节点）——落 visual_description
+    edges.append(GraphEdge(
+        from_node_id=fid, to_node_id=tid,
+        edge_type=EdgeType.MIGRATION,
+        visual_description=trigger or "状态迁移",
+        relation="迁移", confidence="", confirmed=True,
+    ))
+
+
+def _emit_linkage(
+    l3_id: str,
+    parts: dict[str, Any],
+    state_node: Any,
+    edges: list[GraphEdge],
+) -> None:
+    """⇄ dim_dir 部件 → 衔接边（dimension+direction 落边语义；
+    拒绝线 = magnitude 0 特例仍产边——0 不做真值过滤）。"""
+    dimension = parts.get("dimension")
+    direction = parts.get("direction")
+    magnitude = parts.get("magnitude")
+    if (
+        dimension is None and direction is None and magnitude is None
+    ):
+        return
+    dim_text = str(dimension or "").strip()
+    dir_text = str(direction or "").strip()
+    fid = state_node(l3_id, "dim", dim_text or "（dimension 缺省·留痕）")
+    tid = state_node(l3_id, "dir", dir_text or "（direction 缺省·留痕）")
+    desc = "·".join(x for x in (dim_text, dir_text) if x)
+    # magnitude=0（拒绝线特例）是真实内容：仅 None/空串不落，0 照落
+    if magnitude is not None and str(magnitude).strip() != "":
+        desc = f"{desc}（幅度 {str(magnitude).strip()}）" if desc else (
+            f"（幅度 {str(magnitude).strip()}）"
+        )
+    edges.append(GraphEdge(
+        from_node_id=fid, to_node_id=tid,
+        edge_type=EdgeType.LINKAGE,
+        visual_description=desc or "属性衔接",
+        relation="衔接", confidence="", confirmed=True,
+    ))
+
+
+def _emit_side_link(
+    mode_text: str,
+    point_parts: dict[str, Any],
+    state_node: Any,
+    edges: list[GraphEdge],
+) -> None:
+    """支线卡衔接（方式+点）→ 既有概念边家族（SEMANTIC，confirmed=False）。"""
+    from_text = str(point_parts.get("from", "") or "").strip()
+    to_text = str(point_parts.get("to", "") or "").strip()
+    if not from_text and not to_text:
+        return
+    fid = state_node(
+        _SIDE_LINK_POINT_L3, "from", from_text or "（from 缺省·留痕）"
+    )
+    tid = state_node(_SIDE_LINK_POINT_L3, "to", to_text or "（to 缺省·留痕）")
+    edges.append(GraphEdge(
+        from_node_id=fid, to_node_id=tid,
+        edge_type=EdgeType.SEMANTIC,
+        visual_description="支线衔接",
+        relation=f"衔接·{mode_text}", confidence="semantic",
+        confirmed=False,
+    ))

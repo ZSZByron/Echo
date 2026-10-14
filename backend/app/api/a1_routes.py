@@ -563,7 +563,10 @@ def _build_graph(
     # assemble_background_tree（逐行保形——m1_default_snapshot 逐字节回归
     # 锚定），此处与 live_projection 共用同一确定性装配（图谱确定性装配
     # 铁律：同输入可复现，零 LLM）。
-    from app.domains.creation.a1.live_projection import assemble_background_tree
+    from app.domains.creation.a1.live_projection import (
+        assemble_background_tree,
+        compile_value_shape_edges,
+    )
 
     nodes, edges, bg_id, module_serial_by_id, entry_serial_by_id = (
         assemble_background_tree(
@@ -598,6 +601,14 @@ def _build_graph(
         ) if added else 0
 
     file_rec["dead_edges"] = dead_edges
+
+    # T9 值形态通道（批E-1）：vs 形状 fills → 迁移边/衔接边/支线衔接
+    # 概念边（确定性编译，零 LLM；● 点会话零产出 → 输出逐字节不变）。
+    vs_nodes, vs_edges, vs_warnings = compile_value_shape_edges(session)
+    for _vn in vs_nodes:
+        nodes.setdefault(_vn.id, _vn)
+    edges.extend(vs_edges)
+    llm_warnings.extend(vs_warnings)
     file_rec["assemble_warnings"] = llm_warnings
 
     graph = KnowledgeGraph(

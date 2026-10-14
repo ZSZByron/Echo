@@ -29,6 +29,51 @@ from app.domains.creation.seed.a1_question_tree import (
     module_ids,
 )
 
+
+def _flat_vs_map() -> dict[str, str]:
+    """THREE_TIER_TREE vs 标注 → 平面键索引（"L2id.L3id" → vs；判定源
+    = story_modules 的 vs 标注闭集，不另设第二套判定表）。"""
+    from app.domains.creation.seed.story_modules import THREE_TIER_TREE
+
+    idx: dict[str, str] = {}
+    for l1 in THREE_TIER_TREE:
+        for l2 in l1["l2"]:
+            for l3 in l2["l3"]:
+                idx[f"{l2['id']}.{l3['id']}"] = str(l3["vs"])
+    return idx
+
+
+def shape_wrap_upload_value(key: str, value: str) -> "str | Any":
+    """上传预填值按位点 vs 形状包装（T9 上传联动；纯函数零 LLM）。
+
+    - ▶ from_to（关键节点/弧光类等）→ AnswerNode 部件形 ``{"to": value}``
+      （▶ 半填形，to 先落；确定性编译通道据此产迁移边）。
+    - ⇄ dim_dir → ``{"dimension": value}``（衔接边通道）。
+    - ● point / ⇉ dual / 无标注键 → 原串直通（flat NL 路径字节不变）。
+
+    包装用 AnswerNode（text 空 + source 部件子节点）：answer_view 渲染 =
+    部件叶值原串——NL 投影与包装前逐字节一致；且落在 A1Session.answers
+    ``str | AnswerNode`` 既有值域内（store 往返安全）。
+    """
+    from app.domains.creation.a1.guide_engine import AnswerNode
+    from app.domains.creation.seed.story_modules import VS_DIM_DIR, VS_FROM_TO
+
+    vs = _FLAT_VS_MAP.get(key)
+    if vs == VS_FROM_TO:
+        return AnswerNode(
+            text="",
+            children=[AnswerNode(source="to", text=value)],
+        )
+    if vs == VS_DIM_DIR:
+        return AnswerNode(
+            text="",
+            children=[AnswerNode(source="dimension", text=value)],
+        )
+    return value
+
+
+_FLAT_VS_MAP = _flat_vs_map()
+
 # MVP limits (design doc): reject tiny texts, truncate huge ones.
 MIN_CONTENT_CHARS = 200
 MAX_CONTENT_CHARS = 20000
@@ -228,7 +273,7 @@ async def parse_modules(provider: LLMProvider, text: str) -> dict[str, Any]:
     raw = await _chat_json(provider, system, snippet)
     raw_answers = raw.get("answers") or {}
     valid_keys = set(all_subfield_keys())
-    answers: dict[str, str] = {}
+    answers: dict[str, Any] = {}
     clipped_answers: list[str] = []
     if isinstance(raw_answers, dict):
         for key, value in raw_answers.items():
@@ -238,7 +283,9 @@ async def parse_modules(provider: LLMProvider, text: str) -> dict[str, Any]:
             if key in valid_keys and is_truthy_answer(str(value)):
                 # J4 预算护栏：>2000 字截断 + 报告（配 J3 披露）
                 clipped, was_clipped = clip_answer(str(value).strip())
-                answers[key] = clipped
+                # T9 值形状联动：按位点 vs 形状包装（▶ 关键节点/弧光类
+                # = to 半填形；⇄ = dimension 形；● 原串直通 NL 不变）。
+                answers[key] = shape_wrap_upload_value(key, clipped)
                 if was_clipped:
                     clipped_answers.append(key)
     innovations: list[dict[str, str]] = []
