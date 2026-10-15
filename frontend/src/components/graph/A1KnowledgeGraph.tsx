@@ -65,6 +65,177 @@ export const isConceptTermNode = (node: { id: string }): boolean =>
 export const isDepthNode = (id: string): boolean => id.startsWith('d:');
 
 /**
+ * Renderer-known edge types (mirrors backend EdgeType enum).
+ * Anything outside degrades honestly instead of masquerading as legacy cross
+ * (s2-unknown-enum-degrade precedent).
+ */
+export const KNOWN_EDGE_TYPES: ReadonlySet<string> = new Set([
+  'tree', 'cross', 'semantic', 'constraint', 'migration', 'linkage',
+]);
+
+/** Unknown edge-type predicate: true → gray degrade + 「未知边类型」 label. */
+export const isUnknownEdgeType = (t: string | undefined | null): boolean =>
+  typeof t !== 'string' || t === '' || !KNOWN_EDGE_TYPES.has(t);
+
+/**
+ * Edge visual style (pure) — 波次三 T4 抽取为模块级纯函数：
+ * jsdom 无法断言 React Flow SVG 边渲染（既有测试注记 Will be 0 in jsdom），
+ * 样式判定链在此守门（depthNodeLabel 导出纯函数先例）。toReactFlowEdge 仅接线 + hover 变暗。
+ */
+export interface EdgeVisualStyle {
+  edgeStyle: React.CSSProperties;
+  animated: boolean;
+  label: string | undefined;
+  labelStyle: React.CSSProperties;
+  className: string;
+}
+
+export const edgeVisualStyle = (edge: GraphEdge): EdgeVisualStyle => {
+  const isTree = edge.edge_type === 'tree';
+  const isSemantic = edge.confidence === 'semantic';
+  const isRule = edge.confidence === 'rule';
+  const isStructure = edge.confidence === 'structure';
+  const isConfirmed = edge.confirmed === true;
+  const isPending = edge.confidence === 'semantic' && edge.confirmed === false;
+
+  let edgeStyle: React.CSSProperties = {};
+  let animated = false;
+  let label: string | undefined = undefined;
+  let labelStyle: React.CSSProperties = {};
+  let className = '';
+
+  if (isTree) {
+    // TREE: purple solid line (unchanged)
+    edgeStyle = {
+      stroke: '#a78bfa',
+      strokeWidth: 2,
+      strokeDasharray: undefined
+    };
+    className = 'edge-tree';
+  } else if (isPending) {
+    // ◆ semantic pending: amber dashed + breathing animation + ? badge
+    edgeStyle = {
+      stroke: '#f59e0b',
+      strokeWidth: 1.5,
+      strokeDasharray: '6,4',
+      animation: 'breathing 2s ease-in-out infinite'
+    };
+    animated = true;
+    label = `? ${relationLabel(edge.relation || edge.visual_description)}`;
+    labelStyle = {
+      fontSize: '11px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#f59e0b',
+      fontWeight: 'bold'
+    };
+    className = 'edge-semantic-pending';
+  } else if (isSemantic && isConfirmed) {
+    // ◆ semantic confirmed: amber solid
+    edgeStyle = {
+      stroke: '#f59e0b',
+      strokeWidth: 2,
+      strokeDasharray: undefined
+    };
+    label = relationLabel(edge.relation || edge.visual_description);
+    labelStyle = {
+      fontSize: '11px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#f59e0b'
+    };
+    className = 'edge-semantic-confirmed';
+  } else if (isRule) {
+    // ★ rule: green dotted + relation label
+    edgeStyle = {
+      stroke: '#10b981',
+      strokeWidth: 1.5,
+      strokeDasharray: '2,2'
+    };
+    label = `★ ${relationLabel(edge.relation || edge.visual_description)}`;
+    labelStyle = {
+      fontSize: '11px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#10b981',
+      fontWeight: 'bold'
+    };
+    className = 'edge-rule';
+  } else if (isStructure) {
+    // ◇ structure: blue-gray line
+    edgeStyle = {
+      stroke: '#6b7280',
+      strokeWidth: 1.5,
+      strokeDasharray: undefined
+    };
+    label = `◇ ${relationLabel(edge.relation || edge.visual_description)}`;
+    labelStyle = {
+      fontSize: '10px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#6b7280'
+    };
+    className = 'edge-structure';
+  } else if (edge.edge_type === 'migration') {
+    // ▶ 迁移边：从态→到态，橙红实线箭头
+    edgeStyle = {
+      stroke: '#ef4444',
+      strokeWidth: 2,
+      strokeDasharray: undefined
+    };
+    animated = true;
+    label = `▶ ${edge.visual_description || '迁移'}`;
+    labelStyle = {
+      fontSize: '11px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#ef4444',
+      fontWeight: 'bold'
+    };
+    className = 'edge-migration';
+  } else if (edge.edge_type === 'linkage') {
+    // ⇄ 衔接边：维度·方向，青色虚线
+    edgeStyle = {
+      stroke: '#06b6d4',
+      strokeWidth: 1.5,
+      strokeDasharray: '5,3'
+    };
+    label = `⇄ ${edge.visual_description || '衔接'}`;
+    labelStyle = {
+      fontSize: '11px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#06b6d4'
+    };
+    className = 'edge-linkage';
+  } else if (isUnknownEdgeType(edge.edge_type)) {
+    // 波次三 T4：未知边类型诚实降级——灰色虚线 + 「未知边类型」标签，不冒充 legacy cross
+    edgeStyle = {
+      stroke: '#4b5563',
+      strokeWidth: 1.5,
+      strokeDasharray: '4,4'
+    };
+    label = `⚠ 未知边类型${edge.edge_type ? `：${edge.edge_type}` : ''}`;
+    labelStyle = {
+      fontSize: '10px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fill: '#9ca3af'
+    };
+    className = 'edge-unknown';
+  } else {
+    // CROSS (legacy): amber dashed
+    edgeStyle = {
+      stroke: '#f59e0b',
+      strokeWidth: 1.5,
+      strokeDasharray: '6,4'
+    };
+    label = edge.visual_description;
+    labelStyle = {
+      fontSize: '10px',
+      fontFamily: 'ui-monospace, Consolas, monospace',
+      fill: '#888'
+    };
+    className = 'edge-cross';
+  }
+
+  return { edgeStyle, animated, label, labelStyle, className };
+};
+
+/**
  * Anchor (L3 entry) id → field label, used for the depth-entry same-name fallback.
  * L3 = id contains '.' and is not a d:/term:/cst_/bg_ node; the label is the text
  * before the first ':' in its description (whole description when no colon).
@@ -1040,132 +1211,7 @@ export function A1KnowledgeGraph({
    * Transform GraphEdge to ReactFlow Edge with concept network styling
    */
   const toReactFlowEdge = useCallback((edge: GraphEdge): Edge => {
-    const isTree = edge.edge_type === 'tree';
-    const isSemantic = edge.confidence === 'semantic';
-    const isRule = edge.confidence === 'rule';
-    const isStructure = edge.confidence === 'structure';
-    const isConfirmed = edge.confirmed === true;
-    const isPending = edge.confidence === 'semantic' && edge.confirmed === false;
-
-    let edgeStyle: React.CSSProperties = {};
-    let animated = false;
-    let label: string | undefined = undefined;
-    let labelStyle: React.CSSProperties = {};
-    let className = '';
-
-    if (isTree) {
-      // TREE: purple solid line (unchanged)
-      edgeStyle = {
-        stroke: '#a78bfa',
-        strokeWidth: 2,
-        strokeDasharray: undefined
-      };
-      className = 'edge-tree';
-    } else if (isPending) {
-      // ◆ semantic pending: amber dashed + breathing animation + ? badge
-      edgeStyle = {
-        stroke: '#f59e0b',
-        strokeWidth: 1.5,
-        strokeDasharray: '6,4',
-        animation: 'breathing 2s ease-in-out infinite'
-      };
-      animated = true;
-      label = `? ${relationLabel(edge.relation || edge.visual_description)}`;
-      labelStyle = {
-        fontSize: '11px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#f59e0b',
-        fontWeight: 'bold'
-      };
-      className = 'edge-semantic-pending';
-    } else if (isSemantic && isConfirmed) {
-      // ◆ semantic confirmed: amber solid
-      edgeStyle = {
-        stroke: '#f59e0b',
-        strokeWidth: 2,
-        strokeDasharray: undefined
-      };
-      label = relationLabel(edge.relation || edge.visual_description);
-      labelStyle = {
-        fontSize: '11px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#f59e0b'
-      };
-      className = 'edge-semantic-confirmed';
-    } else if (isRule) {
-      // ★ rule: green dotted + relation label
-      edgeStyle = {
-        stroke: '#10b981',
-        strokeWidth: 1.5,
-        strokeDasharray: '2,2'
-      };
-      label = `★ ${relationLabel(edge.relation || edge.visual_description)}`;
-      labelStyle = {
-        fontSize: '11px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#10b981',
-        fontWeight: 'bold'
-      };
-      className = 'edge-rule';
-    } else if (isStructure) {
-      // ◇ structure: blue-gray line
-      edgeStyle = {
-        stroke: '#6b7280',
-        strokeWidth: 1.5,
-        strokeDasharray: undefined
-      };
-      label = `◇ ${relationLabel(edge.relation || edge.visual_description)}`;
-      labelStyle = {
-        fontSize: '10px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#6b7280'
-      };
-      className = 'edge-structure';
-    } else if (edge.edge_type === 'migration') {
-      // ▶ 迁移边：从态→到态，橙红实线箭头
-      edgeStyle = {
-        stroke: '#ef4444',
-        strokeWidth: 2,
-        strokeDasharray: undefined
-      };
-      animated = true;
-      label = `▶ ${edge.visual_description || '迁移'}`;
-      labelStyle = {
-        fontSize: '11px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#ef4444',
-        fontWeight: 'bold'
-      };
-      className = 'edge-migration';
-    } else if (edge.edge_type === 'linkage') {
-      // ⇄ 衔接边：维度·方向，青色虚线
-      edgeStyle = {
-        stroke: '#06b6d4',
-        strokeWidth: 1.5,
-        strokeDasharray: '5,3'
-      };
-      label = `⇄ ${edge.visual_description || '衔接'}`;
-      labelStyle = {
-        fontSize: '11px',
-        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-        fill: '#06b6d4'
-      };
-      className = 'edge-linkage';
-    } else {
-      // CROSS (legacy): amber dashed
-      edgeStyle = {
-        stroke: '#f59e0b',
-        strokeWidth: 1.5,
-        strokeDasharray: '6,4'
-      };
-      label = edge.visual_description;
-      labelStyle = {
-        fontSize: '10px',
-        fontFamily: 'ui-monospace, Consolas, monospace',
-        fill: '#888'
-      };
-      className = 'edge-cross';
-    }
+    const { edgeStyle, animated, label, labelStyle, className } = edgeVisualStyle(edge);
 
     // Apply hover dimming effect (canvas hover + panel entry hover merged)
     const activeHover = hoverEdgeKey ?? hoveredEdge;
