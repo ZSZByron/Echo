@@ -94,7 +94,7 @@ class TestStoryModuleData:
         )
 
     def test_answer_key_space_is_story_first(self):
-        assert get_subfield(M12_ID, "core_dilemma")["label"] == "核心抉择"
+        assert get_subfield(M12_ID, "core_dilemma")["label"] == "核心两难"
         assert get_subfield(M11_ID, "desire")["label"] == "欲望"
 
 
