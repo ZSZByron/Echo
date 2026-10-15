@@ -10,7 +10,7 @@
 
 import React, { useMemo } from 'react';
 import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
-import { relationLabel } from '../../labels/relationLabel';
+import { relationLabel, edgeTypeLabel } from '../../labels/relationLabel';
 
 /** Depth-tree node id prefix (form `d:{anchor}:{title}`). */
 export const isDepthId = (id: string): boolean => id.startsWith('d:');
@@ -297,9 +297,18 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, graph, onClose,
                       type="button"
                       data-testid="node-detail-related-edge"
                       onClick={() => onNavigate?.(peerId)}
+                      title={edge.visual_description || relLabel}
                       className="w-full flex items-center gap-2 px-2 py-1.5 rounded bg-void-800/70 border border-void-700 hover:border-nebula-400 transition-colors text-left"
                     >
                       <span className="text-xs text-nebula-300 shrink-0">{relLabel}</span>
+                      {(edge.edge_type === 'migration' || edge.edge_type === 'linkage') && (
+                        <span
+                          data-testid="node-detail-edge-type"
+                          className="text-[10px] px-1 py-0.5 rounded bg-void-700 text-void-300 border border-void-600 shrink-0"
+                        >
+                          {edgeTypeLabel(edge.edge_type)}
+                        </span>
+                      )}
                       <span className="text-xs text-white truncate flex-1">
                         {peer ? nodeTitle(peer) : peerId}
                       </span>
