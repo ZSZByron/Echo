@@ -1671,6 +1671,9 @@ def _update_knowledge_thread(
         session.knowledge_thread_turns = (
             session.knowledge_thread_turns + 1 if was_active else 1
         )
+        # T5（波次三）：knowledge_used 埋点补线——D24 二期按钮决策取数
+        from app.domains.creation.a1 import inspiration_log
+        inspiration_log.emit_event("knowledge_used", session)
     elif was_active:
         if frozen or result.fills:
             session.knowledge_thread_turns += 1  # 冻结保持轮（anti-stuck）

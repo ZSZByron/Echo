@@ -17,9 +17,9 @@ export type NodeStatus = "pending" | "generating" | "completed" | "failed";
 
 /**
  * Edge type between nodes.
- * Backend: EdgeType enum (TREE, CROSS)
+ * Backend: EdgeType enum (TREE, CROSS, SEMANTIC, CONSTRAINT, MIGRATION, LINKAGE)
  */
-export type EdgeType = "tree" | "cross";
+export type EdgeType = "tree" | "cross" | "semantic" | "constraint" | "migration" | "linkage";
 
 /**
  * Single node in the knowledge graph.
@@ -49,7 +49,7 @@ export interface GraphEdge {
   from_node_id: string;
   /** Target node ID */
   to_node_id: string;
-  /** Tree (hierarchy) or cross (visual dependency) */
+ * Tree (hierarchy), cross (visual dependency), semantic (AI-inferred),
   edge_type: EdgeType;
   /** User-written visual relationship description */
   visual_description: string;
