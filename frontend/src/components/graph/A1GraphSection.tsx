@@ -11,6 +11,8 @@ import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react
 import { fetchJson, ApiError } from '../../api/client';
 import { confirmEdge, rejectEdge, confirmConceptTerms, extractConceptRelations, discardDeadEdge, getDeadEdgeKey, type DeadEdge } from '../../api/a1';
 import { A1KnowledgeGraph, conceptEdgeKey } from './A1KnowledgeGraph';
+import { WorldMap } from './WorldMap';
+import { RackPanel } from './RackPanel';
 import { EdgeReviewPanel } from './EdgeReviewPanel';
 import type { KnowledgeGraph, GraphEdge } from '../../types/graph';
 import type { ConceptTerm, ProposedRelation, WarningLedgerEntry } from '../../types/a1';
@@ -110,7 +112,7 @@ export function A1GraphSection({
   const [deadEdges, setDeadEdges] = useState<DeadEdge[]>([]);
 
   // Fullscreen layout state (T-C)
-  const [viewMode, setViewMode] = useState<'tree' | 'concept'>('tree');
+  const [viewMode, setViewMode] = useState<'tree' | 'concept' | 'worldmap'>('tree');
   const [panelOpen, setPanelOpen] = useState(true);
   const [focusEdgeKey, setFocusEdgeKey] = useState<string | null>(null);
   const [hoverEdgeKey, setHoverEdgeKey] = useState<string | null>(null);
@@ -156,6 +158,24 @@ export function A1GraphSection({
   useEffect(() => {
     loadGraph();
   }, [loadGraph]);
+
+  // 波次三 T5：灵感架存量（material_pool）——活地图 tab 下 RackPanel 消费
+  const [rackPool, setRackPool] = useState<{ text?: string; home?: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<{ material_pool?: { text?: string; home?: string }[] }>(
+      `/api/a1/file/${fileId}`
+    )
+      .then((file) => {
+        if (!cancelled) setRackPool(file.material_pool ?? []);
+      })
+      .catch(() => {
+        // fail-silent：灵感架非关键数据
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId]);
 
   // T-D: fetch file record for concept_terms / proposed_relations (resident fields)
   const loadFileTerms = useCallback(async () => {
@@ -485,6 +505,16 @@ export function A1GraphSection({
           >
             概念网
           </button>
+          <button
+            onClick={() => setViewMode('worldmap')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'worldmap'
+                ? 'bg-nebula-500 text-white'
+                : 'bg-void-800 text-void-400 hover:bg-void-700'
+            }`}
+          >
+            活地图
+          </button>
         </div>
 
         {/* Right: stats + panel toggle */}
@@ -696,7 +726,13 @@ export function A1GraphSection({
       {/* ---- Body: canvas + review panel ---- */}
       <div className="flex-1 min-h-0 flex">
         {/* Canvas */}
-        <div className="flex-1 min-w-0 relative">
+        <div className="flex-1 min-w-0 relative overflow-y-auto">
+          {viewMode === 'worldmap' ? (
+            <div className="p-4">
+              <WorldMap graph={graph} />
+              <RackPanel pool={rackPool} />
+            </div>
+          ) : (
           <A1KnowledgeGraph
             graph={graph}
             isLoading={false}
@@ -710,6 +746,7 @@ export function A1GraphSection({
             hoverEdgeKey={hoverEdgeKey}
             conceptTerms={conceptTerms}
           />
+          )}
 
           {/* Pending questions overlay (P4, tree mode convenience) */}
           {viewMode === 'tree' && pendingOpenQuestions.length > 0 && (
