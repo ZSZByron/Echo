@@ -60,7 +60,7 @@ M12_PLOT: StoryModule = {
         },
         {
             "id": "core_dilemma",
-            "label": "核心抉择",
+            "label": "核心两难",
             "question": "故事刚开场，你的主角就撞上一件躲不开的事"
                         "——他必须马上选一边，而且不管选哪边，都得失去点什么。那是什么事？",
             "hint": "想象他被逼到墙角：往前一步要付出一样，退后一步要付出另一样。",
@@ -69,7 +69,7 @@ M12_PLOT: StoryModule = {
         },
         {
             "id": "tension_hole",
-            "label": "张力源",
+            "label": "张力",
             "question": "有没有一样东西，他特别想要却一直得不到"
                         "——或者要得到它，必须拿别的重要东西去换？",
             "hint": "这样东西会一直吊着他，让他停不下来。",
@@ -91,21 +91,21 @@ M12_PLOT: StoryModule = {
         },
         {
             "id": "branch_trees",
-            "label": "分支预案",
+            "label": "分支走向",
             "question": "如果他成了，故事会走向哪里？如果他输了呢？（两头都说说）",
             "hint": "一头是成了的样子，一头是砸了的样子。想让 AI 先各写一版给你改，也行。",
             "example": "如：成功→洗清冤屈但失去身份；失败→被迫亡命江湖",
         },
         {
             "id": "bound_characters",
-            "label": "人物绑定",
+            "label": "关键人物",
             "question": "谁在拼命把事情往前推？又是谁拦着他、跟他对着干？",
             "hint": "拦着他的人，可以是他最亲的人。",
             "example": "如：拼命推的是林澈自己；拦着他的是把他养大的义父——那位黑警长官。",
         },
         {
             "id": "arc_direction",
-            "label": "走向基调",
+            "label": "走向",
             "question": "这段故事整体往哪个方向走？",
             "hint": "大方向是越变越好（上扬）、越变越糟（下沉）、来回打转（循环），"
                     "还是没想好？先定一个。",
@@ -113,7 +113,7 @@ M12_PLOT: StoryModule = {
         },
         {
             "id": "scene_hooks",
-            "label": "场景挂载",
+            "label": "关键场景",
             "question": "关键场景发生在哪些地点、带什么氛围？",
             "hint": "说几个地点，每个配两三个气氛词就够——细节以后慢慢补。",
             "example": "如：雨夜码头（潮湿、霓虹倒影、远处汽笛）",
@@ -159,7 +159,7 @@ M11_CHARACTER: StoryModule = {
         },
         {
             "id": "arc_direction",
-            "label": "弧光方向",
+            "label": "弧光",
             "question": "故事走完时，TA 会变成什么样？",
             "hint": "想想开头和结尾——他从什么样的人，变成什么样的人？也可以让他咬牙不变。",
             "example": "如：从用谎言保护所有人→学会让真相先落地",
@@ -334,7 +334,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "core_dilemma",
-                "label": "核心抉择",
+                "label": "核心两难",
                 "l3": [
                     _l3("option_one_cost", "选项一与代价", VS_FROM_TO),
                     _l3("option_two_cost", "选项二与代价", VS_FROM_TO),
@@ -343,7 +343,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "tension_hole",
-                "label": "张力源",
+                "label": "张力",
                 "l3": [
                     _l3("desired_object", "渴望之物", VS_POINT),
                     _l3("blocking_wall", "高墙", VS_POINT),
@@ -380,7 +380,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "branch_trees",
-                "label": "分支预案",
+                "label": "分支走向",
                 "l3": [
                     _l3("success_path", "成功线", VS_FROM_TO),
                     _l3("failure_path", "失败线", VS_FROM_TO),
@@ -388,7 +388,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "bound_characters",
-                "label": "人物绑定",
+                "label": "关键人物",
                 "l3": [
                     _l3("pusher", "推动者", VS_POINT),
                     _l3("blocker", "阻拦者", VS_POINT),
@@ -397,7 +397,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "arc_direction",
-                "label": "走向基调",
+                "label": "走向",
                 "l3": [
                     _l3("overall_tone", "大方向", VS_DIM_DIR),
                     _l3("ending_aftertaste", "结局滋味", VS_POINT),
@@ -405,7 +405,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "scene_hooks",
-                "label": "场景挂载",
+                "label": "关键场景",
                 "l3": [
                     _l3(
                         "core_scene_list", "核心场景清单", VS_POINT,
@@ -499,7 +499,7 @@ THREE_TIER_TREE: list[dict[str, object]] = [
             },
             {
                 "id": "arc_direction",
-                "label": "弧光方向",
+                "label": "弧光",
                 "l3": [
                     _l3("arc_start", "起点", VS_FROM_TO),
                     _l3("arc_turning", "转折事件", VS_FROM_TO),
@@ -528,8 +528,8 @@ THREE_TIER_TREE: list[dict[str, object]] = [
         "label": "玩法",
         "l2": [
             {
-                "id": "玩法设计DNA",
-                "label": "玩法设计DNA",
+                "id": "玩法骨架",
+                "label": "玩法骨架",
                 "l3": [
                     _l3("player_role", "玩家身份", VS_FROM_TO),
                     _l3("main_action", "主要行为", VS_POINT),
