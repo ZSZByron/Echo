@@ -1422,6 +1422,8 @@ def get_file(file_id: str) -> dict:
         "dead_edges": rec.get("dead_edges", []),
         # M4a additive：field_sources 平行溯源元数据（只看不判；缺省空 dict）
         "field_sources": dict(session.field_sources),
+        # T5（波次三）：material_pool 灵感架存量透出（前端 RackPanel 消费）
+        "material_pool": list(session.material_pool),
     }
 
 
