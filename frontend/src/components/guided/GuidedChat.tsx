@@ -150,6 +150,18 @@ export function GuidedChat({
     send();
   };
 
+  // D24 二期：「查一下」按钮——显式知识搜索请求（引擎剥前缀走知识通道）
+  const sendSearch = () => {
+    if (input.trim() && !disabled) {
+      if (displayProposals.length > 0) {
+        setTrayProposals(prev => [...prev, ...displayProposals]);
+        setDisplayProposals([]);
+      }
+      onSend(`[查一下] ${input.trim()}`);
+      setInput('');
+    }
+  };
+
   // 多行输入约定：Enter 发送 / Shift+Enter 换行；IME 组合中的回车（中文输入法选词）不触发发送
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -336,6 +348,15 @@ export function GuidedChat({
             placeholder="Type your message..."
             className="flex-1 bg-slate-900 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:border-indigo-500 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
           />
+          <button
+            type="button"
+            onClick={sendSearch}
+            disabled={disabled || !input.trim()}
+            title="联网搜索这个知识问题，不填入任何字段"
+            className="bg-amber-700 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            查一下
+          </button>
           <button
             type="submit"
             disabled={disabled || !input.trim()}

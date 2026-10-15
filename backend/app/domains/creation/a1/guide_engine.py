@@ -1768,6 +1768,12 @@ def _handle_message_impl(
     pre_module = session.current_module
     provider = getattr(interviewer, "_provider", None)
 
+    # D24 二期（波次三）：「查一下」显式按钮——前缀剥除。前端按钮注入
+    # "[查一下] " 前缀；引擎剥除后传纯知识问题给 interviewer（prompt 规则
+    # 6.5 按显式标志强制置 knowledge_request=true，不依赖内容判定）。
+    if text.strip().startswith("[查一下]"):
+        text = text.strip()[len("[查一下]"):].strip() or text
+
     if session.phase == PHASE_COMPLETED:
         # Completed tree: keep the conversation open for refinement.
         # Falls through to the interviewer below — same routing rules.
