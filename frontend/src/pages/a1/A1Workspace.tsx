@@ -644,9 +644,9 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       // Initialize messages with first question, anchored on the seed
       const fq = response.first_question;
       const seedPrefix = response.seed?.name
-        ? `你选择了种子「${response.seed.name}」（${response.seed.genre}）：${response.seed.description}。我将围绕这个基调引导你展开世界观。\n\n`
+        ? `你选了种子「${response.seed.name}」。我们就从它聊起——一次一个问题，把它变成你的世界。随时可以挑选项、换一批，或跳过。\n\n`
         : response.seed?.description
-        ? `你的初始创意：${response.seed.description}。我将围绕它引导你展开世界观。\n\n`
+        ? `记下你的创意了：${response.seed.description}。\n接下来我会一次问你一个问题，帮你把它变成一个完整的世界。每题都可以自己写、从我给的选项里挑，或者跳过。\n\n`
         : '';
       const questionText = formatQuestion(fq);
       
