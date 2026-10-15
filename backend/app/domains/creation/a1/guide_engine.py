@@ -808,7 +808,7 @@ REROLL_CAP_REPLY = "示例换了几轮了，先试试直接选一个，或用自
 MIRROR_THREAD_CAP = 2
 # 批C：重锚显式元命令触发词（分类提示词 7.8 同源；此处供引擎侧确定性兜底
 # 识别——LLM 已分类时以 reanchor 键为准，此表仅作文档性闭集）。
-REANCHOR_TRIGGER_WORDS = {"梳理一下"}
+REANCHOR_TRIGGER_WORDS = {"梳理一下", "整理一下", "捋一捋", "看看现在都确定了", "看看都确定了"}
 
 
 def _question_payload(session: A1Session) -> dict[str, Any] | None:
