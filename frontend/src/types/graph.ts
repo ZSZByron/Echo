@@ -49,7 +49,7 @@ export interface GraphEdge {
   from_node_id: string;
   /** Target node ID */
   to_node_id: string;
- * Tree (hierarchy), cross (visual dependency), semantic (AI-inferred),
+  /** Tree (hierarchy), cross (visual dependency), semantic (AI-inferred), constraint, migration, linkage */
   edge_type: EdgeType;
   /** User-written visual relationship description */
   visual_description: string;

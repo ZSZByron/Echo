@@ -42,6 +42,7 @@ export function translateRelationInProse(text: string): string {
     const label = RELATION_LABELS[code];
     return label ? `「${label}」` : match;
   });
+}
 
 /** 边类型标签（展示层）。未知类型诚实降级（原样返回）。 */
 export const EDGE_TYPE_LABELS: Record<string, string> = {
@@ -56,5 +57,4 @@ export const EDGE_TYPE_LABELS: Record<string, string> = {
 export function edgeTypeLabel(type: string | undefined | null): string {
   if (!type) return '';
   return EDGE_TYPE_LABELS[type] ?? type;
-}
 }

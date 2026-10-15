@@ -43,7 +43,7 @@ export interface WorldMapProps {
 }
 
 export function WorldMap({ graph }: WorldMapProps) {
-  const nodes = graph?.nodes ?? [];
+  const nodes = Object.values(graph?.nodes ?? {});
   const continentMap = React.useMemo(() => buildContinentMap(nodes), [nodes]);
   const totalAnswered = nodes.filter(n => n.level === 2 || n.tier === 2).length;
 

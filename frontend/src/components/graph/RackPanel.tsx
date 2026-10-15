@@ -7,7 +7,6 @@
  * 数据源 = GET /file/{id} 端点返回的 material_pool（T5 透出补线）。
  * 不实现安家操作后端逻辑（批D 回收机制已落，此处仅展示+引导）。
  */
-import React from 'react';
 
 export interface RackItem {
   text?: string;
