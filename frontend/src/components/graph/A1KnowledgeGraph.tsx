@@ -1121,6 +1121,36 @@ export function A1KnowledgeGraph({
         fill: '#6b7280'
       };
       className = 'edge-structure';
+    } else if (edge.edge_type === 'migration') {
+      // ▶ 迁移边：从态→到态，橙红实线箭头
+      edgeStyle = {
+        stroke: '#ef4444',
+        strokeWidth: 2,
+        strokeDasharray: undefined
+      };
+      animated = true;
+      label = `▶ ${edge.visual_description || '迁移'}`;
+      labelStyle = {
+        fontSize: '11px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#ef4444',
+        fontWeight: 'bold'
+      };
+      className = 'edge-migration';
+    } else if (edge.edge_type === 'linkage') {
+      // ⇄ 衔接边：维度·方向，青色虚线
+      edgeStyle = {
+        stroke: '#06b6d4',
+        strokeWidth: 1.5,
+        strokeDasharray: '5,3'
+      };
+      label = `⇄ ${edge.visual_description || '衔接'}`;
+      labelStyle = {
+        fontSize: '11px',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fill: '#06b6d4'
+      };
+      className = 'edge-linkage';
     } else {
       // CROSS (legacy): amber dashed
       edgeStyle = {
