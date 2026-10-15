@@ -159,23 +159,44 @@ export function A1GraphSection({
     loadGraph();
   }, [loadGraph]);
 
-  // 波次三 T5：灵感架存量（material_pool）——活地图 tab 下 RackPanel 消费
+  // 波次三 T5：灵感架存量（material_pool）——活地图 tab 下 RackPanel 消费；
+  // 安家入口走既有 /api/a1/chat 投递通道（后端批D 投递/回收机制，session_id 来自 file 端点）
   const [rackPool, setRackPool] = useState<{ text?: string; home?: string }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<{ material_pool?: { text?: string; home?: string }[] }>(
+  const [rackSessionId, setRackSessionId] = useState<string | null>(null);
+  const loadRack = useCallback(() => {
+    fetchJson<{ material_pool?: { text?: string; home?: string }[]; session_id?: string }>(
       `/api/a1/file/${fileId}`
     )
       .then((file) => {
-        if (!cancelled) setRackPool(file.material_pool ?? []);
+        setRackPool(file.material_pool ?? []);
+        if (file.session_id) setRackSessionId(file.session_id);
       })
       .catch(() => {
         // fail-silent：灵感架非关键数据
       });
-    return () => {
-      cancelled = true;
-    };
   }, [fileId]);
+  useEffect(() => {
+    loadRack();
+  }, [loadRack]);
+  // 安家操作：把灵感架条目作为投递消息发往既有 chat 端点，随后刷新存量（fail-silent）
+  const stowRackItem = useCallback(
+    (item: { text?: string; home?: string }) => {
+      if (!rackSessionId) return;
+      fetchJson<Record<string, unknown>>(`/api/a1/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: rackSessionId,
+          message: `把「${item.text ?? '这个想法'}」安家到${item.home ? `「${item.home}」` : '合适的模块'}`,
+        }),
+      })
+        .then(() => loadRack())
+        .catch(() => {
+          // fail-silent：安家失败不阻塞图谱页
+        });
+    },
+    [rackSessionId, loadRack]
+  );
 
   // T-D: fetch file record for concept_terms / proposed_relations (resident fields)
   const loadFileTerms = useCallback(async () => {
@@ -730,7 +751,7 @@ export function A1GraphSection({
           {viewMode === 'worldmap' ? (
             <div className="p-4">
               <WorldMap graph={graph} />
-              <RackPanel pool={rackPool} />
+              <RackPanel pool={rackPool} onStow={rackSessionId ? stowRackItem : undefined} />
             </div>
           ) : (
           <A1KnowledgeGraph
