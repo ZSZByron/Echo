@@ -111,7 +111,7 @@ class TestStoryModuleShape:
         assert get_story_module("剧情") is not None
         assert get_story_module("不存在") is None
         sf = get_story_subfield("剧情", "core_dilemma")
-        assert sf is not None and sf["label"] == "核心抉择"
+        assert sf is not None and sf["label"] == "核心两难"
         assert get_story_subfield("剧情", "nope") is None
         assert get_story_subfield("不存在", "x") is None
 
