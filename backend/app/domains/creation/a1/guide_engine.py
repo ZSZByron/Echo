@@ -17,6 +17,7 @@ module has been answered or skipped.
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from typing import Any
 
@@ -1133,6 +1134,12 @@ def _fill_diff(label: str, module: str, old_v: str, new_v: str) -> dict[str, Any
     return {"field": label, "module": module, "section": label, "old": old_v, "new": new_v}
 
 
+# P0-3 F1（商业加固批）：塞责式占位短语判定（施工单钦定覆盖面：
+# 未提供|未提及|未说明|无（未|^无$|^\s*无（ 等 LLM 塞责式填充）。
+_FILL_PLACEHOLDER_RE = re.compile(r"未提供|未提及|未说明|无（未|^无$|^\s*无（")
+_FILL_PLACEHOLDER_STRIP = "（）()[]【】「」 \t"
+
+
 def _apply_fills(
     session: A1Session, fills: list[InterviewFill]
 ) -> tuple[list[dict[str, Any]], list[Proposal]]:
@@ -1170,6 +1177,16 @@ def _apply_fills(
             )
             continue
         key = f"{fill.module}.{fill.subfield}"
+        # P0-3 F1（商业加固批）：LLM 塞责式占位填充闸——最早可拦处（J1 之前）。
+        # J1 词典法只做归一化精确匹配，抓不住「无（未提供外表特征）」这类
+        # 短语形占位（先例：alignment_flow._PLACEHOLDER_WORDS）。命中即丢弃
+        # 该 fill：不写答案、不生成提案、不计数；interaction_log 留痕不打断对话。
+        if _FILL_PLACEHOLDER_RE.search(fill.value.strip().strip(_FILL_PLACEHOLDER_STRIP)):
+            log_event(
+                session.session_id, "placeholder_fill_dropped",
+                field=key, value=fill.value[:80],
+            )
+            continue
         # J1 答案真值闸（fills 统一出口）：占位值/空串视同"本轮没有提取"——
         # 不写入、不拦截、不占用 first-write-wins 名额（真值 fill 仍可写同 key）。
         if not is_truthy_answer(fill.value):
@@ -1722,6 +1739,32 @@ def _build_reanchor_reply(session: A1Session) -> str:
     return "\n".join(lines)
 
 
+# P0-4 F2（商业加固批）：提案挂起时 chat 短指令前置消解。
+# 词表闭集与 routes chat_confirm 的自然语言映射同源（替换/换成→replace、
+# 合并/并存/都保留/两个都要→merge、放弃/算了/不要了→drop）。
+_CHAT_PROPOSAL_CHOICES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("替换", "换成"), "replace"),
+    (("合并", "并存", "都保留", "两个都要"), "merge"),
+    (("放弃", "算了", "不要了"), "drop"),
+)
+_CHAT_DIRECTIVE_MAX_CHARS = 6
+
+
+def _chat_proposal_directive(session: A1Session, text: str) -> str | None:
+    """pending_proposals 非空 + 短指令（≤6 字符）命中 替换/合并/放弃 →
+    返回 canonical choice；否则 None。前置短路（不进 LLM 通道竞争——
+    否则「放弃」被 deflected 通道吞掉，提案永不消解=死路）。"""
+    if not session.pending_proposals:
+        return None
+    stripped = text.strip()
+    if not stripped or len(stripped) > _CHAT_DIRECTIVE_MAX_CHARS:
+        return None
+    for words, choice in _CHAT_PROPOSAL_CHOICES:
+        if any(w in stripped for w in words):
+            return choice
+    return None
+
+
 def handle_message(
     session: A1Session,
     text: str,
@@ -1773,6 +1816,25 @@ def _handle_message_impl(
     # 6.5 按显式标志强制置 knowledge_request=true，不依赖内容判定）。
     if text.strip().startswith("[查一下]"):
         text = text.strip()[len("[查一下]"):].strip() or text
+
+    # ---- P0-4 F2：提案挂起时的 chat 短指令前置消解（先于一切通道） ----
+    directive = _chat_proposal_directive(session, text)
+    if directive is not None:
+        for key in list(session.pending_proposals):
+            resolve_proposal(session, key, directive)
+        reply = {
+            "replace": "已替换该内容。",
+            "merge": "已合并该内容。",
+            "drop": "已放弃该内容，可重新输入。",
+        }.get(directive, "已处理。")
+        log_event(session.session_id, "chat_proposal_resolved", choice=directive)
+        return {
+            "reply": reply,
+            "next_question": _question_payload(session),
+            "file_diff": [],
+            "progress": progress(session),
+            "phase": session.phase,
+        }
 
     if session.phase == PHASE_COMPLETED:
         # Completed tree: keep the conversation open for refinement.
@@ -1957,6 +2019,16 @@ def _handle_message_impl(
         }
 
     result = interviewer.interview(session, text)
+
+    # ---- P0-5 F3：本轮识别到开放问题回答 → 同步清 session 侧挂起展示态 ----
+    # routes 在 handle_message 之前把 pending open question 注入 interviewer
+    # （模块级单例跨轮存活）；file 侧 oq_log 落 answered 后，若 session 侧
+    # 不回清，下一轮 prompt 仍注入「回到刚才的问题」→ 已答重问
+    # （freeze-diagnosis F3）。回清穿透 Degrading 代理直达 inner。
+    if getattr(result, "open_question_answered", None):
+        inner = getattr(interviewer, "_inner", interviewer)
+        if getattr(inner, "_pending_open_question", None):
+            inner._pending_open_question = None
 
     # ---- D24 ①：知识对话态 fills 冻结（先于一切 fills 消费）----
     # active 时本轮 fills 一律丢弃（引擎执行权，不依赖 LLM 自律）；
