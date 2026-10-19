@@ -637,6 +637,12 @@ def graphify_llm(
         answers: dict[str, str] = {}
         n_clips = 0
         for k, v in raw_answers.items():
+            # D23 契约：prompt 只收 plain strings——AnswerNode 等非 str 值
+            # 先经 answer_view 摊平（B2 修复；惰性导入防层级问题，
+            # guide_engine 不 import graphify，无循环）。
+            if not isinstance(v, str):
+                from app.domains.creation.a1.guide_engine import answer_view
+                v = answer_view(v)
             clipped_value, was_clipped = clip_answer(v)
             answers[k] = clipped_value
             n_clips += int(was_clipped)

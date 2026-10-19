@@ -99,7 +99,6 @@ from app.domains.creation.modules.world_bible import (
     render_markdown as _render_bible_md,
 )
 from app.domains.creation.seed.a1_question_tree import (
-    MODULES,
     all_subfield_keys,
     first_subfield,
     get_module,
@@ -569,8 +568,12 @@ def _build_graph(
     )
 
     nodes, edges, bg_id, module_serial_by_id, entry_serial_by_id = (
+        # B1 修复（recipe-graph-repair）：按会话配方取模块（剧情/角色等
+        # 故事模块入图），不再硬编码世界观 MODULES（10 模块零匹配 = 空图根因）。
         assemble_background_tree(
-            _answers_view(session), MODULES, session.ip_code, session.session_id,
+            _answers_view(session),
+            [m for m in (get_module(mid) for mid in _recipe_module_ids(session)) if m],
+            session.ip_code, session.session_id,
             module_summaries=(
                 llm_result.module_summaries if llm_result is not None else None
             ),
