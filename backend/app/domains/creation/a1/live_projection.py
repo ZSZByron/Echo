@@ -17,6 +17,22 @@ from app.domains.creation.a1.tier_map import TIER_MAP
 from app.models.knowledge_graph import EdgeType, GraphEdge, GraphNode
 
 
+def module_continent(module_id: str) -> str:
+    """旧/新模块 id → THREE_TIER_TREE L1 归属；未知返回空串（诚实降级）。
+
+    双匹配：L2 id（如 IP定位/identity/key_relations）直配；L1 label
+    （剧情/角色 = 模块 id，与树 L2 字段 id 不同名）回退配 L1 label。
+    """
+    from app.domains.creation.seed.story_modules import THREE_TIER_TREE
+    for l1 in THREE_TIER_TREE:
+        for l2 in l1.get("l2", []):
+            if l2.get("id") == module_id:
+                return str(l1.get("id", ""))
+        if l1.get("label") == module_id:
+            return str(l1.get("id", ""))
+    return ""
+
+
 def assemble_background_tree(
     answers: dict[str, str],
     modules: list[dict[str, Any]],
@@ -68,6 +84,7 @@ def assemble_background_tree(
                 level=2,
                 description=l2_description,
                 tier=TIER_MAP.get(module_id),
+                continent=module_continent(module_id),
             )
             edges.append(GraphEdge(
                 from_node_id=bg_id,

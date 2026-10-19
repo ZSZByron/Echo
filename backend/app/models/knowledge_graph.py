@@ -54,6 +54,9 @@ class GraphNode(BaseModel):
     description: str = ""
     status: NodeStatus = NodeStatus.PENDING
     tier: int | None = None
+    # B3（recipe-graph-repair）：L1 大陆归属（THREE_TIER_TREE；活地图消费，
+    # 旧载荷缺省空串——additive，旧 JSON 兼容）。
+    continent: str = ""
 
 
 class GraphEdge(BaseModel):
