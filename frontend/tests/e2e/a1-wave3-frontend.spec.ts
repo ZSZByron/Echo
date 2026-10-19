@@ -114,6 +114,35 @@ const FILE_STATE_RESPONSE = {
   ],
 };
 
+// P0-7（商业加固批）：closing-state 专用正常载荷——带完整 preview
+// （历史缺陷：通配 file 路由遮蔽了 closing-state → 载荷无 preview →
+//  `closingState?.preview.consumers` 整树崩溃）。
+const CLOSING_STATE_RESPONSE = {
+  file_id: 'file-e2e',
+  triggered: false,
+  closing_step: 0,
+  settled: false,
+  preview: {
+    consumers: [],
+    modules: [],
+    missing_modules: [],
+    finalize_ready: false,
+  },
+};
+
+// 幕五专用：故意畸形的 closing-state 载荷（模拟端点演进/降级异常形状）——
+// triggered=true + preview.consumers 非数组 → ClosingPanel 渲染必然抛错，
+// 用于验证 ErrorBoundary 崩溃降级（错误卡可见 + 页面存活，绝不白屏）。
+const CLOSING_STATE_MALFORMED_RESPONSE = {
+  file_id: 'file-e2e',
+  triggered: true,
+  closing_step: 1,
+  settled: false,
+  preview: {
+    consumers: 'not-an-array',
+  },
+};
+
 interface ChatCapture {
   bodies: Array<Record<string, unknown>>;
 }
@@ -132,9 +161,12 @@ async function mockA1Endpoints(page: Page): Promise<ChatCapture> {
     }
     await route.fulfill({ json: CHAT_RESPONSE });
   });
-  // 注意注册顺序：Playwright 后注册者优先——graph 专用路由须晚于通用 file 路由
+  // 注意注册顺序：Playwright 后注册者优先——专用路由必须晚于通配 file 路由注册
   await page.route('**/api/a1/file/**', (route) => route.fulfill({ json: FILE_STATE_RESPONSE }));
   await page.route('**/api/a1/file/**/graph', (route) => route.fulfill({ json: GRAPH_RESPONSE }));
+  // P0-7：closing-state 专用 mock —— 后注册，抢在通配 file 路由之前命中
+  // （此前被遮蔽 → closingState 收到无 preview 的载荷 → 渲染崩溃）
+  await page.route('**/api/a1/file/**/closing-state', (route) => route.fulfill({ json: CLOSING_STATE_RESPONSE }));
   return capture;
 }
 
@@ -145,6 +177,20 @@ async function seedGraphViewStorage(page: Page) {
       workspaceState: 'graph_view',
       sessionId: 'sess-e2e',
       fileId: 'file-e2e',
+      messages: [],
+    }));
+    localStorage.setItem('user_id', 'u-e2e');
+  });
+}
+
+/** 预置持久化工作区状态：直达 guided_chat（崩溃降级幕共用） */
+async function seedGuidedChatStorage(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('a1_workspace_v1', JSON.stringify({
+      workspaceState: 'guided_chat',
+      sessionId: 'sess-e2e',
+      fileId: 'file-e2e',
+      ipCode: 'A1-E2E-0001',
       messages: [],
     }));
     localStorage.setItem('user_id', 'u-e2e');
@@ -215,5 +261,23 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
     expect(body.session_id).toBe('sess-e2e');
     expect(String(body.message)).toContain('安家');
     expect(String(body.message)).toContain('主角的怀表能倒转七秒');
+  });
+
+  test('幕五 崩溃降级：畸形 closing-state 载荷 → error-boundary 可见 + 页面存活', async ({ page }) => {
+    await mockA1Endpoints(page);
+    // 幕五专用：用畸形载荷覆写 closing-state mock（后注册优先）
+    await page.route('**/api/a1/file/**/closing-state', (route) => route.fulfill({ json: CLOSING_STATE_MALFORMED_RESPONSE }));
+    await seedGuidedChatStorage(page);
+    await page.goto('/a1');
+
+    // 崩溃被 ErrorBoundary 拦截：错误卡可见（绝非整树卸载白屏）
+    await expect(page.getByTestId('error-boundary')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('error-boundary-retry')).toBeVisible();
+    // 页面存活：root 仍有渲染内容（历史缺陷：崩溃后 childElementCount = 0）
+    const childCount = await page.evaluate(() => document.getElementById('root')?.childElementCount ?? 0);
+    expect(childCount).toBeGreaterThan(0);
+    // 重试入口可用（点击不抛未捕获异常、错误卡仍在——载荷持续畸形时降级稳定）
+    await page.getByTestId('error-boundary-retry').click();
+    await expect(page.getByTestId('error-boundary')).toBeVisible({ timeout: 15000 });
   });
 });
