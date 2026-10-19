@@ -10,6 +10,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchJson, ApiError } from '../../api/client';
 import { GuidedChat, type Message } from '../../components/guided/GuidedChat';
+import { ErrorBoundary } from '../../components/shared/ErrorBoundary';
 import { ImpulseCompass } from '../../components/guided/ImpulseCompass';
 import { ClosingPanel } from '../../components/guided/ClosingPanel';
 import { getImpulseCoords, getClosingState } from '../../api/a1';
@@ -399,6 +400,17 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
   // Error State
   const [error, setError] = useState<string | null>(null);
   const [missingSections, setMissingSections] = useState<string[] | null>(null);
+
+  // P1-5 loading 看门狗（商业加固批）：isChatLoading 卡死 125s → 自动解锁
+  // + 明示错误，绝不永久转圈；loading 结束/卸载时清定时器。
+  useEffect(() => {
+    if (!isChatLoading) return;
+    const timer = window.setTimeout(() => {
+      setIsChatLoading(false);
+      setError('请求超时，已自动解锁，请重试');
+    }, 125_000);
+    return () => window.clearTimeout(timer);
+  }, [isChatLoading]);
 
   // E0 冲动入口：卡片屏接线状态
   const [groupedSeeds, setGroupedSeeds] = useState<ReturnType<typeof groupSeedsByType> | null>(null);
@@ -917,7 +929,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       }
     } catch (err) {
       console.error('Failed to skip question:', err);
-      setError('Failed to skip question. Please try again.');
+      // P0-6 F4（商业加固批）：skip 失败必须可观测——错误条 + loading 复位，绝不静默
+      setError('跳过失败，请重试');
     } finally {
       setIsChatLoading(false);
     }
@@ -1446,7 +1459,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
                 ((closingState?.triggered ?? false) && !(closingSignal?.settled ?? false)) ||
                 (closingSignal?.triggered ?? false)
               }
-              consumers={closingState?.preview.consumers ?? []}
+              consumers={closingState?.preview?.consumers ?? []}
               onFinalize={finalizeFile}
               onContinue={() => setClosingSignal({ triggered: false, settled: false })}
             />
@@ -1708,8 +1721,14 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
         />
       )}
       {workspaceState === 'seed_selector' && !pendingUploadConfirm && renderSeedSelector()}
-      {workspaceState === 'guided_chat' && !pendingUploadConfirm && renderGuidedChat()}
-      {workspaceState === 'graph_view' && renderGraphView()}
+      {/* P0-2 商业加固批：聊天区渲染异常 → 降级错误卡，绝不整树卸载 */}
+      {workspaceState === 'guided_chat' && !pendingUploadConfirm && (
+        <ErrorBoundary>{renderGuidedChat()}</ErrorBoundary>
+      )}
+      {/* P0-2 商业加固批：图谱区渲染异常 → 降级错误卡（可返回聊天重试） */}
+      {workspaceState === 'graph_view' && (
+        <ErrorBoundary>{renderGraphView()}</ErrorBoundary>
+      )}
     </div>
   );
 }
