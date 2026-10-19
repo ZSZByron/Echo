@@ -18,6 +18,7 @@ const L2 = (id: string, serial: string, desc: string): GraphNode => ({
   level: 2,
   description: desc,
   status: 'completed',
+  continent: 'worldview',
 });
 
 const graphWith = (nodes: GraphNode[]): KnowledgeGraph => ({
@@ -53,7 +54,7 @@ describe('WorldMap 活地图七大陆（波次三 T2）', () => {
       />
     );
 
-    // serial 前缀 2-* → 世界观大陆：2 处 + 两个模块名
+    // fixture 节点带 continent:'worldview' → 世界观大陆亮起：2 处 + 两个模块名
     const worldview = screen.getByTestId('continent-worldview');
     expect(worldview.textContent).toContain('2 处');
     expect(worldview.textContent).toContain('地理模块');

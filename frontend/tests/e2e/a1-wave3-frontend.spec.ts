@@ -49,8 +49,8 @@ const GRAPH_RESPONSE = {
   background_node_id: 'bg',
   nodes: {
     bg: { id: 'bg', serial_number: '1', level: 1, description: 'World Background', status: 'completed' },
-    'm-1-1': { id: 'm-1-1', serial_number: '1-1', level: 2, description: '地理模块', status: 'completed' },
-    'm-2-1': { id: 'm-2-1', serial_number: '2-1', level: 2, description: '文化模块', status: 'completed' },
+    'm-1-1': { id: 'm-1-1', serial_number: '1-1', level: 2, description: '地理模块', status: 'completed', continent: 'worldview' },
+    'm-2-1': { id: 'm-2-1', serial_number: '2-1', level: 2, description: '文化模块', status: 'completed', continent: 'worldview' },
     'e-1-1-1': { id: 'e-1-1-1', serial_number: '1-1-1', level: 3, description: '地理: 环形群岛', status: 'completed' },
   },
   edges: [

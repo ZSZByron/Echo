@@ -25,15 +25,13 @@ function buildContinentMap(nodes: GraphNode[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const c of CONTINENTS) map.set(c.id, new Set());
   for (const n of nodes) {
-    // tier 1 = L1 大陆本身, tier 2 = L2 模块（已答=有内容节点存在）
-    if (n.level === 2 || n.tier === 2) {
-      // 尝试从 serial_number 或 id 推断 L1 归属
-      const parts = (n.serial_number || n.id).split('-');
-      const l1Idx = parseInt(parts[0], 10) - 1;
-      if (l1Idx >= 0 && l1Idx < CONTINENTS.length) {
-        map.get(CONTINENTS[l1Idx].id)?.add(n.description?.split(':')[0] || n.id);
-      }
-    }
+    // L2 判定只认 level===2（废弃 tier===2 误用与 serial 首段虚构映射）
+    if (n.level !== 2) continue;
+    // 归属只认 n.continent（后端 THREE_TIER_TREE L1 id）；
+    // 空/未知大陆 → 跳过不点亮（诚实降级，不猜）
+    const continent = n.continent ?? '';
+    if (!map.has(continent)) continue;
+    map.get(continent)!.add(n.description?.split(':')[0] || n.id);
   }
   return map;
 }
@@ -45,7 +43,11 @@ export interface WorldMapProps {
 export function WorldMap({ graph }: WorldMapProps) {
   const nodes = Object.values(graph?.nodes ?? {});
   const continentMap = React.useMemo(() => buildContinentMap(nodes), [nodes]);
-  const totalAnswered = nodes.filter(n => n.level === 2 || n.tier === 2).length;
+  // 总点亮 = 各大陆已答集合 size 之和（与卡片口径一致）
+  const totalAnswered = Array.from(continentMap.values()).reduce(
+    (sum, s) => sum + s.size,
+    0,
+  );
 
   return (
     <div className="world-map" style={{ padding: '16px' }}>

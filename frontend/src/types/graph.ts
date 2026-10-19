@@ -34,6 +34,8 @@ export interface GraphNode {
   level: number;
   /** Tier index from backend TIER_MAP (module-level hierarchy); absent on legacy nodes */
   tier?: number;
+  /** L1 continent from THREE_TIER_TREE; absent/empty on legacy nodes (honest degrade) */
+  continent?: string;
   /** Visual description of the asset */
   description: string;
   /** Current lifecycle status */
