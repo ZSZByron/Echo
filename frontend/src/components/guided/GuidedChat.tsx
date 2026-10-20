@@ -57,6 +57,8 @@ export interface GuidedChatProps {
   autoMerges?: AutoMergeDisclosure[];
   /** D23: optional parent callback after an undo (may refetch file panel) */
   onAutoMergeUndone?: (token: string) => void;
+  /** a1-oq-phase T4: 开放问题相位激活（placeholder 绑定当前问 + ✦ 卡为主体） */
+  oqPhaseActive?: boolean;
 }
 
 function DiceRecommendationCard({ recommendation }: { recommendation: DiceRecommendationResponse }) {
@@ -105,7 +107,8 @@ export function GuidedChat({
   alignments,
   fileId = '',
   autoMerges = [],
-  onAutoMergeUndone
+  onAutoMergeUndone,
+  oqPhaseActive = false
 }: GuidedChatProps) {
   const [input, setInput] = useState('');
   const [trayProposals, setTrayProposals] = useState<A1Proposal[]>([]);
@@ -225,8 +228,21 @@ export function GuidedChat({
   // Suspend next_question when proposals are present
   const showSuspendedMessage = displayProposals.length > 0;
 
+  // a1-oq-phase T4: 相位激活 → 输入框 placeholder = 当前待问问题文本
+  const inputPlaceholder =
+    oqPhaseActive && pendingQuestion ? pendingQuestion.question : 'Type your message...';
+
   return (
     <div className="flex flex-col h-full bg-slate-950 relative">
+      {/* a1-oq-phase T4: proposal 横幅（提案在场 → 顶部披露；输入保持可用，F2 短指令可消解） */}
+      {proposals.length > 0 && (
+        <div
+          data-testid="proposal-banner"
+          className="bg-amber-900/40 border-b border-amber-700/40 text-amber-200 text-sm px-4 py-2"
+        >
+          有一条待确认修改待处理
+        </div>
+      )}
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((message) => (
@@ -294,17 +310,23 @@ export function GuidedChat({
           </div>
         )}
 
-        {/* C7: 待问开放问题提示卡（提案在场时挂起——单问句铁律） */}
+        {/* C7: 待问开放问题提示卡（提案在场时挂起——单问句铁律）。
+            a1-oq-phase T4: 相位激活 → 卡为对话主体（data-phase 高亮）。 */}
         {pendingQuestion && !showSuspendedMessage && (
           <div className="flex justify-start">
             <div
               data-testid="pending-question-card"
-              className="max-w-2xl rounded-lg px-4 py-3 bg-slate-800 border border-nebula-400/40"
+              data-phase={oqPhaseActive ? 'active' : undefined}
+              className={`max-w-2xl rounded-lg px-4 py-3 bg-slate-800 border ${
+                oqPhaseActive
+                  ? 'border-nebula-400/70 shadow-[0_0_12px_rgba(167,139,250,0.15)]'
+                  : 'border-nebula-400/40'
+              }`}
             >
               <div className="text-nebula-400 text-xs font-medium mb-1">
                 ✦ 待问开放问题
               </div>
-              <div className="text-slate-100 text-sm">{pendingQuestion.question}</div>
+              <div className={`${oqPhaseActive ? 'text-slate-50 text-base' : 'text-slate-100 text-sm'}`}>{pendingQuestion.question}</div>
               <button
                 type="button"
                 data-testid="skip-question-btn"
@@ -345,7 +367,7 @@ export function GuidedChat({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder="Type your message..."
+            placeholder={inputPlaceholder}
             className="flex-1 bg-slate-900 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:border-indigo-500 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
           />
           <button

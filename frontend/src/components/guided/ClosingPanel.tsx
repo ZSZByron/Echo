@@ -46,27 +46,48 @@ export interface ClosingPanelProps {
   onFinalize: () => void;
   /** 「继续访谈录入设定」→ parent closes the panel, chat continues. */
   onContinue: () => void;
+  /**
+   * a1-oq-phase T4: 收尾变体（additive，缺省 "first" 字节不变）。
+   * - "first"：首次收尾（预设问完）——既有文案。
+   * - "refinalize"：二次收尾（开放问题清结）——产物语义 = 重定稿 + 文档再生成。
+   *   三问文案本体仍由后端 chat reply 流式下发，本组件只换标题/动作措辞。
+   */
+  variant?: 'first' | 'refinalize';
 }
+
+const PANEL_COPY = {
+  first: {
+    title: '快到收尾的时候了',
+    finalizeAction: '生成文档',
+  },
+  refinalize: {
+    title: '开放问题答完了——重新定稿你的文档',
+    finalizeAction: '重新定稿并更新文档',
+  },
+} as const;
 
 export function ClosingPanel({
   triggered,
   consumers,
   onFinalize,
   onContinue,
+  variant = 'first',
 }: ClosingPanelProps) {
   // 「改天继续」is purely local: static hint, no API calls, no navigation.
   const [laterHint, setLaterHint] = useState(false);
+  const copy = PANEL_COPY[variant];
 
   if (!triggered) return null;
 
   return (
     <div
       data-testid="closing-panel"
+      data-variant={variant}
       className="glass-panel p-5 border border-nebula-400/25"
     >
       <h3 className="text-stardust-300 text-lg font-medium mb-3 flex items-center gap-2">
         <span>✦</span>
-        快到收尾的时候了
+        {copy.title}
       </h3>
 
       {/* ⓪ Preview: read-only generatable outputs (human names, no downloads) */}
@@ -96,7 +117,7 @@ export function ClosingPanel({
           onClick={onFinalize}
           className="px-4 py-2 rounded-lg text-sm font-medium bg-stardust-400 text-space-950 hover:bg-stardust-300 glow-starlight transition-all"
         >
-          生成文档
+          {copy.finalizeAction}
         </button>
         <button
           type="button"

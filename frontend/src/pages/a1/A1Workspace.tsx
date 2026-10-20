@@ -114,6 +114,8 @@ interface ChatResponse {
   closing?: { step: number; settled: boolean; triggered: boolean };
   /** D23: 本轮发生的语义自动合并披露（无合并时缺省） */
   auto_merges?: AutoMergeDisclosure[];
+  /** a1-oq-phase T3 additive：开放问题相位激活（前端相位驱动契约键） */
+  oq_phase_active?: boolean;
 }
 
 /** T17+P0: open_questions 结构化记录契约（后端 C6：禁裸 list[str]） */
@@ -367,14 +369,20 @@ export function A1Workspace() {
   // C7: 待问开放问题提示卡 + 状态角标
   const [pendingQuestion, setPendingQuestion] = useState<{ id: string; question: string } | null>(null);
   const [pendingQuestionsCount, setPendingQuestionsCount] = useState(0);
+  // a1-oq-phase T4：相位态（chat 响应实时值优先；file 快照仅冷启动一次性恢复）
+  const [oqPhaseActive, setOqPhaseActive] = useState(false);
+  // a1-oq-phase T4：收尾面板变体（二次收尾 = 重定稿产物语义）
+  const [closingVariant, setClosingVariant] = useState<'first' | 'refinalize'>('first');
 // D21 T10: 待对齐推测列表（chat 响应 pending_alignments → GuidedChat 卡片）
 const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
   // D23: 本轮 auto_merges 披露（消息流内条）
   const [pendingAutoMerges, setPendingAutoMerges] = useState<AutoMergeDisclosure[]>([]);
   // D23: answers_tree（已确定内容树——有 children 的字段展开为子条目列表）
   const [answersTree, setAnswersTree] = useState<Record<string, AnswerNode> | undefined>(undefined);
-  // 去回答闭环：从服务端 file data 提升的归一化 open_questions（chat 实时值优先）
-  const [openQuestions, setOpenQuestions] = useState<OpenQuestionRecord[]>([]);
+  // 去回答闭环：从服务端 file data 提升的归一化 open_questions。
+  // a1-oq-phase T4：读取面（派生 effect）已删——待问卡单源化，仅写侧保留
+  // （file hydrate 落账；chat 实时值经 pending_question 单键驱动 UI）。
+  const [, setOpenQuestions] = useState<OpenQuestionRecord[]>([]);
   // stale fileId 恢复：一次性提示条（后端重启导致旧会话 404）
   const [staleSessionNotice, setStaleSessionNotice] = useState(false);
   const [pendingProposals, setPendingProposals] = useState<A1Proposal[]>([]);
@@ -536,6 +544,9 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     setUploadHighlight(false);
     setEntryNotice(null);
     // 种子列表（seeds）为 API 缓存非用户进度，保留不重置；isLoadingSeeds 同理
+    // a1-oq-phase T4：相位态复位
+    setOqPhaseActive(false);
+    setClosingVariant('first');
     // Refs: 重置会话期去重/暂存标记（cardShownTsRef 由 impulse_cards 曝光 effect 重写）
     cardShownTsRef.current = null;
     firstAnswerLoggedRef.current = false;
@@ -545,19 +556,9 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     setWorkspaceState('impulse_cards');
   };
 
-  // 去回答闭环：回到访谈页时若无 chat 实时 pending_question（null），
-  // 从服务端 open_questions 派生最老 pending/asked 卡片；chat 响应的实时值优先，
-  // 用户在访谈中回答/跳过后由现有 chat 响应链路刷新。
-  useEffect(() => {
-    if (workspaceState !== 'guided_chat') return;
-    if (pendingQuestion !== null) return;
-    if (openQuestions.length === 0) return;
-    const derived = deriveOldestPendingQuestion(openQuestions);
-    setPendingQuestionsCount(derived.count);
-    if (derived.question) {
-      setPendingQuestion(derived.question);
-    }
-  }, [workspaceState, pendingQuestion, openQuestions]);
+  // a1-oq-phase T4：file 派生 pendingQuestion 的竞态 effect 已整段删除——
+  // 待问卡单源化：file 快照仅在 oq_phase_active 冷启动时一次性恢复；
+  // 之后全部由 chat 响应（pending_question + oq_phase_active）驱动。
 
   // Hydrate file state when fileId changes (skip in graph_view to avoid
   // re-render cycle — GraphViewContent loads its own file data locally)
@@ -581,10 +582,23 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
             }>;
             open_questions?: Array<OpenQuestionRecord | string>;
             answers_tree?: Record<string, AnswerNode>;
+            /** a1-oq-phase T3 additive：相位键 + 当前待问（冷启动恢复） */
+            oq_phase_active?: boolean;
+            pending_question?: { id: string; question: string } | null;
+            pending_questions_count?: number;
           }>(`/api/a1/file/${fileId}`);
 
           if (response.open_questions) {
             setOpenQuestions(normalizeOpenQuestions(response.open_questions));
+          }
+
+          // a1-oq-phase T4：冷启动恢复（一次性，非竞态源——此后 chat 响应值优先）
+          if (response.oq_phase_active) {
+            setOqPhaseActive(true);
+            if (response.pending_question) {
+              setPendingQuestion(response.pending_question);
+              setPendingQuestionsCount(response.pending_questions_count ?? 0);
+            }
           }
 
           // Set file state
@@ -857,6 +871,13 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       setPendingQuestion(response.pending_question ?? null);
       setPendingQuestionsCount(response.pending_questions_count ?? 0);
 
+      // a1-oq-phase T4：相位实时值（chat 响应优先于 file 快照）+ 二次收尾变体
+      const prevPhase = oqPhaseActive;
+      setOqPhaseActive(response.oq_phase_active ?? false);
+      if (response.closing?.triggered && prevPhase && response.oq_phase_active === false) {
+        setClosingVariant('refinalize');   // 相位清结触发的二次收尾
+      }
+
       // D21-12：每次 chat 响应后轻量刷新罗盘坐标（复用本 fetch 时序，无轮询）
       if (fileId) await refreshCompass(fileId);
 
@@ -914,6 +935,13 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
       }]);
       setPendingQuestion(response.pending_question ?? null);
       setPendingQuestionsCount(response.pending_questions_count ?? 0);
+      // a1-oq-phase T4：skip 路径相位实时值同步 + 二次收尾变体判定
+      // （镜像 sendMessage 同款条件式——skip 闭结也触发 refinalize 语义）
+      const prevPhase = oqPhaseActive;
+      setOqPhaseActive(response.oq_phase_active ?? false);
+      if (response.closing?.triggered && prevPhase && response.oq_phase_active === false) {
+        setClosingVariant('refinalize');   // 相位清结触发的二次收尾
+      }
       // D21 T10: skip 路径同样可能携带待对齐推测
       if (response.pending_alignments && response.pending_alignments.length > 0) {
         setPendingAlignments(response.pending_alignments);
@@ -1383,6 +1411,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
             fileId={fileId || ''}
             autoMerges={pendingAutoMerges}
             onAutoMergeUndone={() => { if (fileId) void refreshFile(fileId); }}
+            oqPhaseActive={oqPhaseActive}
           />
         </div>
         
@@ -1459,14 +1488,17 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
                 ((closingState?.triggered ?? false) && !(closingSignal?.settled ?? false)) ||
                 (closingSignal?.triggered ?? false)
               }
+              variant={closingVariant}
               consumers={closingState?.preview?.consumers ?? []}
               onFinalize={finalizeFile}
               onContinue={() => setClosingSignal({ triggered: false, settled: false })}
             />
             <button
               onClick={finalizeFile}
-              disabled={!finalizable || isChatLoading}
-              title={finalizable
+              disabled={!finalizable || isChatLoading || oqPhaseActive}
+              title={oqPhaseActive
+                ? '先答完/跳过开放问题，从收尾处定稿'
+                : finalizable
                 ? '定稿并生成知识图谱与展板'
                 : '每个板块需完成超过50%的字段后方可定稿'}
               className={`w-full px-6 py-4 rounded-lg font-medium transition-all ${
