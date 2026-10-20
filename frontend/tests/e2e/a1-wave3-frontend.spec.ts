@@ -281,3 +281,142 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
     await expect(page.getByTestId('error-boundary')).toBeVisible({ timeout: 15000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 幕六（a1-oq-phase T5）：开放问题全链
+// 访谈快进 → 第一次收尾 → 「继续访谈」→ 相位进入（✦ 卡+placeholder 绑定）
+// → 答一题（已记下回执）→ 跳一题 → 二次收尾（refinalize 语义）→ 页面存活。
+// 四要素：entered 回执 / skip 推进 / 二次收尾文案 / 页面存活。
+// ---------------------------------------------------------------------------
+
+const OQ_Q1 = '这个世界的纪年是什么？';
+const OQ_Q2 = '这个世界最珍贵的资源是什么？';
+
+const OQ_FILE_RESPONSE = {
+  ...FILE_STATE_RESPONSE,
+  status: 'draft',
+  oq_phase_active: false,
+  pending_question: null,
+  pending_questions_count: 0,
+};
+
+const CLOSING_STATE_REFINALIZE_RESPONSE = {
+  ...CLOSING_STATE_RESPONSE,
+  preview: {
+    consumers: [
+      { id: 'world_bible', kind: 'd22' },
+      { id: 'character_codex', kind: 'd22' },
+    ],
+    modules: [],
+    missing_modules: [],
+    finalize_ready: true,
+  },
+};
+
+test.describe('a1-oq-phase 幕六：开放问题全链（路由 mock，零 LLM）', () => {
+  test('幕六 全链：进入 → 答 → 跳 → 二次收尾 → 页面存活', async ({ page }) => {
+    // 状态化 chat mock：按请求体路由（skip vs 顺序轮次），镜像后端 T1-T3 契约
+    let chatTurn = 0;
+    await page.route('**/api/a1/seeds', (route) => route.fulfill({ json: SEEDS_RESPONSE }));
+    await page.route('**/api/a1/session/start', (route) => route.fulfill({ json: SESSION_START_RESPONSE }));
+    await page.route('**/api/a1/chat', async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      let payload: Record<string, unknown>;
+      if (body.skip_question_id) {
+        // 跳末题 → 相位闭合 + 二次收尾触发（T3 skip 路径契约）
+        payload = {
+          reply: `好的，这个问题先跳过。\n开放问题都答完了。你的回答已并入设定，重新定稿后文档会同步更新：世界圣经、人物志、故事大纲这些文档（还有面向跑团的进阶件）。想现在生成文档，还是继续访谈、补充设定？`,
+          oq_phase_active: false,
+          pending_question: null,
+          pending_questions_count: 0,
+          closing: { step: 1, settled: false, triggered: true },
+          progress: { sections: [], finalizable: true },
+        };
+      } else {
+        chatTurn += 1;
+        if (chatTurn === 1) {
+          // 访谈快进：普通访谈轮
+          payload = { ...CHAT_RESPONSE };
+        } else if (chatTurn === 2) {
+          // 第一次收尾触发（首收前缀语义）
+          payload = {
+            reply: '预设的问题都聊完了。想现在生成文档，还是继续访谈、补充设定？',
+            closing: { step: 1, settled: false, triggered: true },
+            progress: { sections: [], finalizable: true },
+          };
+        } else if (chatTurn === 3) {
+          // 「继续访谈」→ 相位进入（T1 entered 语义：active + 待问 2）
+          payload = {
+            reply: `好，那就继续聊。开放问题：${OQ_Q1}`,
+            oq_phase_active: true,
+            pending_question: { id: 'oq-001', question: OQ_Q1 },
+            pending_questions_count: 2,
+            progress: { sections: [], finalizable: true },
+          };
+        } else {
+          // 答一题 → 确定性回执 + 推进下一问（T2 门契约）
+          payload = {
+            reply: '已记下你的回答。下一问：这个世界的纪年是什么？'.replace(OQ_Q1, OQ_Q2),
+            oq_phase_active: true,
+            pending_question: { id: 'oq-002', question: OQ_Q2 },
+            pending_questions_count: 1,
+            progress: { sections: [], finalizable: true },
+          };
+        }
+      }
+      await route.fulfill({ json: payload });
+    });
+    await page.route('**/api/a1/file/**', (route) => route.fulfill({ json: OQ_FILE_RESPONSE }));
+    await page.route('**/api/a1/file/**/closing-state', (route) => route.fulfill({ json: CLOSING_STATE_REFINALIZE_RESPONSE }));
+
+    await seedGuidedChatStorage(page);
+    await page.goto('/a1');
+
+    // —— 访谈快进：发两条消息（普通访谈轮 ×2，第二轮触发首次收尾）
+    const textarea = page.getByPlaceholder('Type your message...');
+    await textarea.fill('主线是钟表匠找回记忆');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('收到，已记下你的想法。')).toBeVisible({ timeout: 15000 });
+    await textarea.fill('主角住在钟楼里');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // —— 第一次收尾：面板（first 变体）出现
+    const panel = page.getByTestId('closing-panel');
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    await expect(panel).toHaveAttribute('data-variant', 'first');
+
+    // —— 「继续访谈」→ 下一轮 mock 带相位进入语义
+    await page.getByTestId('closing-action-continue').click();
+    await textarea.fill('继续访谈');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // 【要素 1】entered：✦ 卡相位激活 + placeholder 绑定当前问 + 定稿禁用
+    const card = page.getByTestId('pending-question-card');
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card).toHaveAttribute('data-phase', 'active');
+    await expect(page.getByPlaceholder(OQ_Q1)).toBeVisible();
+    const finalizeBtn = page.getByRole('button', { name: /定稿/ });
+    await expect(finalizeBtn).toBeDisabled();
+    await expect(finalizeBtn).toHaveAttribute('title', '先答完/跳过开放问题，从收尾处定稿');
+
+    // —— 答一题：确定性回执「已记下」+ 下一问（相位内 placeholder=当前问）
+    await page.getByPlaceholder(OQ_Q1).fill('纪年是新历四百年');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText(/已记下你的回答/)).toBeVisible({ timeout: 15000 });
+    // 【要素 2 前半】推进：placeholder 切到下一问
+    await expect(page.getByPlaceholder(OQ_Q2)).toBeVisible({ timeout: 15000 });
+
+    // —— 跳一题：skip 按钮触发跳过请求
+    await page.getByTestId('skip-question-btn').click();
+
+    // 【要素 3】二次收尾：面板切 refinalize 变体 + 重定稿文案可见
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    await expect(panel).toHaveAttribute('data-variant', 'refinalize');
+    await expect(page.getByText(/重新定稿后文档会同步更新/)).toBeVisible();
+
+    // 【要素 4】页面存活：error-boundary 不在、root 有内容
+    await expect(page.getByTestId('error-boundary')).toHaveCount(0);
+    const childCount = await page.evaluate(() => document.getElementById('root')?.childElementCount ?? 0);
+    expect(childCount).toBeGreaterThan(0);
+  });
+});
