@@ -39,6 +39,13 @@ TRIGGER_PREFIX = (
     "世界圣经、人物志、故事大纲这些文档（还有面向跑团的进阶件）。"
 )
 
+#: 二次收尾能力告知前缀（a1-oq-phase T3）：产物语义 = 重定稿 + 文档
+#: 再生成。三问文案（QUESTIONS）零复制复用——只换前缀，不建第二份文案。
+REFINALIZE_PREFIX = (
+    "开放问题都答完了。你的回答已并入设定，重新定稿后文档会同步更新："
+    "世界圣经、人物志、故事大纲这些文档（还有面向跑团的进阶件）。"
+)
+
 #: 三连问：step → {key, text}。key 即 closing_answers 的存取键。
 QUESTIONS: tuple[dict[str, str], ...] = (
     {"key": "q1", "text": "想现在生成文档，还是继续访谈、补充设定？"},
@@ -65,8 +72,12 @@ def closing_settled(session: A1Session) -> bool:
     return session.closing_settled
 
 
-def maybe_trigger(session: A1Session) -> str | None:
+def maybe_trigger(session: A1Session, *, variant: str = "first") -> str | None:
     """轮末检查：双条件命中且未进入收尾态 → 进入 Q1，返回提示文案。
+
+    ``variant``（additive，a1-oq-phase T3 参数化）："first"（默认，
+    TRIGGER_PREFIX 逐字节不变）| "refinalize"（REFINALIZE_PREFIX——
+    产物语义 = 重定稿 + 文档再生成）。三问文案零复制。
 
     已在收尾态（1..3）或已 settled → None（幂等，不重置进度）。
     """
@@ -75,7 +86,27 @@ def maybe_trigger(session: A1Session) -> str | None:
     if not is_preset_phase_complete(session):
         return None
     session.closing_step = 1
-    return f"{TRIGGER_PREFIX}{_question_text(1)}"
+    prefix = REFINALIZE_PREFIX if variant == "refinalize" else TRIGGER_PREFIX
+    return f"{prefix}{_question_text(1)}"
+
+
+def retrigger_after_oq(session: A1Session) -> str | None:
+    """oq_phase 清结后触发**第二次**收尾（a1-oq-phase T3）。
+
+    复用 D21 三问状态机：settled 解锁一次 + step 0→1 + refinalize 变体
+    前缀（QUESTIONS 文案零复制）。三问再走完后重新 settled，产物经既有
+    finalize 机制重定稿（不建新路径）。
+
+    - 收尾态进行中（1..3）→ None（幂等，不重置进度）。
+    - 预设门禁未满 → None（>50% 只进不出语义零触碰）。
+    """
+    if 1 <= session.closing_step <= 3:
+        return None
+    if not is_preset_phase_complete(session):
+        return None
+    session.closing_settled = False
+    session.closing_step = 1
+    return f"{REFINALIZE_PREFIX}{_question_text(1)}"
 
 
 def _match_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -129,6 +160,10 @@ DOC_ENDPOINTS: tuple[str, ...] = (
 DOC_ARTIFACT_NAMES = "世界圣经、人物志、故事大纲"
 
 
+#: 轮次达帽后的诚实提示（oq_phase 达限不再重开——施工单 Metis 循环防护）。
+OQ_ROUND_CAP_NOTICE = "开放问题已经答满两轮，就不再单独开一轮了，直接接着聊。"
+
+
 def _after_answer(session: A1Session, step: int, ans: str) -> str:  # noqa: ARG001 (session: 状态机签名约定，供调用方统一传参)
     """作答后的确认 + 下一问文案（覆盖本轮闲聊噪声回复，说人话）。"""
     if step == 1:
@@ -149,8 +184,14 @@ def _after_answer(session: A1Session, step: int, ans: str) -> str:  # noqa: ARG0
     return "好，那今天就到这——想继续随时回来，进度都在。"
 
 
-def advance_answer(session: A1Session, text: str) -> str | None:
+def advance_answer(
+    session: A1Session, text: str, oq_log: Any | None = None
+) -> str | None:
     """收尾态中对用户输入做显式作答判定并推进状态机。
+
+    ``oq_log``（additive 可选，a1-oq-phase T1）：Q1「继续访谈」分支的
+    相位进入判定数据源——待问 ≥1 才置位 oq_phase（enter_or_reopen）；
+    None = 既有调用方零改动（自由访谈语义逐字节保持）。
 
     返回值：
     - 语义答案字符串（显式选择）：已落 ``closing_answers``、推进 step、
@@ -167,6 +208,14 @@ def advance_answer(session: A1Session, text: str) -> str | None:
     if ans is None:
         return None
     session.closing_answers[_question(step)["key"]] = ans
+    if step == 1 and ans == "continue" and oq_log is not None:
+        from app.domains.creation.a1.oq_phase import begin_or_reopen
+
+        if not begin_or_reopen(session, oq_log) and (
+            session.oq_round >= 2 and oq_log.next_pending() is not None
+        ):
+            # 轮次达帽：诚实提示，不重开（状态机照常推进到 Q2）。
+            return OQ_ROUND_CAP_NOTICE + _question_text(2)
     if step == 3:
         session.closing_step = 0
         session.closing_settled = True
@@ -176,11 +225,14 @@ def advance_answer(session: A1Session, text: str) -> str | None:
     return _after_answer(session, step, ans)
 
 
-def interject(session: A1Session, text: str, out: dict[str, Any]) -> dict[str, Any]:
+def interject(
+    session: A1Session, text: str, out: dict[str, Any], oq_log: Any | None = None
+) -> dict[str, Any]:
     """``_handle_message_impl`` 轮末钩子（非阻塞，追加/覆盖 reply 文案）。
 
     - 收尾态中显式作答 → 推进状态机，**覆盖**本轮回复（闲聊噪声对三问
-      无意义）；确认 + 下一问 / 落定语。
+      无意义）；确认 + 下一问 / 落定语。``oq_log``（additive 可选）透传
+      advance_answer——Q1「继续访谈」分支的 oq_phase 进入判定（T1）。
     - 收尾态中设定内容 → 自由流原回复保留；条件仍满足 → 追加重提示
       当前问题（re-hit re-prompt）。
     - 未触发 → 双条件命中则进入 Q1：原回复保留 + 追加能力告知 + 首问。
@@ -188,7 +240,7 @@ def interject(session: A1Session, text: str, out: dict[str, Any]) -> dict[str, A
     """
     if 1 <= session.closing_step <= 3:
         step = session.closing_step
-        reply = advance_answer(session, text)
+        reply = advance_answer(session, text, oq_log=oq_log)
         if reply is not None:
             out["reply"] = reply
             return out

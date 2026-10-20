@@ -774,6 +774,12 @@ class A1Session(BaseModel):
     # bool=False/int=0 零迁移（G3 先例）。
     mirror_thread_active: bool = False
     mirror_thread_turns: int = 0
+    # a1-oq-phase 施工单 T1：开放问题相位状态机（oq_phase.py）。active=
+    # 相位激活（收尾「继续访谈」且待问 ≥1 才置位）；round=进入次数计数
+    # （首进=1、重开=2，硬上限 OQ_ROUND_CAP=2）。bool=False/int=0 零迁移
+    # （mirror_thread 先例）。
+    oq_phase_active: bool = False
+    oq_round: int = 0
 
 
 def first_question() -> dict[str, Any]:
@@ -1765,19 +1771,65 @@ def _chat_proposal_directive(session: A1Session, text: str) -> str | None:
     return None
 
 
+def _oq_phase_gate(
+    session: A1Session, text: str, oq_log: Any | None
+) -> dict[str, Any] | None:
+    """oq_phase 相位门（a1-oq-phase T2，F2 之后、六通道级联之前）。
+
+    - 待问在场 → 非空文本确定性记为当前 oq 作答（mark_answered，截断
+      2000 J4 先例）；回执 = 模板（末题接 T3 二次收尾话术接缝）+ 相位
+      闭合复位。零 LLM、零 fills、零 proposals。
+    - 待问已空（竞态/刷新残影）→ maybe_close 复位 + 返回 None（落回
+      原级联，原有路由语义零改动）。
+    - oq_log=None（旧调用方）→ 原样放行级联（additive 零改动）。
+    """
+    if oq_log is None:
+        return None
+    from app.domains.creation.a1 import oq_phase
+
+    current = oq_log.next_pending()
+    if current is None:
+        oq_phase.maybe_close(session, oq_log)  # 竞态兜底：复位 + closed 埋点
+        return None
+    oq_log.mark_answered(current.id, text.strip()[:2000])
+    nxt = oq_log.next_pending()
+    if nxt is not None:
+        reply = oq_phase.ANSWER_NEXT_TMPL.format(question=nxt.question)
+    else:
+        oq_phase.maybe_close(session, oq_log)  # 末题清结：复位 + closed 埋点
+        reply = oq_phase.ANSWER_LAST_NOTE
+        # a1-oq-phase T3：二次收尾触发（D21 复用，产物语义=重定稿）。
+        from app.domains.creation.a1.closing_flow import retrigger_after_oq
+
+        _rf = retrigger_after_oq(session)
+        if _rf is not None:
+            reply = f"{reply}\n{_rf}"
+    return {
+        "reply": reply,
+        "next_question": _question_payload(session),
+        "file_diff": [],
+        "progress": progress(session),
+        "phase": session.phase,
+    }
+
+
 def handle_message(
     session: A1Session,
     text: str,
     interviewer: Interviewer,
+    oq_log: Any | None = None,
 ) -> dict[str, Any]:
     """M4b 包装：轮次计数 + 看门狗建议附加（additive 可选键 ``watchdog``）。
 
     决策逻辑零改动（_handle_message_impl 为原函数体）；看门狗只在结果
     dict 上**新增**可选键，不改 reply/next_question/指针（LLM 不进控制
     流——提示内容是确定性模板）。
+
+    ``oq_log``（additive 可选，a1-oq-phase T1）：透传收尾「继续访谈」
+    分支做 oq_phase 进入判定；None = 既有调用方零改动。
     """
     session.message_rounds += 1
-    out = _handle_message_impl(session, text, interviewer)
+    out = _handle_message_impl(session, text, interviewer, oq_log=oq_log)
     from app.domains.creation.a1.watchdog import check_watchdog
 
     wd = check_watchdog(session)
@@ -1790,6 +1842,7 @@ def _handle_message_impl(
     session: A1Session,
     text: str,
     interviewer: Interviewer,
+    oq_log: Any | None = None,
 ) -> dict[str, Any]:
     """Process one user message with LLM understanding.
 
@@ -1835,6 +1888,16 @@ def _handle_message_impl(
             "progress": progress(session),
             "phase": session.phase,
         }
+
+    # ---- a1-oq-phase T2：oq_phase 前置相位门（F2 之后、六通道级联之前）----
+    # 相位内一切非空文本 = 确定性记为当前 oq 作答（零 LLM、零 fills、零
+    # proposals——Metis 防 creep：无闲聊分支）。提案短指令（F2）已在上方
+    # 消解（共存：提案消解后回 oq 流）；skip_question_id 走 routes 既有
+    # 跳过路径（先于本函数）；竞态兜底（待问已空）→ 复位落回原级联。
+    if session.oq_phase_active and text.strip():
+        gate_out = _oq_phase_gate(session, text, oq_log)
+        if gate_out is not None:
+            return gate_out
 
     if session.phase == PHASE_COMPLETED:
         # Completed tree: keep the conversation open for refinement.
@@ -2241,7 +2304,8 @@ def _handle_message_impl(
         # D21 收尾三连问（T10）+ T17 对齐触发：轮末同帧定序
         # （先对齐后收尾，ROUND_SIGNAL_ORDER；pending 时收尾延后）。
         out_fills = _round_end_signals(
-            session, text, out_fills, provider, pre_module=pre_module
+            session, text, out_fills, provider, pre_module=pre_module,
+            oq_log=oq_log,
         )
         # D23 自动合并轻量披露（最后附加——前面任何 wholesale 替换都不覆盖）。
         new_merges = session.auto_merge_log[pre:]
@@ -2285,7 +2349,7 @@ def _handle_message_impl(
         out["reply"] += _invite_notice(_invited)
     # D21 收尾三连问（T10）+ T17 对齐触发：同上（同帧定序）。
     out = _round_end_signals(
-        session, text, out, provider, pre_module=pre_module
+        session, text, out, provider, pre_module=pre_module, oq_log=oq_log
     )
     # D24 ①披露尾注（§1.5）：知识二段成功轮 → 回复尾追加。仅 knowledge
     # 通道；user_confused 路径（knowledge_used=False）不经过此分支。
@@ -2386,6 +2450,7 @@ def _round_end_signals(
     provider: Any,
     *,
     pre_module: str,
+    oq_log: Any | None = None,
 ) -> dict[str, Any]:
     """轮末同帧定序（``ROUND_SIGNAL_ORDER``）：先对齐，后收尾。
 
@@ -2401,7 +2466,7 @@ def _round_end_signals(
     pre_closing_step = session.closing_step
     from app.domains.creation.a1.closing_flow import interject as _closing_hook
 
-    out = _closing_hook(session, text, out)
+    out = _closing_hook(session, text, out, oq_log=oq_log)
     # 批D：灵感架回收时机一（自由流提议）+ 时机二（收尾预览摊开）——
     # closing 触发环节（step 0→1 跃迁）同帧执行，不改变三连问状态机。
     return _rack_round_end(

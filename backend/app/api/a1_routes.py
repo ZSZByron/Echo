@@ -793,11 +793,36 @@ async def chat(req: ChatRequest) -> dict:
 
     # ---- C7: 跳过待问（status=skipped 持久，upsert 不复活） ----
     if req.skip_question_id:
+        from app.domains.creation.a1.oq_phase import (
+            SKIP_LAST_NOTE,
+            SKIP_NEXT_TMPL,
+            maybe_close,
+        )
+
         skipped = oq_log.mark_skipped(req.skip_question_id)
+        _phase_closed = False
         if skipped and rec_for_oq is not None:
             rec_for_oq["open_questions"] = oq_log.dump()
+            # a1-oq-phase T1：跳过致待问清结 → 相位闭合复位 + closed 埋点。
+            _phase_closed = maybe_close(session, oq_log)
+        reply = "好的，这个问题先跳过，我们继续。"
+        if skipped and session.oq_phase_active:
+            # a1-oq-phase T2：相位激活时跳过回执带下一问 / 清结语（零 LLM）。
+            _nq = oq_log.next_pending()
+            reply = (
+                SKIP_NEXT_TMPL.format(question=_nq.question)
+                if _nq is not None
+                else SKIP_LAST_NOTE
+            )
+        if _phase_closed:
+            # a1-oq-phase T3：末题跳过清结 → 二次收尾触发（重定稿语义）。
+            from app.domains.creation.a1.closing_flow import retrigger_after_oq
+
+            _rf = retrigger_after_oq(session)
+            if _rf is not None:
+                reply = f"{reply}\n{_rf}"
         out: dict[str, Any] = {
-            "reply": "好的，这个问题先跳过，我们继续。",
+            "reply": reply,
             "next_question": _question_payload(session),
             "file_diff": [],
             "progress": progress(session),
@@ -806,6 +831,8 @@ async def chat(req: ChatRequest) -> dict:
             "divergent_question": None,
         }
         out.update(_open_question_payload(oq_log, session))
+        # a1-oq-phase T3 additive：相位键（前端驱动契约）。
+        out["oq_phase_active"] = session.oq_phase_active
         out["closing"] = _closing_signal(session)
         out["pending_alignments"] = _pending_alignments_payload(session)
         _save_store()
@@ -817,7 +844,7 @@ async def chat(req: ChatRequest) -> dict:
         interviewer.set_pending_open_question(pending_oq.model_dump())
 
     out = await asyncio.to_thread(
-        handle_message, session, req.message, interviewer
+        handle_message, session, req.message, interviewer, oq_log
     )
     nq = out.get("next_question") or {}
     log_event(
@@ -868,7 +895,21 @@ async def chat(req: ChatRequest) -> dict:
                 question_id=answered["id"],
                 answer=answered["answer"][:200],
             )
+            # a1-oq-phase T1：作答致待问清结 → 相位闭合复位 + closed 埋点。
+            from app.domains.creation.a1.oq_phase import maybe_close
+
+            if maybe_close(session, oq_log):
+                # a1-oq-phase T3：末题作答清结 → 二次收尾触发（重定稿语义）。
+                from app.domains.creation.a1.closing_flow import (
+                    retrigger_after_oq,
+                )
+
+                _rf = retrigger_after_oq(session)
+                if _rf is not None:
+                    out["reply"] = out.get("reply", "") + "\n" + _rf
     out.update(_open_question_payload(oq_log, session))
+    # a1-oq-phase T3 additive：相位键（前端驱动契约；刷新/冷启动同源）。
+    out["oq_phase_active"] = session.oq_phase_active
 
     # Add dice recommendation when on 骰子设定 module and first subfield
     if session.current_module == "骰子设定":
@@ -1427,6 +1468,11 @@ def get_file(file_id: str) -> dict:
         "field_sources": dict(session.field_sources),
         # T5（波次三）：material_pool 灵感架存量透出（前端 RackPanel 消费）
         "material_pool": list(session.material_pool),
+        # a1-oq-phase T3 additive：相位键 + 当前待问（前端冷启动恢复）
+        "oq_phase_active": session.oq_phase_active,
+        **_open_question_payload(
+            OpenQuestionLog.load(rec.get("open_questions") or []), session
+        ),
     }
 
 

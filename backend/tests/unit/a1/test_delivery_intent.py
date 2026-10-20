@@ -180,6 +180,8 @@ _T9_SESSION_FIELDS = frozenset(
         "material_pool", "list_thread_key", "list_thread_turns",
         # 批C additive 两枚（拍2-18 讨论镜像停驻态，裁定 D26——D24 先例）
         "mirror_thread_active", "mirror_thread_turns",
+        # a1-oq-phase 批 additive 两枚（开放问题相位状态机，oq_phase.py）
+        "oq_phase_active", "oq_round",
     }
 )
 

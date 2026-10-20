@@ -254,6 +254,8 @@ _A1SESSION_OLD_FIELDS = frozenset({
 _A1SESSION_NEW_FIELDS = frozenset({
     "material_pool", "list_thread_key", "list_thread_turns",
     "mirror_thread_active", "mirror_thread_turns",
+    # a1-oq-phase 批：开放问题相位状态机（oq_phase.py，bool=False/int=0 零迁移）
+    "oq_phase_active", "oq_round",
 })
 
 

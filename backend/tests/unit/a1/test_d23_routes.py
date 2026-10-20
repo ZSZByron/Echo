@@ -189,7 +189,7 @@ class TestChatAutoMergesPassthrough:
         merges happened) is returned as-is by the /api/a1/chat route."""
         from app.api import a1_routes
 
-        def fake_handle_message(session, message, interviewer):
+        def fake_handle_message(session, message, interviewer, oq_log=None):  # noqa: ARG001 (oq_log: additive 契约占位)
             return {
                 "reply": "已合并。",
                 "file_diff": [],
