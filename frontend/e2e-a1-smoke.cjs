@@ -1,4 +1,4 @@
-// T13a item 5: /a1 smoke test — three-state flow interactive, star theme,
+// T13a item 5: /a1v2 smoke test — three-state flow interactive, star theme,
 // old CRT page untouched.
 const { chromium } = require('@playwright/test');
 
@@ -10,7 +10,7 @@ const { chromium } = require('@playwright/test');
   page.on('pageerror', (e) => errors.push(String(e)));
 
   // State 1: seed selector — 8 seed cards render
-  await page.goto('http://localhost:5173/a1');
+  await page.goto('http://localhost:5173/a1v2');
   await page.waitForTimeout(1500);
   const body = await page.textContent('body');
   const hasSeeds = /深渊低语|霓虹窃案|破晓之剑/.test(body || '');

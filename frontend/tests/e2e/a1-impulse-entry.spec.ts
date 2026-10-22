@@ -103,9 +103,9 @@ async function installApiMocks(page: Page, capture: { start?: StartCapture }) {
   await page.route('**/api/a1/upload', (route) => route.fulfill({ json: UPLOAD_PARSED_RESPONSE }));
 }
 
-/** 每用例前置：mock 安装后进 /a1 清 localStorage 再刷新（新用户 → 卡片屏） */
+/** 每用例前置：mock 安装后进 /a1v2 清 localStorage 再刷新（新用户 → 卡片屏） */
 async function freshVisit(page: Page) {
-  await page.goto('/a1');
+  await page.goto('/a1v2');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId('impulse-cards')).toBeVisible();
@@ -300,7 +300,7 @@ test.describe('既有路径回归', () => {
       localStorage.setItem('a1_return_intent', 'chat');
     });
 
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
     await expect(page.getByTestId('impulse-cards')).toHaveCount(0);

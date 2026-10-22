@@ -200,7 +200,7 @@ async function seedGuidedChatStorage(page: Page) {
 test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
   test('幕一 开场语：一句话开始 → 新开场语同源可见，旧语缺席', async ({ page }) => {
     await mockA1Endpoints(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     // 冲动入口 → 剧情卡 → 确认（一句话开始路径）
     await page.getByTestId('impulse-card-plot').click();
@@ -216,7 +216,7 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
   test('幕二 图谱边：migration/linkage/未知边三类渲染', async ({ page }) => {
     await mockA1Endpoints(page);
     await seedGraphViewStorage(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     // 图谱画布渲染（真浏览器 React Flow）
     await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15000 });
@@ -231,7 +231,7 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
   test('幕三 活地图：图谱页「活地图」tab → 七大陆渲染 + 已答亮起', async ({ page }) => {
     await mockA1Endpoints(page);
     await seedGraphViewStorage(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     await page.getByRole('button', { name: '活地图' }).click();
 
@@ -245,7 +245,7 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
   test('幕四 灵感架：存量可见 + [安家] 点击 → 既有 chat 投递通道', async ({ page }) => {
     const capture = await mockA1Endpoints(page);
     await seedGraphViewStorage(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     await page.getByRole('button', { name: '活地图' }).click();
     await expect(page.getByTestId('rack-panel')).toBeVisible({ timeout: 15000 });
@@ -268,7 +268,7 @@ test.describe('波次三前端四幕（路由 mock，零 LLM）', () => {
     // 幕五专用：用畸形载荷覆写 closing-state mock（后注册优先）
     await page.route('**/api/a1/file/**/closing-state', (route) => route.fulfill({ json: CLOSING_STATE_MALFORMED_RESPONSE }));
     await seedGuidedChatStorage(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     // 崩溃被 ErrorBoundary 拦截：错误卡可见（绝非整树卸载白屏）
     await expect(page.getByTestId('error-boundary')).toBeVisible({ timeout: 15000 });
@@ -370,7 +370,7 @@ test.describe('a1-oq-phase 幕六：开放问题全链（路由 mock，零 LLM�
     await page.route('**/api/a1/file/**/closing-state', (route) => route.fulfill({ json: CLOSING_STATE_REFINALIZE_RESPONSE }));
 
     await seedGuidedChatStorage(page);
-    await page.goto('/a1');
+    await page.goto('/a1v2');
 
     // —— 访谈快进：发两条消息（普通访谈轮 ×2，第二轮触发首次收尾）
     const textarea = page.getByPlaceholder('Type your message...');
