@@ -8,7 +8,7 @@
 
 ## 项目概述
 
-Echo UGC 的当前主线是 **A1 世界观工坊**（前端路由 `/a1`）：帮助创作者把手里的世界观设定变成**结构化、可视化、可检索**的知识图谱，并一键产出 IP 展板与场景视觉背景。
+Echo UGC 的当前主线是 **A1 世界观工坊**（前端路由 `/a1v2` 冲动卡版 / `/a1v1` 种子版）：帮助创作者把手里的世界观设定变成**结构化、可视化、可检索**的知识图谱，并一键产出 IP 展板与场景视觉背景。
 
 ### A1 主线流程
 
@@ -121,7 +121,7 @@ cd frontend
 npm run dev
 ```
 
-验证：后端健康检查 `http://localhost:8000/api/health` 返回 200；前端 `http://localhost:5173/a1` 可访问。
+验证：后端健康检查 `http://localhost:8000/api/health` 返回 200；前端 `http://localhost:5173/a1v2` 可访问。
 
 #### 方法二：一键启动脚本
 
@@ -135,12 +135,14 @@ npm run dev
 
 | 路由 | 页面 | 状态 |
 |------|------|------|
-| `http://localhost:5173/a1` | **A1 世界观工坊（主线入口）** | ✅ 现行主力 |
-| `http://localhost:5173/a1/poster` | IP 展板 | ✅ 现行 |
-| `http://localhost:5173/` | 交互终端（赛博朋克 Demo） | ✅ 可用（早期 Demo） |
+| `http://localhost:5173/a1v2` | **A1 世界观工坊 · 冲动卡版（主线入口）** | ✅ 现行主力 |
+| `http://localhost:5173/a1v1` | A1 世界观工坊 · 种子版（种子选择入口） | ✅ 现行 |
+| `http://localhost:5173/a1v2/poster` | IP 展板 | ✅ 现行 |
+| `http://localhost:5173/a0` | 交互终端（赛博朋克 Demo） | ✅ 可用（早期 Demo） |
 | `http://localhost:5173/graph/editor` | 知识图谱编辑器（React Flow） | ⚙️ 遗留可用 |
-| `http://localhost:5173/admin/graph-assets` | 图谱资产生成 | ⚙️ 遗留（部分 Mock） |
-| `http://localhost:5173/admin/assets` | 资产审核 | ⚙️ 遗留可用 |
+| `http://localhost:5173/admin/graph-assets` / `http://localhost:5173/admin/assets` | 图谱资产生成 / 资产审核 | ⚙️ 遗留 |
+
+> 旧路径 `/a1`、`/a1/poster` 及一切未匹配路径自动重定向到 `/a1v2`（不留历史记录）。
 
 后端 API 文档：`http://localhost:8000/docs`
 
