@@ -697,7 +697,7 @@ export const computeNodeLayout = (
         ENTRY_SPACING,
         (a, b) => Math.max(ENTRY_SPACING, a + b) // no module gap inside an entry row
       );
-      row.forEach((c, i) => placed.push({ x: xs[i] ?? 0, row: rowIdx }));
+      row.forEach((_, i) => placed.push({ x: xs[i] ?? 0, row: rowIdx }));
       const rowHalf = xs.length > 0
         ? Math.max(...xs.map((x, i) => Math.abs(x) + halfs[i]))
         : ENTRY_HALF_WIDTH;
@@ -752,7 +752,7 @@ export const computeNodeLayout = (
       );
       bandFanXs.set(band, xs);
       let half = ENTRY_HALF_WIDTH;
-      ids.forEach((id, i) => {
+      ids.forEach((_, i) => {
         half = Math.max(half, Math.abs(xs[i] ?? 0) + halfs[i]);
       });
       return half;

@@ -272,7 +272,8 @@ export function A1GraphSection({
       );
       // Local freshness: parent props (version/isStale) refresh on remount;
       // derive the new version from the finalize response when present.
-      const parsed = res.graph_code ? (res.graph_code.match(/-v(\d+)$/)?.[1] ? parseInt(res.graph_code.match(/-v(\d+)$/)[1], 10) : version + 1) : version + 1;
+      const codeMatch = res.graph_code?.match(/-v(\d+)$/);
+      const parsed = codeMatch?.[1] ? parseInt(codeMatch[1], 10) : version + 1;
       setVersionOverride(Number.isFinite(parsed) ? parsed : version + 1);
       // Reload graph after successful finalize
       await loadGraph();
@@ -459,7 +460,7 @@ export function A1GraphSection({
           <div className="glass-panel p-8 bg-cosmos-error/10 border-cosmos-error/30 text-center">
             <p className="text-cosmos-error mb-4">{error || 'Failed to load graph'}</p>
             <button
-              onClick={loadGraph}
+              onClick={() => { void loadGraph(); }}
               className="bg-stardust-400 text-space-950 px-6 py-3 rounded-lg font-medium hover:bg-stardust-300 transition-colors"
             >
               重试
@@ -696,7 +697,7 @@ export function A1GraphSection({
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={loadGraph}
+              onClick={() => { void loadGraph(); }}
               className="px-3 py-1 rounded bg-cosmos-error/20 border border-cosmos-error/40 text-cosmos-error text-xs hover:bg-cosmos-error/30 transition-colors"
             >
               重试

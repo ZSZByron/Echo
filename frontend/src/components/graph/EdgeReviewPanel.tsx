@@ -134,7 +134,7 @@ export function EdgeReviewPanel({
   // T15: dead-edge zone — pending discard target (二次确认弹层) + retained (保留悬置) keys
   const [discardCandidate, setDiscardCandidate] = useState<DeadEdge | null>(null);
   const [retainedDeadKeys, setRetainedDeadKeys] = useState<Set<string>>(new Set());
-  const itemRefs = useRef<Record<string, HTMLLIElement | null>>({});
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const confirmedTermCount = useMemo(
     () => (conceptTerms ?? []).filter(t => t.confirmed).length,
