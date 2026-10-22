@@ -142,7 +142,7 @@ test.describe('9 卡路由矩阵（E0.1 分流：故事侧直达访谈 / 设定�
       await expect(page.getByTestId('impulse-entry-notice')).toBeVisible();
       await expect(page.getByTestId('impulse-entry-notice')).toContainText(card.tagline);
       // 直达 guided_chat（聊天输入框可见，不落种子页）
-      await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+      await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
       // session/start body.custom_idea 含 tagline 关键词；unsure 特殊断言含"说不清"引导文本
       expect(capture.start).toBeDefined();
       const customIdea = String(capture.start!.body!.custom_idea);
@@ -193,7 +193,7 @@ test.describe('9 卡路由矩阵（E0.1 分流：故事侧直达访谈 / 设定�
     expect(capture.start).toBeDefined();
     // 前端发字符串 '7'，后端 Pydantic 强转整数——按数值语义断言
     expect(Number(capture.start!.body!.seed_id)).toBe(7);
-    await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+    await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
   });
 });
 
@@ -219,7 +219,7 @@ test.describe('主+次多选与 skip', () => {
     expect(selected).toBeDefined();
     expect((selected!.data as Record<string, unknown>).primary).toBe('plot');
     expect((selected!.data as Record<string, unknown>).secondary).toBe('romance');
-    expect(selected!.schema_version).toBe(1);
+    expect(selected!.schema_version).toBe(2);
   });
 
   test('skip → 落 seed_selector 平铺视图 + telemetry 记录 skipped', async ({ page }) => {
@@ -255,7 +255,7 @@ test.describe('既有路径回归', () => {
     await page.getByTestId('impulse-skip').click();
     await page.getByText('霓虹窃案').first().click();
 
-    await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+    await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
     expect(capture.start).toBeDefined();
     expect(capture.start!.body!.seed_id).toBeDefined();
   });
@@ -269,14 +269,14 @@ test.describe('既有路径回归', () => {
     await expect(page.getByRole('heading', { name: '或者，从一个念头开始' })).toBeVisible();
 
     await page.fill('input[placeholder*="一句话描述"]', '一个雨永远下不停的港口城市');
-    await page.getByRole('button', { name: '开始' }).click();
+    await page.getByRole('button', { name: '开始', exact: true }).click();
 
     expect(capture.start).toBeDefined();
     expect(capture.start!.body!.custom_idea).toBe('一个雨永远下不停的港口城市');
-    await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+    await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
 
     // 首答埋点在发送时打点（不依赖 LLM 响应）：发出第一条消息即应记录
-    await page.fill('input[placeholder="Type your message..."]', '这座城市叫雾锚港');
+    await page.fill('[placeholder="Type your message..."]', '这座城市叫雾锚港');
     await page.getByRole('button', { name: 'Send' }).click();
 
     const events = await readTelemetry(page);
@@ -302,7 +302,7 @@ test.describe('既有路径回归', () => {
 
     await page.goto('/a1v2');
 
-    await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+    await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
     await expect(page.getByTestId('impulse-cards')).toHaveCount(0);
     expect(capture.start).toBeUndefined();
   });
@@ -313,7 +313,7 @@ test.describe('既有路径回归', () => {
 // ==========================================
 
 test.describe('埋点导出与模块完成', () => {
-  test('多事件积累后导出 → 下载 JSON schema_version=1（并落盘供 R1 指标脚本）', async ({ page }) => {
+  test('多事件积累后导出 → 下载 JSON schema_version=2（并落盘供 R1 指标脚本）', async ({ page }) => {
     const capture: { start?: StartCapture } = {};
     await installApiMocks(page, capture);
     await freshVisit(page);
@@ -321,8 +321,8 @@ test.describe('埋点导出与模块完成', () => {
     // 真实事件流：shown → selected(plot，E0.1 直达访谈) → 首答
     await page.getByTestId('impulse-card-plot').click();
     await page.getByTestId('impulse-confirm').click();
-    await page.locator('input[placeholder="Type your message..."]').waitFor({ timeout: 10000 });
-    await page.fill('input[placeholder="Type your message..."]', '山叫负岳');
+    await page.locator('[placeholder="Type your message..."]').waitFor({ timeout: 10000 });
+    await page.fill('[placeholder="Type your message..."]', '山叫负岳');
     await page.getByRole('button', { name: 'Send' }).click();
 
     const beforeExport = await readTelemetry(page);
@@ -359,7 +359,7 @@ test.describe('埋点导出与模块完成', () => {
     const exported = JSON.parse(fs.readFileSync(outPath, 'utf-8')) as Array<Record<string, unknown>>;
     expect(Array.isArray(exported)).toBe(true);
     expect(exported.length).toBeGreaterThan(0);
-    expect(exported[0].schema_version).toBe(1);
+    expect(exported[0].schema_version).toBe(2);
     // 导出 = 存储全量（导出不清空）
     const afterExport = await readTelemetry(page);
     expect(afterExport.length).toBe(exported.length);
@@ -381,7 +381,7 @@ test.describe('埋点导出与模块完成', () => {
     await expect(page.getByRole('heading', { name: '它认出了你的世界' })).toBeVisible();
     await page.getByTestId('nostalgia-continue').click();
 
-    await expect(page.locator('input[placeholder="Type your message..."]')).toBeVisible();
+    await expect(page.locator('[placeholder="Type your message..."]')).toBeVisible();
 
     // mock sections world_core 2/2 done ≥50% → module_completed 事件（轻量验证重链路埋点）
     const events = await readTelemetry(page);
