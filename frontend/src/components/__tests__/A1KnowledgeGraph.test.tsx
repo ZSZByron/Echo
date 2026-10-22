@@ -748,9 +748,11 @@ describe('Concept Term Nodes (T-C)', () => {
 
   it('isConceptTermNode detects term: prefix only (tightened T-D contract)', async () => {
     const { isConceptTermNode } = await import('../graph/A1KnowledgeGraph');
-    expect(isConceptTermNode({ id: 'term:血月', level: 4 })).toBe(true);
-    expect(isConceptTermNode({ id: 'legacy_node', level: 4 })).toBe(false);
-    expect(isConceptTermNode({ id: 'entry-1', level: 3 })).toBe(false);
+    // 中间变量携带 level 附加字段（对象字面量直传会触发 excess property 检查）——测试意图：谓词只认 id
+    const withLevel = (id: string, level: number): { id: string; level: number } => ({ id, level });
+    expect(isConceptTermNode(withLevel('term:血月', 4))).toBe(true);
+    expect(isConceptTermNode(withLevel('legacy_node', 4))).toBe(false);
+    expect(isConceptTermNode(withLevel('entry-1', 3))).toBe(false);
   });
 });
 

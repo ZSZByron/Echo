@@ -1,45 +1,47 @@
 [
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "impulse_card_shown",
-    "ts": 1789998129322,
-    "user_id": ""
+    "ts": 1792644049392,
+    "user_id": "",
+    "session_id": "sess-e2e"
   },
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "impulse_card_selected",
-    "ts": 1789998129438,
+    "ts": 1792644049492,
     "user_id": "",
     "data": {
       "primary": "plot",
       "secondary": null
-    }
+    },
+    "session_id": "sess-e2e"
   },
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "first_question_answered",
-    "ts": 1789998129547,
+    "ts": 1792644049606,
     "user_id": "",
     "data": {
-      "elapsed_ms": 224
+      "elapsed_ms": 213
     }
   },
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "impulse_card_shown",
-    "ts": 1789998129724,
+    "ts": 1792644049788,
     "user_id": ""
   },
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "impulse_card_skipped",
-    "ts": 1789998129791,
+    "ts": 1792644049841,
     "user_id": ""
   },
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "event": "impulse_card_shown",
-    "ts": 1789998129990,
+    "ts": 1792644050027,
     "user_id": ""
   }
 ]

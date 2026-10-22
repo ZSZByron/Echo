@@ -60,8 +60,8 @@ describe('telemetry (a1_telemetry_v1)', () => {
       .spyOn(document, 'createElement')
       .mockReturnValue({
         click: clickSpy,
-        set href(v: string) {},
-        set download(v: string) {},
+        set href(_v: string) {},
+        set download(_v: string) {},
       } as unknown as HTMLElement);
     const createObjectURLSpy = vi
       .spyOn(URL, 'createObjectURL')

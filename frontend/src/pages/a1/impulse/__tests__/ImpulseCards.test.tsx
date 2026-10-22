@@ -51,7 +51,8 @@ describe('ImpulseCards', () => {
 
   it('renders 9 cards + intro + footer export button', () => {
     renderCards();
-    for (const id of [...PRIMARY_CARDS, 'unsure']) {
+    const allCardIds: ImpulseTypeId[] = [...PRIMARY_CARDS, 'unsure'];
+    for (const id of allCardIds) {
       expect(card(id)).toBeInTheDocument();
     }
     expect(screen.getByTestId('impulse-confirm')).toBeInTheDocument();

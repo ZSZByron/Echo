@@ -2,16 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { isConceptTermNode, isDepthNode, isUnknownEdgeType } from '../A1KnowledgeGraph';
 
 describe('isConceptTermNode (tightened: term: prefix only)', () => {
+  // 中间变量携带 level 附加字段（对象字面量直传会触发 excess property 检查）——测试意图：谓词只认 id
+  const withLevel = (id: string, level: number): { id: string; level: number } => ({ id, level });
+
   it('term: prefix -> true', () => {
     expect(isConceptTermNode({ id: 'term:x' })).toBe(true);
   });
 
   it('d: depth node -> false (level no longer OR-matched)', () => {
-    expect(isConceptTermNode({ id: 'd:a:b', level: 4 })).toBe(false);
+    expect(isConceptTermNode(withLevel('d:a:b', 4))).toBe(false);
   });
 
   it('plain node -> false', () => {
-    expect(isConceptTermNode({ id: '2-1-1', level: 3 })).toBe(false);
+    expect(isConceptTermNode(withLevel('2-1-1', 3))).toBe(false);
   });
 });
 

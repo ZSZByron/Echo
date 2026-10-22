@@ -14,7 +14,7 @@ import NodeDetailPanel, {
   nodeTitle,
   nodeKindLabel,
 } from '../NodeDetailPanel';
-import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../types/graph';
+import type { KnowledgeGraph, GraphNode, GraphEdge } from '../../../types/graph';
 
 const mkNode = (id: string, level: number, description: string, tier?: number): GraphNode => ({
   id,

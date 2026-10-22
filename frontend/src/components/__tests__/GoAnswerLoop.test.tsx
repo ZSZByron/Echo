@@ -25,8 +25,14 @@ class ResizeObserverStub {
   disconnect = vi.fn();
 }
 
+declare global {
+  interface Window {
+    ResizeObserver: typeof ResizeObserverStub;
+  }
+}
+
 beforeEach(() => {
-  window.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+  window.ResizeObserver = ResizeObserverStub;
 });
 
 vi.mock('../../api/client', () => ({
