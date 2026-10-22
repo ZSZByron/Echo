@@ -99,7 +99,9 @@ export function IPPoster() {
   
   const handleBackToWorkspace = () => {
     localStorage.setItem('a1_return_intent', 'chat');
-    window.location.href = '/a1';
+    // from 白名单校验：仅 /a1v1（种子版）回 v1，其余一律回主线 /a1v2
+    const from = new URLSearchParams(window.location.search).get('from');
+    window.location.href = from === '/a1v1' ? '/a1v1' : '/a1v2';
   };
 
   // T11: α 草稿版本徽标（三态纯函数判定，见 labels/draftBadge.ts）

@@ -25,9 +25,18 @@ function AppContent() {
   const isAdmin = window.location.pathname.startsWith('/admin/assets');
   const isGraphAssets = window.location.pathname.startsWith('/admin/graph-assets');
   const isGraphEditor = window.location.pathname.startsWith('/graph/editor');
-  const isA1Workspace = window.location.pathname.startsWith('/a1') && !window.location.pathname.startsWith('/a1/poster');
-  const isA1Poster = window.location.pathname.startsWith('/a1/poster');
+  const isA1Poster = window.location.pathname.startsWith('/a1v2/poster');
+  // 注意前缀陷阱：'/a1v1'.startsWith('/a1') === true，禁止裸 startsWith('/a1')
+  const isA1Workspace = (window.location.pathname.startsWith('/a1v1') || window.location.pathname.startsWith('/a1v2')) && !isA1Poster;
+  const isA0Demo = window.location.pathname.startsWith('/a0');
   const [pendingInput, setPendingInput] = useState('');
+
+  // 未匹配任何已知路由（含 / 与旧 /a1）：replace 到主线入口，不留历史记录
+  useEffect(() => {
+    if (!isAdmin && !isGraphAssets && !isGraphEditor && !isA1Poster && !isA1Workspace && !isA0Demo) {
+      window.location.replace('/a1v2');
+    }
+  }, [isAdmin, isGraphAssets, isGraphEditor, isA1Poster, isA1Workspace, isA0Demo]);
 
   const handleObjectClick = (objectId: string, objectName: string, isPrimary: boolean) => {
     const text = isPrimary
@@ -61,16 +70,17 @@ function AppContent() {
     return <GraphEditorWrapper />;
   }
 
-  if (isA1Workspace) {
-    return <A1Workspace />;
-  }
-
   if (isA1Poster) {
     return <IPPoster />;
   }
 
-  return (
-    <div className="relative min-h-screen w-screen overflow-hidden bg-black text-neon-green font-mono">
+  if (isA1Workspace) {
+    return <A1Workspace />;
+  }
+
+  if (isA0Demo) {
+    return (
+      <div className="relative min-h-screen w-screen overflow-hidden bg-black text-neon-green font-mono">
       {/* Scene background layer (z-0) */}
       <SceneView onObjectClick={handleObjectClick} />
 
@@ -98,8 +108,12 @@ function AppContent() {
       <div className="absolute top-0 right-0 w-[300px] h-full z-20 bg-black/70 backdrop-blur-sm border-l border-neon-green">
         <StatusPanel />
       </div>
-    </div>
-  );
+      </div>
+    );
+  }
+
+  // 未知路径（含 / 与旧 /a1）：渲染空 + useEffect 重定向到 /a1v2
+  return null;
 }
 
 export default App;
