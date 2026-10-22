@@ -1678,7 +1678,9 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
             onFileData={(d) => {
               if (d.graph_code) setGraphCode(d.graph_code);
               if (d.status === 'finalized' || d.status === 'draft') {
-                setFile((prev) => (prev ? { ...prev, status: d.status } : prev));
+                // 提取窄化后的字面量联合（闭包内属性窄化不保持，const 变量窄化保持）
+                const nextStatus = d.status;
+                setFile((prev) => (prev ? { ...prev, status: nextStatus } : prev));
               }
             }}
           />
@@ -1806,7 +1808,7 @@ export function GraphViewContent({
       fetchJson<FileData>(`/api/a1/file/${fileId}`)
         .then((data) => {
           setLocalFileData(data);
-          onFileData?.({ graph_code: data.graph_code, status: data.status });
+          onFileData?.({ graph_code: data.graph_code ?? undefined, status: data.status });
         })
         .catch((err) => {
           if (isNotFoundError(err)) {
@@ -1864,7 +1866,10 @@ export function GraphViewContent({
           <A1GraphSection
             fileId={fileId}
             returnToChat={returnToChat}
-            version={graphCode ? (graphCode.match(/-v(\d+)$/)?.[1] ? parseInt(graphCode.match(/-v(\d+)$/)[1], 10) : 1) : 1}
+            version={(() => {
+              const m = graphCode?.match(/-v(\d+)$/);
+              return m?.[1] ? parseInt(m[1], 10) : 1;
+            })()}
             isStale={fileStatus === 'draft' && graphCode !== null}
             openQuestions={stableOpenQuestions}
             rejectedEdges={stableRejectedEdges}

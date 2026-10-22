@@ -31,7 +31,7 @@ const CONFIRM_LABEL = '就这样，开始';
 const SKIP_LABEL = '跳过，直接开始';
 const EXPORT_LABEL = '导出使用数据';
 
-export function ImpulseCards({ seeds, onCardCommit, onSkip }: ImpulseCardsProps) {
+export function ImpulseCards({ onCardCommit, onSkip }: ImpulseCardsProps) {
   const [primary, setPrimary] = useState<ImpulseTypeId | null>(null);
   const [secondary, setSecondary] = useState<ImpulseTypeId | null>(null);
   const shownLoggedRef = useRef(false);
