@@ -287,6 +287,9 @@ function formatQuestion(nq: QuestionPayload | null): string {
 
 const A1_STORAGE_KEY = 'a1_workspace_v1';
 
+// 路由拆分：当前版本入口（/a1v1=种子选择页 / /a1v2 及默认=冲动卡屏）——单一判定源
+const isV1Route = () => window.location.pathname.startsWith('/a1v1');
+
 // E0.1 分流：故事侧 5 型确认后走 custom_idea 直达访谈（不看种子页）；设定侧 2 型走种子分组页
 const STORY_SIDE_TYPES: ImpulseTypeId[] = ['plot', 'romance', 'philosophy', 'unsure', 'character_driven'];
 const cardTextById = (id: ImpulseTypeId): string => IMPULSE_CARDS.find(c => c.id === id)?.tagline ?? '';
@@ -315,9 +318,14 @@ export function A1Workspace() {
       return 'guided_chat';
     }
 
-    // E0: 仅当无持久化状态（无值或解析失败）时默认落入冲动卡屏；返回用户照旧恢复，不被劫持
-    if (!persistedState) return 'impulse_cards';
-    return persistedState as WorkspaceState;
+    // 路由拆分：入口态以 URL 为准（/a1v1=seed_selector / /a1v2=impulse_cards）。
+    // 仅下游态（guided_chat / graph_view）允许跨刷新恢复；两版本共用存储键，
+    // 持久化入口态（如 v1 写入的 seed_selector）不得污染 v2 入口。
+    const isV1 = isV1Route();
+    if (persistedState === 'guided_chat' || persistedState === 'graph_view') {
+      return persistedState;
+    }
+    return isV1 ? 'seed_selector' : 'impulse_cards';
   });
   const [userId] = useState<string>(() => localStorage.getItem('user_id') || '');
   
@@ -496,7 +504,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     setStaleSessionNotice(true);
   };
 
-  // 重新开始：清除持久化工作区状态 + 重置全部会话状态，回到冲动卡入口（E0 屏）。
+  // 重新开始：清除持久化工作区状态 + 重置全部会话状态，回到当前版本入口
+  // （路由拆分：v1=种子选择页 / v2=冲动卡屏 E0）。
   // 仅用户显式确认后触发；保留 user_id（身份不属于工作区状态）与埋点历史事件。
   const handleRestartToEntry = () => {
     setShowRestartConfirm(false);
@@ -553,7 +562,8 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
     moduleCompletedRef.current = new Set();
     pendingImpulseRef.current = null;
 
-    setWorkspaceState('impulse_cards');
+    // 路由拆分：重启回当前版本入口（v1=种子选择 / v2=冲动卡）
+    setWorkspaceState(isV1Route() ? 'seed_selector' : 'impulse_cards');
   };
 
   // a1-oq-phase T4：file 派生 pendingQuestion 的竞态 effect 已整段删除——
@@ -1380,7 +1390,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
               </div>
             <div className="flex items-center gap-4">
               <button
-                onClick={() => { localStorage.removeItem(A1_STORAGE_KEY); window.location.href = '/a1'; }}
+                onClick={() => { localStorage.removeItem(A1_STORAGE_KEY); window.location.href = window.location.pathname.startsWith('/a1v1') ? '/a1v1' : '/a1v2'; }}
                 className="text-void-400 hover:text-stardust-300 transition-colors"
               >
                 ← 返回种子选择
@@ -1640,7 +1650,7 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
                 ← 返回继续深化设定
               </button>
               <button
-                onClick={() => window.location.href = `/a1/poster?fileId=${fileId}`}
+                onClick={() => { window.location.href = `/a1v2/poster?fileId=${fileId}${window.location.pathname.startsWith('/a1v1') ? '&from=/a1v1' : ''}`; }}
                 className="text-stardust-300 hover:text-stardust-200 transition-colors"
               >
                 查看完整展示板 →
@@ -1705,13 +1715,13 @@ const [pendingAlignments, setPendingAlignments] = useState<AlignmentItem[]>([]);
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="返回冲动入口？"
+            aria-label={isV1Route() ? '返回种子选择？' : '返回冲动入口？'}
             data-testid="restart-confirm-dialog"
             className="glass-panel max-w-md w-full p-8"
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="text-cosmos-error text-2xl">⟲</div>
-              <h2 className="text-stardust-300 text-xl font-medium">返回冲动入口？</h2>
+              <h2 className="text-stardust-300 text-xl font-medium">{isV1Route() ? '返回种子选择？' : '返回冲动入口？'}</h2>
             </div>
             <p className="text-gray-200 text-sm leading-relaxed mb-6">
               当前创作进度与本地状态将被清除，此操作不可撤销。确定要重新开始吗？
