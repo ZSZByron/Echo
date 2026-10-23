@@ -11,6 +11,7 @@ import { getDraftVersion } from '../../api/a1';
 import type { DraftVersion } from '../../types/a1';
 import { posterBadge } from '../../labels/draftBadge';
 import { PosterBoard } from '../../components/poster/PosterBoard';
+import { DocGeneratorPanel } from '../../components/poster/DocGeneratorPanel';
 import '../../components/theme.css';
 
 interface VisualBgImage {
@@ -303,6 +304,11 @@ export function IPPoster() {
           className="min-h-screen"
           transparent
         />
+      </div>
+
+      {/* 生成文档 Panel (6 artifact buttons + modal viewer) */}
+      <div className="relative z-10 max-w-7xl mx-auto px-8 pb-20">
+        <DocGeneratorPanel fileId={fileId} />
       </div>
 
       {/* AI Image Generation Button / Status */}

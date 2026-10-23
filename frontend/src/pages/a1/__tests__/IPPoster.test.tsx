@@ -23,6 +23,16 @@ vi.mock('../../../api/client', () => ({
 
 vi.mock('../../../api/a1', () => ({
   getDraftVersion: vi.fn(),
+  generateDoc: vi.fn(),
+  fetchDocMarkdown: vi.fn(),
+  generateWorldBible: vi.fn(),
+  fetchWorldBibleMarkdown: vi.fn(),
+  generateCharacterCodex: vi.fn(),
+  fetchCharacterCodexMarkdown: vi.fn(),
+  generateStoryOutline: vi.fn(),
+  fetchStoryOutlineMarkdown: vi.fn(),
+  generateDiceTemplate: vi.fn(),
+  generateCharacterTemplate: vi.fn(),
 }));
 
 import { fetchJson } from '../../../api/client';
