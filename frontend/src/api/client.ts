@@ -72,3 +72,33 @@ export async function fetchJson<T>(
     clearTimeout(timeout);
   }
 }
+
+/**
+ * Text variant of fetchJson: resolves the response body as a plain string
+ * (e.g. text/markdown document endpoints). HTTP failures throw ApiError
+ * with the parsed JSON body when available, mirroring fetchJson.
+ */
+export async function fetchText(
+  url: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<string> {
+  const timeoutMs = init?.timeoutMs ?? TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(response.status, body);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}

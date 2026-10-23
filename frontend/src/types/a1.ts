@@ -298,3 +298,29 @@ export interface WarningLedgerEntry {
   /** Severity: "warn" (prominent) or "info" (weakened) */
   level: string;
 }
+
+/**
+ * Doc/artifact generation response (POST /api/a1/file/{id}/doc|world-bible|
+ * character-codex|story-outline). The code field name varies per endpoint
+ * (doc_code / bible_code / codex_code / outline_code).
+ */
+export interface DocArtifactResponse {
+  doc_code?: string;
+  bible_code?: string;
+  codex_code?: string;
+  outline_code?: string;
+  graph_id: string;
+  used_stale: boolean;
+  ledger: WarningLedgerEntry[];
+}
+
+/**
+ * Structured template response (POST /api/a1/file/{id}/dice-template |
+ * character-template). No GET counterpart — the POST payload IS the artifact.
+ */
+export interface TemplateArtifactResponse {
+  graph_code: string;
+  template: Record<string, unknown>;
+  used_stale: boolean;
+  warnings: WarningLedgerEntry[];
+}

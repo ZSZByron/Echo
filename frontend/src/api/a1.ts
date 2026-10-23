@@ -8,7 +8,7 @@
  * Backend endpoints: backend/app/api/a1_routes.py
  */
 
-import { fetchWithTimeout, fetchJson } from "./client";
+import { fetchWithTimeout, fetchJson, fetchText } from "./client";
 import type {
   ConceptTerm,
   ClosingState,
@@ -18,6 +18,8 @@ import type {
   ImpulseCoords,
   NudgeSignal,
   MergeUndoResponse,
+  DocArtifactResponse,
+  TemplateArtifactResponse,
 } from "../types/a1";
 
 const A1_BASE = "/api/a1";
@@ -294,4 +296,111 @@ export async function mergeUndo(
     headers: JSON_HEADERS,
     body: JSON.stringify({ session_id: sessionId, token }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Doc / artifact generation endpoints (IP poster 「生成文档」 panel)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate the main module document (主模组 M).
+ * POST /api/a1/file/{fileId}/doc  (no body)
+ *
+ * Contract: {doc_code, graph_id, used_stale, ledger}.
+ * Not finalized → 409 ApiError with body {detail: "pending_finalize"}.
+ * LLM latency possible (seconds) — caller must show a loading state.
+ */
+export async function generateDoc(fileId: string): Promise<DocArtifactResponse> {
+  return fetchJson<DocArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/doc`,
+    { method: "POST", headers: JSON_HEADERS, timeoutMs: 180_000 }
+  );
+}
+
+/**
+ * Fetch the generated main module document as markdown text.
+ * GET /api/a1/file/{fileId}/doc  → text/markdown plain text.
+ * Not generated yet → 409 ApiError {detail: "pending_finalize"}.
+ */
+export async function fetchDocMarkdown(fileId: string): Promise<string> {
+  return fetchText(`${A1_BASE}/file/${encodeURIComponent(fileId)}/doc`);
+}
+
+/**
+ * Generate the world bible (世界圣经 B).
+ * POST /api/a1/file/{fileId}/world-bible → {bible_code, graph_id, ...}.
+ */
+export async function generateWorldBible(fileId: string): Promise<DocArtifactResponse> {
+  return fetchJson<DocArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/world-bible`,
+    { method: "POST", headers: JSON_HEADERS, timeoutMs: 180_000 }
+  );
+}
+
+/** GET /api/a1/file/{fileId}/world-bible → markdown text. */
+export async function fetchWorldBibleMarkdown(fileId: string): Promise<string> {
+  return fetchText(`${A1_BASE}/file/${encodeURIComponent(fileId)}/world-bible`);
+}
+
+/**
+ * Generate the character codex (人物志 C).
+ * POST /api/a1/file/{fileId}/character-codex → {codex_code, graph_id, ...}.
+ */
+export async function generateCharacterCodex(fileId: string): Promise<DocArtifactResponse> {
+  return fetchJson<DocArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/character-codex`,
+    { method: "POST", headers: JSON_HEADERS, timeoutMs: 180_000 }
+  );
+}
+
+/** GET /api/a1/file/{fileId}/character-codex → markdown text. */
+export async function fetchCharacterCodexMarkdown(fileId: string): Promise<string> {
+  return fetchText(`${A1_BASE}/file/${encodeURIComponent(fileId)}/character-codex`);
+}
+
+/**
+ * Generate the story outline (故事大纲 O).
+ * POST /api/a1/file/{fileId}/story-outline → {outline_code, graph_id, ...}.
+ */
+export async function generateStoryOutline(fileId: string): Promise<DocArtifactResponse> {
+  return fetchJson<DocArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/story-outline`,
+    { method: "POST", headers: JSON_HEADERS, timeoutMs: 180_000 }
+  );
+}
+
+/** GET /api/a1/file/{fileId}/story-outline → markdown text. */
+export async function fetchStoryOutlineMarkdown(fileId: string): Promise<string> {
+  return fetchText(`${A1_BASE}/file/${encodeURIComponent(fileId)}/story-outline`);
+}
+
+/**
+ * Generate the dice template (骰子模板 TD) — deterministic projection,
+ * zero LLM (instant). POST /api/a1/file/{fileId}/dice-template.
+ *
+ * Contract: {graph_code, template, used_stale, warnings}. No GET — the POST
+ * response payload IS the artifact; render `template` directly.
+ */
+export async function generateDiceTemplate(fileId: string): Promise<TemplateArtifactResponse> {
+  return fetchJson<TemplateArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/dice-template`,
+    { method: "POST", headers: JSON_HEADERS }
+  );
+}
+
+/**
+ * Generate the character template (角色模板 TC).
+ * POST /api/a1/file/{fileId}/character-template.
+ *
+ * Hard dependency on dice template: backend returns 409
+ * {detail: "missing_dice_template"} when no dice artifact exists — caller
+ * may auto-generate the dice template once and retry once.
+ */
+export async function generateCharacterTemplate(
+  fileId: string
+): Promise<TemplateArtifactResponse> {
+  return fetchJson<TemplateArtifactResponse>(
+    `${A1_BASE}/file/${encodeURIComponent(fileId)}/character-template`,
+    { method: "POST", headers: JSON_HEADERS, timeoutMs: 180_000 }
+  );
 }
