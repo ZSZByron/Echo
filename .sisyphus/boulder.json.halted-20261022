@@ -1,0 +1,74 @@
+{
+  "active_plan": "H:\\UGC\\.sisyphus\\plans\\a1-oq-phase.md",
+  "started_at": "2026-10-19T14:43:43.267Z",
+  "session_ids": [
+    "ses_eab61b26cffexIiqkKb0EHsEAL",
+    "ses_ea6ebdef7fferHlyxj3KemzcKW",
+    "ses_ea6ebc154ffexTBznlyVKPUIkM",
+    "ses_ea6eba777ffejxaeMCeVIga7Ma"
+  ],
+  "session_origins": {
+    "ses_eab61b26cffexIiqkKb0EHsEAL": "direct",
+    "ses_ea6ebdef7fferHlyxj3KemzcKW": "appended",
+    "ses_ea6ebc154ffexTBznlyVKPUIkM": "appended",
+    "ses_ea6eba777ffejxaeMCeVIga7Ma": "appended"
+  },
+  "plan_name": "a1-oq-phase",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "T1 Schema + 进入/闭合状态机（后端）",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-19T15:00:46.371Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "T2 chat 前置相位门——确定性路由（后端）",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-19T15:12:27.937Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "T3 第二次收尾触发 + 产物语义注入（后端）",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-19T15:22:23.491Z"
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "T4 前端相位驱动 UI（前端）",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-19T15:35:26.316Z"
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "T5 E2E 幕六 + 全门禁",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-10-20T06:49:15.726Z"
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "T6 治理登记",
+      "session_id": "ses_eab60f1e4ffe8wFJTah08cogpu",
+      "agent": "Sisyphus-Junior",
+      "category": "writing",
+      "updated_at": "2026-10-20T07:30:04.186Z"
+    }
+  }
+}
