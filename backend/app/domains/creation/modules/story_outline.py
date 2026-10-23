@@ -1,16 +1,17 @@
-"""故事大纲渲染器（M3 产出模块 · D22③）——剧情信号叙事化渲染。
+"""故事大纲渲染器（M3 产出模块 · D22③）——真写作大纲（方案 B）。
 
 镜像 ``main_module.py`` 五件套模具（D22 施工纪律：渲染器一律复用
 主模组模具结构，禁止模具外模式）：
-- 冻结章节树：六个剧情信号域各成一节（opening_event/core_dilemma/
-  branch_trees/lead_chain/secret_layer/tension_hole，M12 字段定义，
-  seed/story_modules.py 实际字段即节），顺序即契约。
 - 信号键绑定：``剧情.*`` 键与 T7 注册（output_modules.story_outline
-  signal_requirements，全 optional）逐字一致。
-- ``compile_copy`` 是本模块唯一 LLM 生产点，**只产文案**（叙事化导语层
-  D22①「剧情信号叙事化渲染」），永不产结构数值；任何失败返回 None。
-- 装配/降级/序列化/溯源走模具既有模式：骨架答案原文直投、失败降级 +
-  ledger 披露 ``story_outline_degraded``、Markdown 单向序列化。
+  signal_requirements，全 optional）逐字一致（STORY_SECTIONS/
+  SECTION_SIGNALS/_skeleton_section_body 同时承担 T7 注册绑定契约）。
+- ``compile_outline_llm`` 是本模块唯一 LLM 生产点：产出**结构化写作
+  大纲**（一句话梗概/主题人物/三幕节拍/章节分解/伏笔埋收/支线交点），
+  输入不限剧情.*（世界观/角色素材一并合成）；任何失败（provider 缺席/
+  网络/形状不符）返回 None。
+- 装配/降级/序列化/溯源走模具既有模式：LLM 成功装配六形写作大纲节树；
+  失败降级为六节骨架（答案原文直投）+ ledger 披露
+  ``story_outline_degraded``、Markdown 单向序列化。
 - 编号：O 字母（graph_code_issuer.StageCode.OUTLINE，D22③）。
 """
 from __future__ import annotations
@@ -33,17 +34,36 @@ SECTION_SIGNALS: dict[str, tuple[str, ...]] = {
     sec: (f"剧情.{sec}",) for sec in STORY_SECTIONS
 }
 
-#: 叙事化导语 prompt（D22①：剧情信号叙事化渲染；只产文案不产结构）。
-_STORY_OUTLINE_PROMPT = """你是叙事编辑。基于以下剧情信号，为故事大纲输出
-JSON 文案（只产文案，不产结构数值），语气须为**叙事化**渲染（把剧情信号
-讲成引人入胜的故事引子，而非条目罗列）：
-{"lead_in": "整篇故事的叙事化导语（2-3 句）",
- "sections": {"剧情.{信号}": "该节叙事化导语（1-2 句）", ...}}
-信号键必须是以下六个之一，不得增删改：
-{keys}
+#: 真写作大纲 prompt（方案 B：LLM 只做素材合成，结构由确定性代码装配；
+#: 诚实纪律写死——素材无依据的节返回空数组，禁止编造人物设定）。
+_STORY_OUTLINE_PROMPT = """你是故事结构编辑。基于以下全部访谈素材（剧情/世界观/
+角色等），合成一份**真写作大纲**，输出 JSON（字段名逐字一致）：
+{"lead_in": "整篇大纲引语（1-2 句）",
+ "logline": "一句话梗概：当[引发事件]，[主角]必须[目标]，否则[代价]",
+ "theme": "主题之问（1 句，素材无依据可空串）",
+ "protagonist": "主角想要X/需要Y/错误信念Z（1-2 句）",
+ "antagonist": "主要对抗力量及其目标（1 句，可空串）",
+ "acts": [{"name": "第一幕·开端", "summary": "本幕概要（1-2 句）",
+           "beats": ["节拍1", ...]}, ...（主线三幕结构：开端-对抗-结局，
+           至少 1 幕）],
+ "chapters": [{"title": "第1章 …", "goal": "目标", "obstacle": "阻碍",
+               "outcome": "结果", "cost": "代价", "hook": "章尾钩（可空）"}...],
+ "foreshadowing": [{"plant": "伏笔", "payoff": "回收点",
+                    "weight": "高|中|低"}...],
+ "subplots": [{"name": "支线名", "tie": "与主线交点"}...]}
+（chapters 即章节分解：每章按目标-阻碍-结果-代价-钩展开。）
 
-剧情信号：
+诚实纪律：只用用户素材合成；素材无依据的节（如伏笔/支线/章节）必须返回
+空数组，禁止编造人物设定与情节事实。
+
+访谈素材：
 {signals}"""
+
+#: 帽值常量（防 LLM 灌水；超帽静默截断，不算失败）。
+MAX_CHAPTERS = 24
+MAX_BEATS_PER_ACT = 6
+MAX_FORESHADOWING = 12
+MAX_SUBPLOTS = 6
 
 
 class StoryOutlineSection(BaseModel):
@@ -109,11 +129,20 @@ def _as_coro(awaitable: Any) -> Any:
     return _run()
 
 
-def compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | None:
-    """compile_copy —— 本模块**唯一 LLM 生产点**（模具契约：copy-only）。
+def _s(value: Any) -> str:
+    """非空字符串 → 去空格；否则空串（装配层防脏，不吞错）。"""
+    return value.strip() if isinstance(value, str) else ""
 
-    只请求叙事化文案（lead_in + 节导语）；任何失败（provider 缺席/网络/
-    形状不符）返回 None，由调用方走确定性骨架。永不抛出。
+
+def compile_outline_llm(
+    provider: Any, answers: dict[str, str],
+) -> dict[str, Any] | None:
+    """compile_outline_llm —— 本模块**唯一 LLM 生产点**（真写作大纲）。
+
+    全部 answers（不限剧情.*）喂给 LLM 合成结构化写作大纲；任一硬伤
+    （provider 缺席/网络/形状不符：lead_in 或 logline 非空串缺失、
+    acts 非列表或空项、可省列表元素非 dict）整体判失败返回 None，
+    由调用方走确定性骨架。永不抛出。超帽静默截断（不算失败）。
     """
     if provider is None:
         return None
@@ -124,8 +153,8 @@ def compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | Non
         messages = [{
             "role": "user",
             "content": _STORY_OUTLINE_PROMPT.replace(
-                "{keys}", "、".join(STORY_SECTIONS),
-            ).replace("{signals}", signals or "（无）"),
+                "{signals}", signals or "（无）",
+            ),
         }]
         res = provider.chat_json(messages)
         if inspect.isawaitable(res):
@@ -133,20 +162,115 @@ def compile_copy(provider: Any, answers: dict[str, str]) -> dict[str, Any] | Non
         raw = res
         if not isinstance(raw, dict):
             return None
+        # 硬校验：任一硬伤 → 整体判失败（走降级，不部分采信）
         lead_in = raw.get("lead_in")
-        sections = raw.get("sections")
+        logline = raw.get("logline")
+        acts = raw.get("acts")
         if not isinstance(lead_in, str) or not lead_in.strip():
             return None
-        if not isinstance(sections, dict):
-            sections = {}
-        clean = {
-            sec: str(sections[sec]).strip()
-            for sec in STORY_SECTIONS
-            if isinstance(sections.get(sec), str) and sections[sec].strip()
+        if not isinstance(logline, str) or not logline.strip():
+            return None
+        if not isinstance(acts, list) or not acts:
+            return None
+        for act in acts:
+            if not isinstance(act, dict) or not _s(act.get("name")):
+                return None
+        for key in ("chapters", "foreshadowing", "subplots"):
+            val = raw.get(key)
+            if not isinstance(val, list):
+                return None
+            if not all(isinstance(item, dict) for item in val):
+                return None
+        return {
+            "lead_in": lead_in.strip(),
+            "logline": logline.strip(),
+            "theme": _s(raw.get("theme")),
+            "protagonist": _s(raw.get("protagonist")),
+            "antagonist": _s(raw.get("antagonist")),
+            "acts": [
+                {
+                    "name": _s(act.get("name")),
+                    "summary": _s(act.get("summary")),
+                    "beats": [
+                        _s(b) for b in
+                        (act.get("beats") or [])[:MAX_BEATS_PER_ACT]
+                        if _s(b)
+                    ],
+                }
+                for act in acts
+            ],
+            "chapters": raw.get("chapters")[:MAX_CHAPTERS],
+            "foreshadowing": raw.get("foreshadowing")[:MAX_FORESHADOWING],
+            "subplots": raw.get("subplots")[:MAX_SUBPLOTS],
         }
-        return {"lead_in": lead_in.strip(), "sections": clean}
     except Exception:  # noqa: BLE001 — LLM 永不阻塞主路径（模具契约）
         return None
+
+
+def _outline_sections(outline: dict[str, Any]) -> list[StoryOutlineSection]:
+    """确定性装配六形写作大纲节树（LLM 只供素材，结构全部代码组装）。"""
+    sections: list[StoryOutlineSection] = [
+        StoryOutlineSection(heading="一句话梗概", level=2,
+                            body=outline["logline"]),
+    ]
+    # 主题与人物：标签式三行，空字段省略行
+    profile_lines = []
+    for label, key in (("主题", "theme"), ("主角", "protagonist"),
+                       ("反抗力量", "antagonist")):
+        if outline[key]:
+            profile_lines.append(f"- {label}：{outline[key]}")
+    if profile_lines:
+        sections.append(StoryOutlineSection(
+            heading="主题与人物", level=2, body="\n".join(profile_lines),
+        ))
+    # 主线三幕节拍：每幕 level3 子节（summary 段 + beats 列表）
+    if outline["acts"]:
+        sections.append(StoryOutlineSection(
+            heading="主线三幕节拍", level=2, body="",
+        ))
+        for act in outline["acts"]:
+            body_parts = []
+            if act["summary"]:
+                body_parts.append(act["summary"])
+            body_parts.extend(f"- {b}" for b in act["beats"])
+            sections.append(StoryOutlineSection(
+                heading=act["name"], level=3, body="\n".join(body_parts),
+            ))
+    # 章节分解：列表行（前端轻量渲染器不支持表格，列表最兼容）
+    if outline["chapters"]:
+        ch_lines = []
+        for n, ch in enumerate(outline["chapters"], start=1):
+            line = (f"- 第{n}章 {_s(ch.get('title'))}："
+                    f"目标「{_s(ch.get('goal'))}」→ "
+                    f"阻碍「{_s(ch.get('obstacle'))}」→ "
+                    f"结果「{_s(ch.get('outcome'))}」（代价：{_s(ch.get('cost'))}")
+            hook = _s(ch.get("hook"))
+            if hook:
+                line += f"；钩：{hook}"
+            ch_lines.append(line + "）")
+        sections.append(StoryOutlineSection(
+            heading="章节分解", level=2, body="\n".join(ch_lines),
+        ))
+    # 伏笔与回收（空则整节省略）
+    if outline["foreshadowing"]:
+        fs_lines = [
+            f"- {_s(f.get('plant'))} → {_s(f.get('payoff'))}"
+            f"（重要度：{_s(f.get('weight'))}）"
+            for f in outline["foreshadowing"]
+        ]
+        sections.append(StoryOutlineSection(
+            heading="伏笔与回收", level=2, body="\n".join(fs_lines),
+        ))
+    # 支线与交点（空则整节省略）
+    if outline["subplots"]:
+        sp_lines = [
+            f"- {_s(s.get('name'))}——{_s(s.get('tie'))}"
+            for s in outline["subplots"]
+        ]
+        sections.append(StoryOutlineSection(
+            heading="支线与交点", level=2, body="\n".join(sp_lines),
+        ))
+    return sections
 
 
 def compile_outline(
@@ -160,31 +284,29 @@ def compile_outline(
     used_stale: bool = False,
     upstream_ledger: list[dict[str, Any]] | None = None,
 ) -> tuple[StoryOutlineDocument, list[dict[str, Any]]]:
-    """确定性装配六节大纲；LLM（compile_copy 单点）只叠加叙事化导语层。
+    """确定性装配真写作大纲；LLM（compile_outline_llm 单点）供结构素材。
 
-    返回 (document, ledger_entries)；LLM 缺席/失败 → 骨架兜底并披露
-    ``story_outline_degraded``（诚实可观测，零 LLM key 免费线可用）。
+    返回 (document, ledger_entries)；LLM 缺席/失败/形状不符 → 六节骨架
+    兜底并披露 ``story_outline_degraded``（诚实可观测，零 LLM key
+    免费线可用）。
     """
-    copy = compile_copy(provider, answers)
+    outline = compile_outline_llm(provider, answers)
     ledger: list[dict[str, Any]] = []
-    if copy is None:
+    if outline is None:
         lead_in = f"{ip_name}：一段可直接开团的剧情大纲（确定性骨架版）"
         degraded = True
     else:
-        lead_in = copy["lead_in"]
+        lead_in = outline["lead_in"]
         degraded = False
 
-    sections = [
-        StoryOutlineSection(heading=heading, level=2,
-                            body=_skeleton_section_body(heading, answers))
-        for heading in STORY_SECTIONS
-    ]
-    if copy is not None:
-        # LLM 叙事化导语只作叠加，结构（节树/标题/答案原文）不动——模具纪律
-        for sec in sections:
-            intro = copy["sections"].get(sec.heading)
-            if intro:
-                sec.body = f"{intro}\n\n{sec.body}" if sec.body else intro
+    if degraded:
+        sections = [
+            StoryOutlineSection(heading=heading, level=2,
+                                body=_skeleton_section_body(heading, answers))
+            for heading in STORY_SECTIONS
+        ]
+    else:
+        sections = _outline_sections(outline)
 
     if degraded:
         from app.domains.creation.a1.warning_ledger import entry as ledger_entry
